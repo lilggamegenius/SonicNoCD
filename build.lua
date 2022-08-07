@@ -62,7 +62,7 @@ end
 
 -- Begin the insane task of assembling and compressing Sonic 2's music...
 
-local md5 = require "build_tools.Lua.md5"
+local clownmd5 = require "build_tools.Lua.clownmd5"
 
 -- 'hashes.lua' contains the hashes of every assembled song. If a song's hash
 -- matches the one recorded in this file, then there is no need to assemble it again.
@@ -78,9 +78,11 @@ if not hashes_file then
 	previous_hashes = {}
 else
 	-- 'hashes.lua' does exist: turn it into a valid Lua chunk and load its data into the table.
-	previous_hashes = assert(load("return {" .. hashes_file:read("a") .. "}"))()
-
+	local chunk = load("return {" .. hashes_file:read("a") .. "}")
 	hashes_file:close()
+
+	-- If `hash.lua` fails to compile, then ignore it and load an empty table instead.
+	previous_hashes = chunk and chunk() or {}
 end
 
 -- Now that that's done, we can begin re-writing 'hashes.lua' with the new hashes that we compute in the next step.
@@ -92,7 +94,7 @@ hashes_file:write("improved_sound_driver_compression = " .. tostring(improved_so
 -- The songs to compress are listed in 'list of compressed songs.txt'.
 for song_name in io.lines("sound/music/compressed/list of compressed songs.txt") do
 	-- Determine the hash of the current song.
-	local current_hash = md5.HashFile("sound/music/" .. song_name .. ".asm")
+	local current_hash = clownmd5.HashFile("sound/music/" .. song_name .. ".asm")
 
 	-- Finally, check if the hash matches the one in 'hashes.lua'.
 	-- If it doesn't match, then the song has been modified and needs to be reassembled.
@@ -127,7 +129,7 @@ SonicDriverVer = 2
 		song_file:close()
 
 		-- Assemble the song to an uncompressed binary.
-		local assemble_result = common.assemble_file("song", "song.bin", tools.as, tools.s2p2bin .. (improved_sound_driver_compression and "" or " -a"), false)
+		local assemble_result = common.assemble_file("song.asm", "song.bin", tools.as, tools.s2p2bin .. (improved_sound_driver_compression and "" or " -a"), false)
 
 		-- We can get rid of this wrapper ASM file now.
 		os.remove("song.asm")
@@ -176,7 +178,28 @@ SonicDriverVer = 2
 	end
 
 	-- Write this hash to 'hashes.lua'.
-	hashes_file:write("['" .. song_name .. "'] = '" .. current_hash .. "',\n")
+	hashes_file:write("['" .. song_name .. "'] = '")
+
+	local function hash_string_iterator()
+		local position = 1
+
+		return function()
+				if position > current_hash:len() then
+					return nil
+				end
+
+				local byte
+				byte, position = string.unpack("I1", current_hash, position)
+
+				return byte
+			end
+	end
+
+	for byte in hash_string_iterator() do
+		hashes_file:write(string.format("\\x%02X", byte))
+	end
+
+	hashes_file:write("',\n")
 end
 
 -- We've written the last part of the 'hashes.lua' file, so we can close it now.
@@ -192,7 +215,7 @@ os.remove("s2built.prev.bin")
 os.rename("s2built.bin", "s2built.prev.bin")
 
 -- Assemble the ROM.
-local assemble_result = common.assemble_file("s2", "s2built.bin", tools.as, tools.s2p2bin .. (improved_sound_driver_compression and "" or " -a"), true)
+local assemble_result = common.assemble_file("s2.asm", "s2built.bin", tools.as, tools.s2p2bin .. (improved_sound_driver_compression and "" or " -a"), true)
 
 if assemble_result == "crash" then
 	print "\n\z
