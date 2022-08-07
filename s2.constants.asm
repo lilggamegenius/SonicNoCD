@@ -2,6 +2,49 @@
 ; Equates section - Names for variables.
 
 ; ---------------------------------------------------------------------------
+; SSF2 Mapper stuff
+MapperBank1 	= 	$A130F3	; bank for $080000-$0FFFFF
+MapperBank2 	= 	$A130F5	; bank for $100000-$17FFFF
+MapperBank3 	= 	$A130F7	; bank for $180000-$1FFFFF
+MapperBank4 	= 	$A130F9	; bank for $200000-$27FFFF
+MapperBank5 	= 	$A130FB	; bank for $280000-$2FFFFF
+MapperBank6 	= 	$A130FD	; bank for $300000-$37FFFF
+MapperBank7 	= 	$A130FF	; bank for $380000-$3FFFFF
+
+
+; ---------------------------------------------------------------------------
+; Mega CD stuff
+HwVersion 		= 	$A10001	; Console region, version, etc.
+CdSubCtrl 		= 	$A12000	; Sub-CPU reset
+CdBusCtrl		=	$A12001	; Sub-CPU Bus Request
+CdMemCtrl 		= 	$A12002	; Mega CD memory mode
+CdMemBankCtrl	=	$A12003	; Mega CD Bank
+
+CdBootRom 		:= 	$400000	; Main-CPU boot ROM
+CdPrgRam 		:= 	$420000	; PRG-RAM window
+CdUserPrgOffset	:=	$6000	; Offset that the user program gets copied to
+CdWordRam 		:= 	$600000	; WORD-RAM window
+
+
+CdCommMain1	:=  $A12010  ; Main-CPU to Sub-CPU port #1
+CdCommMain2	:=  $A12012  ; Main-CPU to Sub-CPU port #2
+CdCommMain3	:=  $A12014  ; Main-CPU to Sub-CPU port #3
+CdCommMain4	:=  $A12016  ; Main-CPU to Sub-CPU port #4
+CdCommMain5	:=  $A12018  ; Main-CPU to Sub-CPU port #5
+CdCommMain6	:=  $A1201A  ; Main-CPU to Sub-CPU port #6
+CdCommMain7	:=  $A1201C  ; Main-CPU to Sub-CPU port #7
+CdCommMain8	:=  $A1201E  ; Main-CPU to Sub-CPU port #8
+
+CdCommSub1	:=   $A12020  ; Sub-CPU to Main-CPU port #1
+CdCommSub2	:=   $A12022  ; Sub-CPU to Main-CPU port #2
+CdCommSub3	:=   $A12024  ; Sub-CPU to Main-CPU port #3
+CdCommSub4	:=   $A12026  ; Sub-CPU to Main-CPU port #4
+CdCommSub5	:=   $A12028  ; Sub-CPU to Main-CPU port #5
+CdCommSub6	:=   $A1202A  ; Sub-CPU to Main-CPU port #6
+CdCommSub7	:=   $A1202C  ; Sub-CPU to Main-CPU port #7
+CdCommSub8	:=   $A1202E  ; Sub-CPU to Main-CPU port #8
+
+; ---------------------------------------------------------------------------
 ; size variables - you'll get an informational error if you need to change these...
 ; they are all in units of bytes
 Size_of_DAC_samples =		$2F00
@@ -959,10 +1002,7 @@ AniIDTailsAni_Fly		= id(TailsAni_Fly_ptr)		; 32 ; $20
 ; Other sizes
 palette_line_size =	$10*2	; 16 word entries
 
-; ---------------------------------------------------------------------------
-; I run the main 68k RAM addresses through this function
-; to let them work in both 16-bit and 32-bit addressing modes.
-ramaddr function x,-(-x)&$FFFFFFFF
+
 
 ; ---------------------------------------------------------------------------
 ; RAM variables - General

@@ -17,20 +17,20 @@
 ; >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 ; ASSEMBLY OPTIONS:
 ;
-gameRevision = 1
+gameRevision = 2
 ;	| If 0, a REV00 ROM is built
 ;	| If 1, a REV01 ROM is built, which contains some fixes
 ;	| If 2, a (probable) REV02 ROM is built, which contains even more fixes
-padToPowerOfTwo = 1
+padToPowerOfTwo = 0
 ;	| If 1, pads the end of the ROM to the next power of two bytes (for real hardware)
 ;
-fixBugs = 0
+fixBugs = 1
 ;	| If 1, enables all bug-fixes
 ;	| See also the 'FixDriverBugs' flag in 's2.sounddriver.asm'
-allOptimizations = 0
+allOptimizations = 1
 ;	| If 1, enables all optimizations
 ;
-skipChecksumCheck = 0
+skipChecksumCheck = 1
 ;	| If 1, disables the slow bootup checksum calculation
 ;
 zeroOffsetOptimization = 0|allOptimizations
@@ -45,7 +45,7 @@ addsubOptimize = 0|(gameRevision=2)|allOptimizations
 relativeLea = 0|(gameRevision<>2)|allOptimizations
 ;	| If 1, makes some instructions use pc-relative addressing, instead of absolute long
 ;
-useFullWaterTables = 0
+useFullWaterTables = 1
 ;	| If 1, zone offset tables for water levels cover all level slots instead of only slots 8-$F
 ;	| Set to 1 if you've shifted level IDs around or you want water in levels with a level slot below 8
 
@@ -55,12 +55,12 @@ useFullWaterTables = 0
 	include "s2.macrosetup.asm"
 
 ; >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-; Equates section - Names for variables.
-	include "s2.constants.asm"
-
-; >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 ; Simplifying macros and functions
 	include "s2.macros.asm"
+	
+; >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+; Equates section - Names for variables.
+	include "s2.constants.asm"
 
 ; >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 ; Expressing SMPS bytecode in a portable and human-readable form
@@ -141,8 +141,8 @@ Vectors:
 	dc.l ErrorTrap		; Unused (reserved) (64)
 ; byte_100:
 Header:
-	dc.b "SEGA GENESIS    " ; Console name
-	dc.b "(C)SEGA 1992.SEP" ; Copyright holder and release date (generally year)
+	dc.b "SEGA SSF        " ; Console name
+	dc.b "Lil-G   2022.SEP" ; Copyright holder and release date (generally year)
 	dc.b "SONIC THE             HEDGEHOG 2                " ; Domestic name
 	dc.b "SONIC THE             HEDGEHOG 2                " ; International name
     if gameRevision=0
@@ -155,7 +155,7 @@ Header:
 ; word_18E
 Checksum:
 	dc.w $D951		; Checksum (patched later if incorrect)
-	dc.b "J               " ; I/O Support
+	dc.b "JC              " ; I/O Support
 	dc.l StartOfRom		; Start address of ROM
 ; dword_1A4
 ROMEndLoc:
@@ -174,9 +174,12 @@ EndOfHeader:
 ; Crash/Freeze the 68000. Note that the Z80 continues to run, so the music keeps playing.
 ; loc_200:
 ErrorTrap:
-	nop	; delay
-	nop	; delay
-	bra.s	ErrorTrap	; Loop indefinitely.
+	stopZ80
+.loop
+	nop				; delay
+	nop				; delay
+	bra.s	.loop	; Loop indefinitely.
+	
 
 ; ===========================================================================
 ; loc_206:
@@ -257,7 +260,8 @@ PSGInitLoop:
 	move	#$2700,sr	; set the sr
  ; loc_292:
 PortC_OK: ;;
-	bra.s	GameProgram	; Branch to game program.
+	bra.w	GameProgram	; Branch to game program.
+
 ; ===========================================================================
 ; byte_294:
 SetupValues:
@@ -267,31 +271,33 @@ SetupValues:
 	dc.l	Z80_Bus_Request
 	dc.l	Z80_Reset
 	dc.l	VDP_data_port, VDP_control_port
+	
+
 
 VDPInitValues:	; values for VDP registers
-	dc.b 4			; Command $8004 - HInt off, Enable HV counter read
+	dc.b $4			; Command $8004 - HInt off, Enable HV counter read
 	dc.b $14		; Command $8114 - Display off, VInt off, DMA on, PAL off
 	dc.b $30		; Command $8230 - Scroll A Address $C000
 	dc.b $3C		; Command $833C - Window Address $F000
-	dc.b 7			; Command $8407 - Scroll B Address $E000
+	dc.b $7			; Command $8407 - Scroll B Address $E000
 	dc.b $6C		; Command $856C - Sprite Table Address $D800
-	dc.b 0			; Command $8600 - Null
-	dc.b 0			; Command $8700 - Background color Pal 0 Color 0
-	dc.b 0			; Command $8800 - Null
-	dc.b 0			; Command $8900 - Null
+	dc.b $0			; Command $8600 - Null
+	dc.b $0			; Command $8700 - Background color Pal 0 Color 0
+	dc.b $0			; Command $8800 - Null
+	dc.b $0			; Command $8900 - Null
 	dc.b $FF		; Command $8AFF - Hint timing $FF scanlines
-	dc.b 0			; Command $8B00 - Ext Int off, VScroll full, HScroll full
+	dc.b $0			; Command $8B00 - Ext Int off, VScroll full, HScroll full
 	dc.b $81		; Command $8C81 - 40 cell mode, shadow/highlight off, no interlace
 	dc.b $37		; Command $8D37 - HScroll Table Address $DC00
-	dc.b 0			; Command $8E00 - Null
-	dc.b 1			; Command $8F01 - VDP auto increment 1 byte
-	dc.b 1			; Command $9001 - 64x32 cell scroll size
-	dc.b 0			; Command $9100 - Window H left side, Base Point 0
-	dc.b 0			; Command $9200 - Window V upside, Base Point 0
+	dc.b $0			; Command $8E00 - Null
+	dc.b $1			; Command $8F01 - VDP auto increment 1 byte
+	dc.b $1			; Command $9001 - 64x32 cell scroll size
+	dc.b $0			; Command $9100 - Window H left side, Base Point 0
+	dc.b $0			; Command $9200 - Window V upside, Base Point 0
 	dc.b $FF		; Command $93FF - DMA Length Counter $FFFF
 	dc.b $FF		; Command $94FF - See above
-	dc.b 0			; Command $9500 - DMA Source Address $0
-	dc.b 0			; Command $9600 - See above
+	dc.b $0			; Command $9500 - DMA Source Address $0
+	dc.b $0			; Command $9600 - See above
 	dc.b $80		; Command $9780	- See above + VRAM fill mode
 VDPInitValues_End:
 
@@ -344,8 +350,19 @@ PSGInitValues_End:
 ; ===========================================================================
 
 	even
+	
+	include "s2.mapper.asm"
+	include "s2.megacd.asm"
 ; loc_300:
 GameProgram:
+	bsr.w	InitSSF2	; Initializes the mapper
+	bsr.w	FindMCDBIOS	; if bios found, clear carry and load pointer to it
+	bcs.w	ErrorTrap	; Error if no MCD is found
+	
+	lea		(SubCPU), a1
+	move.l	#SubCPU_Size, d0
+	bsr.w	InitSubCPU	
+	
 	tst.w	(VDP_control_port).l
 ; loc_306:
 CheckSumCheck:
@@ -462,6 +479,8 @@ LevelSelectMenu: ;;
 ; vertical and horizontal interrupt handlers
 ; VERTICAL INTERRUPT HANDLER:
 V_Int:
+	bsr.w	SendMCDInt2	; Sub CPU boot requires that we send it level 2 interrupt requests.
+	
 	movem.l	d0-a6,-(sp)
 	tst.b	(Vint_routine).w
 	beq.w	Vint_Lag
@@ -2358,11 +2377,12 @@ EniDec_ChkGetNextByte:
 	rts
 
 ; ||||||||||||||| S U B R O U T I N E |||||||||||||||||||||||||||||||||||||||
+; ===========================================================================
 ; ---------------------------------------------------------------------------
-; KOSINSKI DECOMPRESSION PROCEDURE
-; (sometimes called KOZINSKI decompression)
-
-; This is the only procedure in the game that stores variables on the stack.
+; Kosinski decompression routine
+;
+; Created by vladikcomper
+; Special thanks to flamewing and MarkeyJester
 
 ; ARGUMENTS:
 ; a0 = source address
@@ -2370,96 +2390,129 @@ EniDec_ChkGetNextByte:
 
 ; For format explanation, see http://info.sonicretro.org/Kosinski_compression
 ; ---------------------------------------------------------------------------
+_Kos_RunBitStream macro
+    dbf 	d2,	.skip
+    moveq   #7,d2
+    move.b  d1,d0
+    swap    d3
+    bpl.s   .skip
+    move.b  (a0)+,	d0					; get desc. bitfield
+    move.b  (a0)+,	d1            	
+    move.b  (a4,d0.w),	d0				; reload converted desc. bitfield from a LUT
+    move.b  (a4,d1.w),	d1            
+.skip
+    endm
+; ---------------------------------------------------------------------------
+ 
 ; KozDec_193A:
 KosDec:
-	subq.l	#2,sp
-	move.b	(a0)+,1(sp)
-	move.b	(a0)+,(sp)
-	move.w	(sp),d5
-	moveq	#$F,d4
-
-Kos_Loop:
-	lsr.w	#1,d5
-	move	sr,d6
-	dbf	d4,.chkbit
-	move.b	(a0)+,1(sp)
-	move.b	(a0)+,(sp)
-	move.w	(sp),d5
-	moveq	#$F,d4
-
-.chkbit:
-	move	d6,ccr
-	bcc.s	Kos_RLE
-	move.b	(a0)+,(a1)+
-	bra.s	Kos_Loop
+    moveq   #7,	d7
+    moveq   #0,	d0
+    moveq   #0,	d1
+    lea KosDec_ByteMap(pc),a4
+    move.b  (a0)+,	d0					; get desc field low-byte
+    move.b  (a0)+,	d1					; get desc field hi-byte
+    move.b  (a4,d0.w),	d0				; reload converted desc. bitfield from a LUT
+    move.b  (a4,d1.w),	d1
+    moveq   #7,		d2					; set repeat count to 8
+    moveq   #-1,	d3					; d3 will be desc field switcher
+    clr.w   d3              
+    bra.s   KosDec_FetchNewCode
+ 
+KosDec_FetchCodeLoop:
+    ; code 1 (Uncompressed byte)
+    _Kos_RunBitStream
+    move.b  (a0)+,	(a1)+
+ 
+KosDec_FetchNewCode:
+    add.b   d0,	d0						; get a bit from the bitstream
+    bcs.s   KosDec_FetchCodeLoop		; if code = 0, branch
+ 
+    ; codes 00 and 01
+    _Kos_RunBitStream
+    moveq   #0,	d4						; d4 will contain copy count
+    add.b   d0,	d0						; get a bit from the bitstream
+    bcs.s   KosDec_Code_01
+ 
+    ; code 00 (Dictionary ref. short)
+    _Kos_RunBitStream
+    add.b   d0,	d0						; get a bit from the bitstream
+    addx.w  d4,	d4
+    _Kos_RunBitStream
+    add.b   d0,	d0						; get a bit from the bitstream
+    addx.w  d4,	d4
+    _Kos_RunBitStream
+    moveq   #-1,	d5
+    move.b  (a0)+,	d5					; d5 = displacement
+ 
+KosDec_StreamCopy:
+    lea 	(a1,d5),a3
+    move.b  (a3)+,	(a1)+				; do 1 extra copy (to compensate for +1 to copy counter)
+ 
+KosDec_copy:
+    move.b  (a3)+,(a1)+
+    dbf	d4,	KosDec_copy
+    bra.w   KosDec_FetchNewCode
 ; ---------------------------------------------------------------------------
-Kos_RLE:
-	moveq	#0,d3
-	lsr.w	#1,d5
-	move	sr,d6
-	dbf	d4,.chkbit
-	move.b	(a0)+,1(sp)
-	move.b	(a0)+,(sp)
-	move.w	(sp),d5
-	moveq	#$F,d4
-
-.chkbit:
-	move	d6,ccr
-	bcs.s	Kos_SeparateRLE
-	lsr.w	#1,d5
-	dbf	d4,.loop1
-	move.b	(a0)+,1(sp)
-	move.b	(a0)+,(sp)
-	move.w	(sp),d5
-	moveq	#$F,d4
-
-.loop1:
-	roxl.w	#1,d3
-	lsr.w	#1,d5
-	dbf	d4,.loop2
-	move.b	(a0)+,1(sp)
-	move.b	(a0)+,(sp)
-	move.w	(sp),d5
-	moveq	#$F,d4
-
-.loop2:
-	roxl.w	#1,d3
-	addq.w	#1,d3
-	moveq	#-1,d2
-	move.b	(a0)+,d2
-	bra.s	Kos_RLELoop
+KosDec_Code_01:
+    ; code 01 (Dictionary ref. long / special)
+    _Kos_RunBitStream
+    move.b  (a0)+,	d6					; d6 = %LLLLLLLL
+    move.b  (a0)+,	d4					; d4 = %HHHHHCCC
+    moveq   #-1,	d5
+    move.b  d4,		d5					; d5 = %11111111 HHHHHCCC
+    lsl.w   #5,		d5					; d5 = %111HHHHH CCC00000
+    move.b  d6,		d5					; d5 = %111HHHHH LLLLLLLL
+    and.w   d7,		d4					; d4 = %00000CCC
+    bne.s   KosDec_StreamCopy			; if CCC=0, branch
+ 
+    ; special mode (extended counter)
+    move.b  (a0)+,	d4					; read cnt
+    beq.s   KosDec_Quit					; if cnt=0, quit decompression
+    subq.b  #1,		d4
+    beq.w   KosDec_FetchNewCode			; if cnt=1, fetch a new code
+ 
+    lea 	(a1,d5),a3
+    move.b  (a3)+,	(a1)+				; do 1 extra copy (to compensate for +1 to copy counter)
+    move.w  d4,	d6
+    not.w   d6
+    and.w   d7,	d6
+    add.w   d6,	d6
+    lsr.w   #3,	d4
+    jmp 	KosDec_largecopy(pc,d6.w)
+ 
+KosDec_largecopy:
+    rept 8
+    move.b  (a3)+,(a1)+
+    endr
+    dbf d4,KosDec_largecopy
+    bra.w   KosDec_FetchNewCode
+ 
+KosDec_Quit:
+    rts
+ 
 ; ---------------------------------------------------------------------------
-Kos_SeparateRLE:
-	move.b	(a0)+,d0
-	move.b	(a0)+,d1
-	moveq	#-1,d2
-	move.b	d1,d2
-	lsl.w	#5,d2
-	move.b	d0,d2
-	andi.w	#7,d1
-	beq.s	Kos_SeparateRLE2
-	move.b	d1,d3
-	addq.w	#1,d3
-
-Kos_RLELoop:
-	move.b	(a1,d2.w),d0
-	move.b	d0,(a1)+
-	dbf	d3,Kos_RLELoop
-	bra.s	Kos_Loop
+; A look-up table to invert bits order in desc. field bytes
 ; ---------------------------------------------------------------------------
-Kos_SeparateRLE2:
-	move.b	(a0)+,d1
-	beq.s	Kos_Done
-	cmpi.b	#1,d1
-	beq.w	Kos_Loop
-	move.b	d1,d3
-	bra.s	Kos_RLELoop
-; ---------------------------------------------------------------------------
-Kos_Done:
-	addq.l	#2,sp
-	rts
-; End of function KosDec
-
+ 
+KosDec_ByteMap:
+    dc.b    $00,$80,$40,$C0,$20,$A0,$60,$E0,$10,$90,$50,$D0,$30,$B0,$70,$F0
+    dc.b    $08,$88,$48,$C8,$28,$A8,$68,$E8,$18,$98,$58,$D8,$38,$B8,$78,$F8
+    dc.b    $04,$84,$44,$C4,$24,$A4,$64,$E4,$14,$94,$54,$D4,$34,$B4,$74,$F4
+    dc.b    $0C,$8C,$4C,$CC,$2C,$AC,$6C,$EC,$1C,$9C,$5C,$DC,$3C,$BC,$7C,$FC
+    dc.b    $02,$82,$42,$C2,$22,$A2,$62,$E2,$12,$92,$52,$D2,$32,$B2,$72,$F2
+    dc.b    $0A,$8A,$4A,$CA,$2A,$AA,$6A,$EA,$1A,$9A,$5A,$DA,$3A,$BA,$7A,$FA
+    dc.b    $06,$86,$46,$C6,$26,$A6,$66,$E6,$16,$96,$56,$D6,$36,$B6,$76,$F6
+    dc.b    $0E,$8E,$4E,$CE,$2E,$AE,$6E,$EE,$1E,$9E,$5E,$DE,$3E,$BE,$7E,$FE
+    dc.b    $01,$81,$41,$C1,$21,$A1,$61,$E1,$11,$91,$51,$D1,$31,$B1,$71,$F1
+    dc.b    $09,$89,$49,$C9,$29,$A9,$69,$E9,$19,$99,$59,$D9,$39,$B9,$79,$F9
+    dc.b    $05,$85,$45,$C5,$25,$A5,$65,$E5,$15,$95,$55,$D5,$35,$B5,$75,$F5
+    dc.b    $0D,$8D,$4D,$CD,$2D,$AD,$6D,$ED,$1D,$9D,$5D,$DD,$3D,$BD,$7D,$FD
+    dc.b    $03,$83,$43,$C3,$23,$A3,$63,$E3,$13,$93,$53,$D3,$33,$B3,$73,$F3
+    dc.b    $0B,$8B,$4B,$CB,$2B,$AB,$6B,$EB,$1B,$9B,$5B,$DB,$3B,$BB,$7B,$FB
+    dc.b    $07,$87,$47,$C7,$27,$A7,$67,$E7,$17,$97,$57,$D7,$37,$B7,$77,$F7
+    dc.b    $0F,$8F,$4F,$CF,$2F,$AF,$6F,$EF,$1F,$9F,$5F,$DF,$3F,$BF,$7F,$FF
+ 
 ; ===========================================================================
 
     if gameRevision<2
@@ -92385,6 +92438,18 @@ Sound6F:	include "sound/sfx/EF - Large Laser.asm"
 Sound70:	include "sound/sfx/F0 - Oil Slide.asm"
 
 	finishBank
+	
+SubCPU:
+	binclude "SubCPU/s2subcpu.bin"
+SubCPU_End:
+
+SubCPU_Size = SubCPU_End-SubCPU
+
+	if SubCPU_Size > $020000
+		fatal "SubCPU Program size is larger than a single bank: $\{SubCPU_Size}"
+	else
+		message "SubCPU Program size is $\{SubCPU_Size}"
+	endif
 
 ; end of 'ROM'
 	if padToPowerOfTwo && (*)&(*-1)

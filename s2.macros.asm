@@ -273,3 +273,8 @@ menutxt	macro	text
 	dc.b	strlen(text)-1
 	dc.b	text
 	endm
+
+; ---------------------------------------------------------------------------
+; I run the main 68k RAM addresses through this function
+; to let them work in both 16-bit and 32-bit addressing modes.
+ramaddr function x,-(-x)&$FFFFFFFF

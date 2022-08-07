@@ -7,7 +7,7 @@
 -- Set this to true to use a better compression algorithm for the sound driver.
 -- Having this set to false will use an inferior compression algorithm that
 -- results in an accurate ROM being produced.
-local improved_sound_driver_compression = false
+local improved_sound_driver_compression = true
 
 ---------------------
 -- End of settings --
@@ -32,6 +32,33 @@ if not tools then
 
 	os.exit(false)
 end
+
+-- Begin assembling then compressing the SubCPU program
+
+local assemble_result = common.assemble_file("SubCPU/s2.subcpu", "SubCPU/s2subcpu.bin", tools.as, tools.s2p2bin, false)
+
+if assemble_result == "crash" then
+	print "\n\z
+		**********************************************************************\n\z
+		*                                                                    *\n\z
+		*         The assembler crashed. See above for more details.         *\n\z
+		*                                                                    *\n\z
+		**********************************************************************\n\z"
+
+	os.exit(false)
+elseif assemble_result == "error" then
+	print "\n\z
+		**********************************************************************\n\z
+		*                                                                    *\n\z
+		*        There were build errors. See s2.log for more details.       *\n\z
+		*                                                                    *\n\z
+		**********************************************************************\n\z"
+
+	os.exit(false)
+end
+
+
+-- local compression_result = os.execute("KensSharp -sck SubCPU/s2subcpu.bin")
 
 -- Begin the insane task of assembling and compressing Sonic 2's music...
 
