@@ -35,7 +35,7 @@ end
 
 -- Begin assembling then compressing the SubCPU program
 
-local assemble_result = common.assemble_file("SubCPU/s2.subcpu", "SubCPU/s2subcpu.bin", tools.as, tools.s2p2bin, false)
+local assemble_result = common.assemble_file("SubCPU/s2.subcpu.asm", "SubCPU/s2subcpu.bin", tools.as, tools.s2p2bin, false)
 
 if assemble_result == "crash" then
 	print "\n\z

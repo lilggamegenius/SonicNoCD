@@ -236,6 +236,23 @@ CopyPRGRAMData:
 SendMCDInt2:
 	bset	#0,CdSubCtrl							; Send interrupt request
 	rts
+	
+
+; -------------------------------------------------------------------------
+; Perform SubCPU Handshake
+; -------------------------------------------------------------------------
+SyncMCD:
+	move		sr,-(sp)							; Push sr to the stack so we can restore it later
+	move		#$2000, sr							; Enable Vertical Interrupts 
+	move.b 		#1, (CdCommMainflag)				; Tell Sub CPU that we're initialized
+
+	spinWait	cmpi.b, #2, (CdCommSubflag)			; Wait for the Sub CPU to finish initializing
+
+    clr.b		(CdCommMainflag)					; Mark as ready for commands
+	
+	spinWait	cmpi.b, #1,(CdCommSubflag)			; Wait for the Sub CPU to get ready to send commands
+	move		(sp)+,sr							; Restore sr from the stack
+	rts
 
 ; -------------------------------------------------------------------------
 ; Check if there's a known MCD BIOS available

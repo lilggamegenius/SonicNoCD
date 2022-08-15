@@ -1,33 +1,39 @@
 ; >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 ; Equates section - SubCPU - Names for variables specifically for the MCD CPU
-CdCommMain1	=  $FF8010  ; Main-CPU to Sub-CPU port #1
-CdCommMain2	=  $FF8012  ; Main-CPU to Sub-CPU port #2
-CdCommMain3	=  $FF8014  ; Main-CPU to Sub-CPU port #3
-CdCommMain4	=  $FF8016  ; Main-CPU to Sub-CPU port #4
-CdCommMain5	=  $FF8018  ; Main-CPU to Sub-CPU port #5
-CdCommMain6	=  $FF801A  ; Main-CPU to Sub-CPU port #6
-CdCommMain7	=  $FF801C  ; Main-CPU to Sub-CPU port #7
-CdCommMain8	=  $FF801E  ; Main-CPU to Sub-CPU port #8
+CdRegisters 	=	$FF8000
 
-CdCommSub1	=  $FF8020  ; Sub-CPU to Main-CPU port #1
-CdCommSub2	=  $FF8022  ; Sub-CPU to Main-CPU port #2
-CdCommSub3	=  $FF8024  ; Sub-CPU to Main-CPU port #3
-CdCommSub4	=  $FF8026  ; Sub-CPU to Main-CPU port #4
-CdCommSub5	=  $FF8028  ; Sub-CPU to Main-CPU port #5
-CdCommSub6	=  $FF802A  ; Sub-CPU to Main-CPU port #6
-CdCommSub7	=  $FF802C  ; Sub-CPU to Main-CPU port #7
-CdCommSub8	=  $FF802E  ; Sub-CPU to Main-CPU port #8
+CdVersionNo		=	CdRegisters+$00
+CdResetLed		=	CdRegisters+$01
+CdMemoryMode	=	CdRegisters+$02
+CdWriteProtect	=	CdRegisters+$03
 
-LED_NONE = %00
-LED_GREEN = %10  ; READY
-LED_RED = %01  ; ACCESS
-LED_BOTH = %11  ; READY+ACCESS
+CdStopWatch		=	CdRegisters+$0C
+CdCommMainflag	=	CdRegisters+$0E
+CdCommSubflag	=	CdRegisters+$0F
+
+CdCommMain1		=	CdRegisters+$10  ; Main-CPU to Sub-CPU port #1
+CdCommMain2		=	CdRegisters+$12  ; Main-CPU to Sub-CPU port #2
+CdCommMain3		=	CdRegisters+$14  ; Main-CPU to Sub-CPU port #3
+CdCommMain4		=	CdRegisters+$16  ; Main-CPU to Sub-CPU port #4
+CdCommMain5		=	CdRegisters+$18  ; Main-CPU to Sub-CPU port #5
+CdCommMain6		=	CdRegisters+$1A  ; Main-CPU to Sub-CPU port #6
+CdCommMain7		=	CdRegisters+$1C  ; Main-CPU to Sub-CPU port #7
+CdCommMain8		=	CdRegisters+$1E  ; Main-CPU to Sub-CPU port #8
+
+CdCommSub1		=	CdRegisters+$20  ; Sub-CPU to Main-CPU port #1
+CdCommSub2		=	CdRegisters+$22  ; Sub-CPU to Main-CPU port #2
+CdCommSub3		=	CdRegisters+$24  ; Sub-CPU to Main-CPU port #3
+CdCommSub4		=	CdRegisters+$26  ; Sub-CPU to Main-CPU port #4
+CdCommSub5		=	CdRegisters+$28  ; Sub-CPU to Main-CPU port #5
+CdCommSub6		=	CdRegisters+$2A  ; Sub-CPU to Main-CPU port #6
+CdCommSub7		=	CdRegisters+$2C  ; Sub-CPU to Main-CPU port #7
+CdCommSub8		=	CdRegisters+$2E  ; Sub-CPU to Main-CPU port #8
+
 
 
 	phase	ramaddr($FF0C0000)	; Pretend we're in the RAM
 RAM_Start:
-Misc_Stuff:
-	ds.b	$50
+	
 RAM_End:
 
 	dephase

@@ -2,47 +2,42 @@
 ; Equates section - Names for variables.
 
 ; ---------------------------------------------------------------------------
-; SSF2 Mapper stuff
-MapperBank1 	= 	$A130F3	; bank for $080000-$0FFFFF
-MapperBank2 	= 	$A130F5	; bank for $100000-$17FFFF
-MapperBank3 	= 	$A130F7	; bank for $180000-$1FFFFF
-MapperBank4 	= 	$A130F9	; bank for $200000-$27FFFF
-MapperBank5 	= 	$A130FB	; bank for $280000-$2FFFFF
-MapperBank6 	= 	$A130FD	; bank for $300000-$37FFFF
-MapperBank7 	= 	$A130FF	; bank for $380000-$3FFFFF
-
-
-; ---------------------------------------------------------------------------
 ; Mega CD stuff
-HwVersion 		= 	$A10001	; Console region, version, etc.
-CdSubCtrl 		= 	$A12000	; Sub-CPU reset
-CdBusCtrl		=	$A12001	; Sub-CPU Bus Request
-CdMemCtrl 		= 	$A12002	; Mega CD memory mode
-CdMemBankCtrl	=	$A12003	; Mega CD Bank
+CdBootRom 		=	$400000			; Main-CPU boot ROM
+CdPrgRam 		=	$420000			; PRG-RAM window
+CdUserPrgOffset	=	$006000			; Offset that the user program gets copied to
+CdWordRam 		=	$600000			; WORD-RAM window
 
-CdBootRom 		:= 	$400000	; Main-CPU boot ROM
-CdPrgRam 		:= 	$420000	; PRG-RAM window
-CdUserPrgOffset	:=	$6000	; Offset that the user program gets copied to
-CdWordRam 		:= 	$600000	; WORD-RAM window
+HwVersion 		=	$A10001			; Console region, version, etc.
 
+CdRegisters		=	$A12000	
 
-CdCommMain1	:=  $A12010  ; Main-CPU to Sub-CPU port #1
-CdCommMain2	:=  $A12012  ; Main-CPU to Sub-CPU port #2
-CdCommMain3	:=  $A12014  ; Main-CPU to Sub-CPU port #3
-CdCommMain4	:=  $A12016  ; Main-CPU to Sub-CPU port #4
-CdCommMain5	:=  $A12018  ; Main-CPU to Sub-CPU port #5
-CdCommMain6	:=  $A1201A  ; Main-CPU to Sub-CPU port #6
-CdCommMain7	:=  $A1201C  ; Main-CPU to Sub-CPU port #7
-CdCommMain8	:=  $A1201E  ; Main-CPU to Sub-CPU port #8
+CdSubCtrl 		=	CdRegisters+$00	; Sub-CPU reset
+CdBusCtrl		=	CdRegisters+$01	; Sub-CPU Bus Request
+CdMemCtrl 		=	CdRegisters+$02	; Mega CD memory mode
+CdMemBankCtrl	=	CdRegisters+$03	; Mega CD Bank
 
-CdCommSub1	:=   $A12020  ; Sub-CPU to Main-CPU port #1
-CdCommSub2	:=   $A12022  ; Sub-CPU to Main-CPU port #2
-CdCommSub3	:=   $A12024  ; Sub-CPU to Main-CPU port #3
-CdCommSub4	:=   $A12026  ; Sub-CPU to Main-CPU port #4
-CdCommSub5	:=   $A12028  ; Sub-CPU to Main-CPU port #5
-CdCommSub6	:=   $A1202A  ; Sub-CPU to Main-CPU port #6
-CdCommSub7	:=   $A1202C  ; Sub-CPU to Main-CPU port #7
-CdCommSub8	:=   $A1202E  ; Sub-CPU to Main-CPU port #8
+CdCommMainflag	=	CdRegisters+$0E
+CdCommSubflag	=	CdRegisters+$0F
+
+CdCommMain1		=	CdRegisters+$10	; Main-CPU to Sub-CPU port #1
+CdCommMain2		=	CdRegisters+$12	; Main-CPU to Sub-CPU port #2
+CdCommMain3		=	CdRegisters+$14	; Main-CPU to Sub-CPU port #3
+CdCommMain4		=	CdRegisters+$16	; Main-CPU to Sub-CPU port #4
+CdCommMain5		=	CdRegisters+$18	; Main-CPU to Sub-CPU port #5
+CdCommMain6		=	CdRegisters+$1A	; Main-CPU to Sub-CPU port #6
+CdCommMain7		=	CdRegisters+$1C	; Main-CPU to Sub-CPU port #7
+CdCommMain8		=	CdRegisters+$1E	; Main-CPU to Sub-CPU port #8
+	
+CdCommSub1		=	CdRegisters+$20	; Sub-CPU to Main-CPU port #1
+CdCommSub2		=	CdRegisters+$22	; Sub-CPU to Main-CPU port #2
+CdCommSub3		=	CdRegisters+$24	; Sub-CPU to Main-CPU port #3
+CdCommSub4		=	CdRegisters+$26	; Sub-CPU to Main-CPU port #4
+CdCommSub5		=	CdRegisters+$28	; Sub-CPU to Main-CPU port #5
+CdCommSub6		=	CdRegisters+$2A	; Sub-CPU to Main-CPU port #6
+CdCommSub7		=	CdRegisters+$2C	; Sub-CPU to Main-CPU port #7
+CdCommSub8		=	CdRegisters+$2E	; Sub-CPU to Main-CPU port #8
+
 
 ; ---------------------------------------------------------------------------
 ; size variables - you'll get an informational error if you need to change these...

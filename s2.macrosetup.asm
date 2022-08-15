@@ -105,7 +105,6 @@ tracenum := 0
     ; disable a space optimization in AS so we can build a bit-perfect ROM
     ; (the hard way, but it requires no modification of AS itself)
 
-
 chkop function op,ref,(substr(lowstring(op),0,strlen(ref))<>ref)
 
 ; 1-arg instruction that's self-patching to remove 0-offset optimization

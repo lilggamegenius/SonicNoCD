@@ -116,6 +116,26 @@ finishBank macro
 		message "soundBank \{soundBankName} has $\{$8000+soundBankStart-*} bytes free at end."
 	endif
     endm
+	
+spinWaitTstCmp macro addr, cond
+-
+	tst.ATTRIBUTE	addr
+	!cond.s -
+	endm
+	
+spinWaitTst	macro addr
+	spinWaitTstCmp.ATTRIBUTE addr, bne
+	endm
+	
+spinWaitCmp macro check, x, y, cond
+-
+	!check	x, y
+	!cond.s	-
+	endm
+	
+spinWait	macro check, x, y
+	spinWaitCmp	check, x, y, bne
+	endm
 
 ; macro to replace the destination with its absolute value
 abs macro destination

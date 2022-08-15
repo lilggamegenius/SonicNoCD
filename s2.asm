@@ -17,38 +17,7 @@
 ; >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 ; ASSEMBLY OPTIONS:
 ;
-gameRevision = 2
-;	| If 0, a REV00 ROM is built
-;	| If 1, a REV01 ROM is built, which contains some fixes
-;	| If 2, a (probable) REV02 ROM is built, which contains even more fixes
-padToPowerOfTwo = 0
-;	| If 1, pads the end of the ROM to the next power of two bytes (for real hardware)
-;
-fixBugs = 1
-;	| If 1, enables all bug-fixes
-;	| See also the 'FixDriverBugs' flag in 's2.sounddriver.asm'
-allOptimizations = 1
-;	| If 1, enables all optimizations
-;
-skipChecksumCheck = 1
-;	| If 1, disables the slow bootup checksum calculation
-;
-zeroOffsetOptimization = 0|allOptimizations
-;	| If 1, makes a handful of zero-offset instructions smaller
-;
-removeJmpTos = 0|(gameRevision=2)|allOptimizations
-;	| If 1, many unnecessary JmpTos are removed, improving performance
-;
-addsubOptimize = 0|(gameRevision=2)|allOptimizations
-;	| If 1, some add/sub instructions are optimized to addq/subq
-;
-relativeLea = 0|(gameRevision<>2)|allOptimizations
-;	| If 1, makes some instructions use pc-relative addressing, instead of absolute long
-;
-useFullWaterTables = 1
-;	| If 1, zone offset tables for water levels cover all level slots instead of only slots 8-$F
-;	| Set to 1 if you've shifted level IDs around or you want water in levels with a level slot below 8
-
+	include "s2.options.asm"
 ; >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 ; AS-specific macros and assembler settings
 	CPU 68000
@@ -356,12 +325,6 @@ PSGInitValues_End:
 ; loc_300:
 GameProgram:
 	bsr.w	InitSSF2	; Initializes the mapper
-	bsr.w	FindMCDBIOS	; if bios found, clear carry and load pointer to it
-	bcs.w	ErrorTrap	; Error if no MCD is found
-	
-	lea		(SubCPU), a1
-	move.l	#SubCPU_Size, d0
-	bsr.w	InitSubCPU	
 	
 	tst.w	(VDP_control_port).l
 ; loc_306:
@@ -419,6 +382,17 @@ GameClrRAM:
 	bsr.w	VDPSetupGame
 	bsr.w	JmpTo_SoundDriverLoad
 	bsr.w	JoypadInit
+	
+	bsr.w	FindMCDBIOS	; if bios found, clear carry and load pointer to it
+	bcs.w	ErrorTrap	; Error if no MCD is found
+	
+	lea		(SubCPU), a1
+	move.l	#SubCPU_Size, d0
+	bsr.w	InitSubCPU	
+	bne.w	ErrorTrap	; Error if failed
+	
+	bsr.w	SyncMCD
+	
 	move.b	#GameModeID_SegaScreen,(Game_Mode).w ; set Game Mode to Sega Screen
 ; loc_394:
 MainGameLoop:
@@ -1621,7 +1595,7 @@ QueueDMATransfer:
 
 	move.w	#$9700,d0 ; command to specify source address & $FE0000
 	lsr.l	#8,d1
-	;andi.b	#$7F,d1		; this instruction safely allows source to be in RAM; S3K added this
+	andi.b	#$7F,d1		; this instruction safely allows source to be in RAM; S3K added this
 	move.b	d1,d0
 	move.w	d0,(a1)+ ; store command
 
@@ -91592,7 +91566,7 @@ MiscKoz_SpecialObjectLocations:	BINCLUDE	"misc/Special stage object location lis
 ;--------------------------------------------------------------------------------------
 ; Filler (free space) (unnecessary; could be replaced with "even")
 ;--------------------------------------------------------------------------------------
-	align $100
+	even ; align $100
 
 
 
@@ -91677,7 +91651,7 @@ Rings_SCZ_2:	BINCLUDE	"level/rings/SCZ_2.bin"
 ; --------------------------------------------------------------------------------------
 ; Filler (free space) (unnecessary; could be replaced with "even")
 ; --------------------------------------------------------------------------------------
-	align $200
+	even ; align $200
 
 ; --------------------------------------------------------------------------------------
 ; Offset index of object locations
@@ -91808,7 +91782,7 @@ Objects_Null:
 ; --------------------------------------------------------------------------------------
 ; Filler (free space) (unnecessary; could be replaced with "even")
 ; --------------------------------------------------------------------------------------
-	align $1000
+	even ; align $1000
 
 
 
@@ -92445,12 +92419,6 @@ SubCPU_End:
 
 SubCPU_Size = SubCPU_End-SubCPU
 
-	if SubCPU_Size > $020000
-		fatal "SubCPU Program size is larger than a single bank: $\{SubCPU_Size}"
-	else
-		message "SubCPU Program size is $\{SubCPU_Size}"
-	endif
-
 ; end of 'ROM'
 	if padToPowerOfTwo && (*)&(*-1)
 		cnop	-1,2<<lastbit(*-1)
@@ -92460,6 +92428,13 @@ paddingSoFar	:= paddingSoFar+1
 		even
 	endif
 	if MOMPASS=2
+	
+	if SubCPU_Size > $020000
+		fatal "SubCPU Program size is larger than a single bank: $\{SubCPU_Size}"
+	else
+		message "SubCPU Program size is $\{SubCPU_Size}"
+	endif
+	
 		; "About" because it will be off by the same amount that Size_of_Snd_driver_guess is incorrect (if you changed it), and because I may have missed a small amount of internal padding somewhere
 		message "ROM size is $\{*} bytes (\{*/1024.0} kb). About $\{paddingSoFar} bytes are padding. "
 	endif
