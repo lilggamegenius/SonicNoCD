@@ -36503,6 +36503,11 @@ Sonic_ChgJumpDir:
 	neg.w	d1
 	cmp.w	d1,d0	; compare new speed with top speed
 	bgt.s	+	; if new speed is less than the maximum, branch
+	
+	add.w	d5,d0	; +++ remove this frame's acceleration change
+	cmp.w	d1,d0	; +++ compare speed with top speed
+	ble.s	+	; +++ if speed was already greater than the maximum, branch
+	
 	move.w	d1,d0	; limit speed in air going left, even if Sonic was already going faster (speed limit/cap)
 +
 	btst	#button_right,(Ctrl_1_Held_Logical).w
@@ -36512,6 +36517,11 @@ Sonic_ChgJumpDir:
 	add.w	d5,d0	; accelerate right in the air
 	cmp.w	d6,d0	; compare new speed with top speed
 	blt.s	+	; if new speed is less than the maximum, branch
+	
+	sub.w	d5,d0	; +++ remove this frame's acceleration change
+	cmp.w	d6,d0	; +++ compare speed with top speed
+	bge.s	+	; +++ if speed was already greater than the maximum, branch
+	
 	move.w	d6,d0	; limit speed in air going right, even if Sonic was already going faster (speed limit/cap)
 ; Obj01_JumpMove:
 +	move.w	d0,x_vel(a0)
