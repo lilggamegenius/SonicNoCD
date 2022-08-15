@@ -36601,6 +36601,7 @@ Sonic_Boundary_CheckBottom:
 	rts
 ; ---------------------------------------------------------------------------
 Sonic_Boundary_Bottom: ;;
+	addq.l    #4,sp
 	jmpto	KillCharacter, JmpTo_KillCharacter
 ; ===========================================================================
 
@@ -39550,6 +39551,7 @@ Tails_Boundary_CheckBottom:
 	rts
 ; ---------------------------------------------------------------------------
 Tails_Boundary_Bottom: ;;
+	addq.l    #4,sp
 	jmpto	KillCharacter, JmpTo2_KillCharacter
 ; ===========================================================================
 
