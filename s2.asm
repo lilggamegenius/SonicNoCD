@@ -3083,94 +3083,89 @@ Pal_FadeFromBlack:
 ; loc_23DE: Pal_ToBlack:
 .palettewrite:
 	move.w	d1,(a0)+
-	dbf	d0,.palettewrite	; fill palette with $000 (black)
-
-	move.w	#$15,d4
+	dbf	d0,.palettewrite					; fill palette with $000 (black)
+		moveq	#$0E,d4						; MJ: prepare maximum colour check
+		moveq	#$00,d6						; MJ: clear d6
 
 .nextframe:
-	move.b	#VintID_Fade,(Vint_routine).w
-	bsr.w	WaitForVint
-	bsr.s	.UpdateAllColours
 	bsr.w	RunPLC_RAM
-	dbf	d4,.nextframe
+	move.b	#$12,(Vint_routine).w
+	bsr.w	WaitForVint
+		bchg	#$00,d6						; MJ: change delay counter
+		beq	.nextframe						; MJ: if null, delay a frame
+	bsr.s	.UpdateAllColours
+		subq.b	#$02,d4						; MJ: decrease colour check
+		bne	.nextframe						; MJ: if it has not reached null, branch
+		move.b	#$12,(Vint_routine).w		; MJ: wait for V-blank again (so colours transfer)
+		bra	WaitForVint						; MJ: ''
 
-	rts
-; End of function Pal_FadeFromBlack
+; End of function Pal_FadeTo
 
 ; ---------------------------------------------------------------------------
 ; Subroutine to update all colours once
 ; ---------------------------------------------------------------------------
 ; sub_23FE: Pal_FadeIn:
 .UpdateAllColours:
-	; Update above-water palette
 	moveq	#0,d0
 	lea	(Normal_palette).w,a0
 	lea	(Target_palette).w,a1
 	move.b	(Palette_fade_start).w,d0
 	adda.w	d0,a0
 	adda.w	d0,a1
-
 	move.b	(Palette_fade_length).w,d0
 
-.nextcolour:
+.nextcolor
 	bsr.s	.UpdateColour
-	dbf	d0,.nextcolour
-
+	dbf	d0,.nextcolor
 	tst.b	(Water_flag).w
 	beq.s	.skipunderwater
-	; Update underwater palette
 	moveq	#0,d0
 	lea	(Underwater_palette).w,a0
 	lea	(Underwater_target_palette).w,a1
 	move.b	(Palette_fade_start).w,d0
 	adda.w	d0,a0
 	adda.w	d0,a1
-
 	move.b	(Palette_fade_length).w,d0
 
-.nextcolour2:
+.nextcolor2
 	bsr.s	.UpdateColour
-	dbf	d0,.nextcolour2
+	dbf	d0,.nextcolor2
 
 .skipunderwater:
 	rts
+
+
 
 ; ---------------------------------------------------------------------------
 ; Subroutine to update a single colour once
 ; ---------------------------------------------------------------------------
 ; sub_243E: Pal_AddColor:
 .UpdateColour:
-	move.w	(a1)+,d2
-	move.w	(a0),d3
-	cmp.w	d2,d3
-	beq.s	.updatenone
+	move.b	(a1),d5						; MJ: load blue
+	move.w	(a1)+,d1					; MJ: load green and red
+	move.b	d1,d2						; MJ: load red
+	lsr.b	#$04,d1						; MJ: get only green
+	andi.b	#$0E,d2						; MJ: get only red
+	move.w	(a0),d3						; MJ: load current colour in buffer
+	cmp.b	d5,d4						; MJ: is it time for blue to fade?
+	bhi	FCI_NoBlue						; MJ: if not, branch
+	addi.w	#$0200,d3					; MJ: increase blue
 
-;.updateblue:
-	move.w	d3,d1
-	addi.w	#$200,d1	; increase blue value
-	cmp.w	d2,d1		; has blue reached threshold level?
-	bhi.s	.updategreen	; if yes, branch
-	move.w	d1,(a0)+	; update palette
-	rts
+FCI_NoBlue:
+	cmp.b	d1,d4						; MJ: is it time for green to fade?
+	bhi	FCI_NoGreen						; MJ: if not, branch
+	addi.b	#$20,d3						; MJ: increase green
 
-; loc_2454: Pal_AddGreen:
-.updategreen:
-	move.w	d3,d1
-	addi.w	#$20,d1		; increase green value
-	cmp.w	d2,d1
-	bhi.s	.updatered
-	move.w	d1,(a0)+	; update palette
-	rts
+FCI_NoGreen:
+	cmp.b	d2,d4						; MJ: is it time for red to fade?
+	bhi	FCI_NoRed						; MJ: if not, branch
+	addq.b	#$02,d3						; MJ: increase red
 
-; loc_2462: Pal_AddRed:
-.updatered:
-	addq.w	#2,(a0)+	; increase red value
-	rts
+FCI_NoRed:
+	move.w	d3,(a0)+					; MJ: save colour
+	rts									; MJ: return
 
-; loc_2466: Pal_AddNone:
-.updatenone:
-	addq.w	#2,a0
-	rts
+
 
 
 ; ---------------------------------------------------------------------------
@@ -3182,16 +3177,17 @@ Pal_FadeFromBlack:
 ; sub_246A: Pal_FadeFrom:
 Pal_FadeToBlack:
 	move.w	#$3F,(Palette_fade_range).w
+		moveq	#$07,d4					; MJ: set repeat times
+		moveq	#$00,d6					; MJ: clear d6
 
-	move.w	#$15,d4
-
-.nextframe:
-	move.b	#VintID_Fade,(Vint_routine).w
-	bsr.w	WaitForVint
-	bsr.s	.UpdateAllColours
+.nextbframe
 	bsr.w	RunPLC_RAM
-	dbf	d4,.nextframe
-
+	move.b	#$12,(Vint_routine).w
+	bsr.w	WaitForVint
+		bchg	#$00,d6					; MJ: change delay counter
+		beq	.nextbframe					; MJ: if null, delay a frame
+	bsr.s	.UpdateAllColours
+	dbf	d4,.nextbframe
 	rts
 ; End of function Pal_FadeToBlack
 
@@ -3200,67 +3196,54 @@ Pal_FadeToBlack:
 ; ---------------------------------------------------------------------------
 ; sub_248A: Pal_FadeOut:
 .UpdateAllColours:
-	; Update above-water palette
 	moveq	#0,d0
 	lea	(Normal_palette).w,a0
 	move.b	(Palette_fade_start).w,d0
 	adda.w	d0,a0
-
 	move.b	(Palette_fade_length).w,d0
-.nextcolour:
+
+.Nextcolour
 	bsr.s	.UpdateColour
-	dbf	d0,.nextcolour
-
-	; Notice how this one lacks a check for
-	; if Water_flag is set, unlike Pal_FadeFromBlack?
-
-	; Update underwater palette
+	dbf	d0,.Nextcolour
 	moveq	#0,d0
 	lea	(Underwater_palette).w,a0
 	move.b	(Palette_fade_start).w,d0
 	adda.w	d0,a0
-
 	move.b	(Palette_fade_length).w,d0
-.nextcolour2:
-	bsr.s	.UpdateColour
-	dbf	d0,.nextcolour2
 
+.Nextcolour2
+	bsr.s	.UpdateColour
+	dbf	d0,.Nextcolour2
 	rts
+
+
 
 ; ---------------------------------------------------------------------------
 ; Subroutine to update a single colour once
 ; ---------------------------------------------------------------------------
 ; sub_24B8: Pal_DecColor:
 .UpdateColour:
-	move.w	(a0),d2
-	beq.s	.updatenone
-;.updatered:
-	move.w	d2,d1
-	andi.w	#$E,d1
-	beq.s	.updategreen
-	subq.w	#2,(a0)+	; decrease red value
-	rts
+	move.w	(a0),d5					; MJ: load colour
+	move.w	d5,d1					; MJ: copy to d1
+	move.b	d1,d2					; MJ: load green and red
+	move.b	d1,d3					; MJ: load red
+	andi.w	#$0E00,d1				; MJ: get only blue
+	beq	FCO_NoBlue				; MJ: if blue is finished, branch
+	subi.w	#$0200,d5				; MJ: decrease blue
 
-; loc_24C8: Pal_DecGreen:
-.updategreen:
-	move.w	d2,d1
-	andi.w	#$E0,d1
-	beq.s	.updateblue
-	subi.w	#$20,(a0)+	; decrease green value
-	rts
+FCO_NoBlue:
+	andi.b	#$E0,d2					; MJ: get only green
+	beq	FCO_NoGreen				; MJ: if green is finished, branch
+	subi.b	#$20,d5					; MJ: decrease green
 
-; loc_24D6: Pal_DecBlue:
-.updateblue:
-	move.w	d2,d1
-	andi.w	#$E00,d1
-	beq.s	.updatenone
-	subi.w	#$200,(a0)+	; decrease blue value
-	rts
+FCO_NoGreen:
+	andi.b	#$0E,d3					; MJ: get only red
+	beq	FCO_NoRed				; MJ: if red is finished, branch
+	subq.b	#$02,d5					; MJ: decrease red
 
-; loc_24E4: Pal_DecNone:
-.updatenone:
-	addq.w	#2,a0
-	rts
+FCO_NoRed:
+	move.w	d5,(a0)+				; MJ: save new colour
+	rts						; MJ: return
 
 
 ; ---------------------------------------------------------------------------
@@ -26562,6 +26545,7 @@ ObjC9_Init:
 	adda.w	d0,a3
 	move.b	(a1)+,d0
 	move.w	d0,ttlscrpalchanger_length(a0)
+	move.b  #$0E,objoff_33(a0)                      ; MJ: set fade counter
 
 -	move.w	(a2)+,(a3)+
 	dbf	d0,-
@@ -26579,10 +26563,13 @@ ObjC9_Main:
 	move.b	ttlscrpalchanger_fadein_time(a0),ttlscrpalchanger_fadein_time_left(a0)
 	subq.b	#1,ttlscrpalchanger_fadein_amount(a0)
 	bmi.w	DeleteObject
-	movea.l	ttlscrpalchanger_codeptr(a0),a2
-	movea.l	a0,a3
-	move.w	ttlscrpalchanger_length(a0),d0
-	move.w	ttlscrpalchanger_start_offset(a0),d1
+	moveq   #$00,d4                                 ; MJ: clear d4
+	move.b  objoff_33(a0),d4                        ; MJ: load fade counter
+	subq.b  #$02,objoff_33(a0)                      ; MJ: decrease fade counter
+	movea.l	ttlscrpalchanger_codeptr(a0),a2			; load routine to run
+	movea.l	a0,a3									; store current object
+	move.w	ttlscrpalchanger_length(a0),d0			; load length
+	move.w	ttlscrpalchanger_start_offset(a0),d1	; load loadtooffset
 	lea	(Normal_palette).w,a0
 	adda.w	d1,a0
 	lea	(Target_palette).w,a1
@@ -26611,7 +26598,7 @@ C9PalInfo macro codeptr,dataptr,loadtoOffset,length,fadeinTime,fadeinAmount
 	dc.b loadtoOffset, length, fadeinTime, fadeinAmount
     endm
 
-off_1338C:	C9PalInfo Pal_FadeFromBlack.UpdateColour, Pal_1342C, $60, $F,2,$15
+off_1338C:	C9PalInfo Pal_FadeFromBlack.UpdateColour, Pal_1342C, $60, $F,2,$07	; MJ: 15 to 7
 off_13398:	C9PalInfo                      loc_1344C, Pal_1340C, $40, $F,4,7
 off_133A4:	C9PalInfo                      loc_1344C,  Pal_AD1E,   0, $F,8,7
 off_133B0:	C9PalInfo                      loc_1348A,  Pal_AD1E,   0, $F,8,7
@@ -26780,6 +26767,8 @@ TitleScreen_SetFinalState:
 -	move.l	(a1)+,(a2)+
 	dbf	d6,-
 
+	sf.b	(Object_RAM+($100+$32)).w			; set fade counter to 00 (finish)
+	
 	; Play title screen music if it isn't already playing.
 	tst.b	obj0e_music_playing(a0)
 	bne.s	+
