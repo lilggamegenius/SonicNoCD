@@ -35758,8 +35758,8 @@ Obj01_OutWater:
 	move.w	#$30,(Sonic_acceleration).w
 	move.w	#$100,(Sonic_deceleration).w
 +
-	cmpi.b	#4,routine(a0)	; is Sonic falling back from getting hurt?
-	beq.s	+		; if yes, branch
+	;cmpi.b	#4,routine(a0)	; is Sonic falling back from getting hurt?
+	;beq.s	+		; if yes, branch
 	asl	y_vel(a0)
 +
 	tst.w	y_vel(a0)
@@ -37469,6 +37469,7 @@ Obj01_Hurt_Normal:
 	bsr.w	Sonic_HurtStop
 	bsr.w	Sonic_LevelBound
 	bsr.w	Sonic_RecordPos
+	bsr.w	Sonic_Water
 	bsr.w	Sonic_Animate
 	bsr.w	LoadSonicDynPLC
 	jmp	(DisplaySprite).l
