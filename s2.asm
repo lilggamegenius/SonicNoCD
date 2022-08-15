@@ -24815,7 +24815,7 @@ Obj37_Init:
 -	bsr.w	SingleObjLoad
 	bne.w	+++
 +
-	_move.b	#ObjID_LostRings,id(a1) ; load obj37
+	_move.b	#ObjID_LostRings,id(a1) 		; load obj37
 	addq.b	#2,routine(a1)
 	move.b	#8,y_radius(a1)
 	move.b	#8,x_radius(a1)
@@ -24835,6 +24835,14 @@ Obj37_Init:
 	jsrto	CalcSine, JmpTo4_CalcSine
 	move.w	d4,d2
 	lsr.w	#8,d2
+	tst.b	(Water_flag).w				; Does the level have water?
+	beq.s	.skiphalvingvel				; If not, branch and skip underwater checks
+	move.w	(Water_Level_2).w,d6		; Move water level to d6
+	cmp.w	y_pos(a0),d6				; Is the ring object underneath the water level?
+	bgt.s	.skiphalvingvel				; If not, branch and skip underwater commands
+	asr.w	d0							; Half d0. Makes the ring's x_vel bounce to the left/right slower
+	asr.w	d1							; Half d1. Makes the ring's y_vel bounce up/down slower
+.skiphalvingvel:
 	asl.w	d2,d0
 	asl.w	d2,d1
 	move.w	d0,d2
@@ -24869,6 +24877,13 @@ Obj37_Main:
 	move.b	(Ring_spill_anim_frame).w,mapping_frame(a0)
 	bsr.w	ObjectMove
 	addi.w	#$18,y_vel(a0)
+	tst.b	(Water_flag).w				; Does the level have water?
+	beq.s	.skipbounceslow				; If not, branch and skip underwater checks
+	move.w	(Water_Level_2).w,d6		; Move water level to d6
+	cmp.w	y_pos(a0),d6				; Is the ring object underneath the water level?
+	bgt.s	.skipbounceslow				; If not, branch and skip underwater commands
+	subi.w	#$E,y_vel(a0)				; Reduce gravity by $E ($18-$E=$A), giving the underwater effect for the rings
+.skipbounceslow:
 	bmi.s	loc_121B8
 	move.b	(Vint_runcount+3).w,d0
 	add.b	d7,d0
