@@ -17,6 +17,8 @@
 ; >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 ; ASSEMBLY OPTIONS:
 ;
+
+MCDEnable = 0
 	include "s2.options.asm"
 ; >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 ; AS-specific macros and assembler settings
@@ -383,15 +385,17 @@ GameClrRAM:
 	bsr.w	JmpTo_SoundDriverLoad
 	bsr.w	JoypadInit
 	
-	bsr.w	FindMCDBIOS	; if bios found, clear carry and load pointer to it
-	bcs.w	ErrorTrap	; Error if no MCD is found
-	
-	lea		(SubCPU), a1
-	move.l	#SubCPU_Size, d0
-	bsr.w	InitSubCPU	
-	bne.w	ErrorTrap	; Error if failed
-	
-	bsr.w	SyncMCD
+	if MCDEnable=1
+		bsr.w	FindMCDBIOS	; if bios found, clear carry and load pointer to it
+		bcs.w	ErrorTrap	; Error if no MCD is found
+		
+		lea		(SubCPU), a1
+		move.l	#SubCPU_Size, d0
+		bsr.w	InitSubCPU	
+		bne.w	ErrorTrap	; Error if failed
+		
+		bsr.w	SyncMCD
+	endif
 	
 	move.b	#GameModeID_SegaScreen,(Game_Mode).w ; set Game Mode to Sega Screen
 ; loc_394:
@@ -453,7 +457,7 @@ LevelSelectMenu: ;;
 ; vertical and horizontal interrupt handlers
 ; VERTICAL INTERRUPT HANDLER:
 V_Int:
-	bsr.w	SendMCDInt2	; Sub CPU boot requires that we send it level 2 interrupt requests.
+	SendMCDInt2	; Sub CPU boot requires that we send it level 2 interrupt requests.
 	
 	movem.l	d0-a6,-(sp)
 	tst.b	(Vint_routine).w

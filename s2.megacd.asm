@@ -233,11 +233,10 @@ CopyPRGRAMData:
 ; Send a level 2 interrupt request to the Sub CPU
 ; -------------------------------------------------------------------------
 
-SendMCDInt2:
+SendMCDInt2 macro
 	bset	#0,CdSubCtrl							; Send interrupt request
-	rts
+	endm
 	
-
 ; -------------------------------------------------------------------------
 ; Perform SubCPU Handshake
 ; -------------------------------------------------------------------------
