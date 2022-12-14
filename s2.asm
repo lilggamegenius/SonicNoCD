@@ -18,13 +18,14 @@
 ; ASSEMBLY OPTIONS:
 ;
 
-MCDEnable = 0
+MCDEnable = 1
+EDDebug = 1
 	include "s2.options.asm"
 ; >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 ; AS-specific macros and assembler settings
 	CPU 68000
 	include "s2.macrosetup.asm"
-
+	
 ; >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 ; Simplifying macros and functions
 	include "s2.macros.asm"
@@ -50,7 +51,7 @@ Vectors:
 	dc.l EntryPoint		; Start of program
 	dc.l ErrorTrap		; Bus error
 	dc.l ErrorTrap		; Address error (4)
-	dc.l ErrorTrap		; Illegal instruction
+	dc.l BreakPointHandler		; Illegal instruction
 	dc.l ErrorTrap		; Division by zero
 	dc.l ErrorTrap		; CHK exception
 	dc.l ErrorTrap		; TRAPV exception (8)
@@ -141,6 +142,34 @@ ROMEndLoc:
 	dc.b "JUE             " ; Country code (region)
 EndOfHeader:
 
+	include "s2.mapper.asm"
+
+; ===========================================================================
+; Pause execution and wait for the debugger
+BreakPointHandler:
+.Setup:
+	if EDDebug
+	MapperEnable
+	move.l	6(sp), (.ScratchSpace)
+	movem.l	d0-a6,-(sp)
+.loop:
+	nop
+	nop
+	move.b	(RegSTE+1), d0
+	andi.b	#USB_RD_RDY, d0
+	beq.s	.loop
+	
+	MapperDisable
+	movem.l	(sp)+,d0-a6
+	rte
+.ScratchSpace:
+	ds.l	$1
+	else
+	
+	rte
+	
+	endif
+
 ; ===========================================================================
 ; Crash/Freeze the 68000. Note that the Z80 continues to run, so the music keeps playing.
 ; loc_200:
@@ -150,7 +179,6 @@ ErrorTrap:
 	nop				; delay
 	nop				; delay
 	bra.s	.loop	; Loop indefinitely.
-	
 
 ; ===========================================================================
 ; loc_206:
@@ -321,8 +349,6 @@ PSGInitValues_End:
 ; ===========================================================================
 
 	even
-	
-	include "s2.mapper.asm"
 	include "s2.megacd.asm"
 ; loc_300:
 GameProgram:
@@ -385,7 +411,7 @@ GameClrRAM:
 	bsr.w	JmpTo_SoundDriverLoad
 	bsr.w	JoypadInit
 	
-	if MCDEnable=1
+	if MCDEnable
 		bsr.w	FindMCDBIOS	; if bios found, clear carry and load pointer to it
 		bcs.w	ErrorTrap	; Error if no MCD is found
 		
@@ -398,6 +424,16 @@ GameClrRAM:
 	endif
 	
 	move.b	#GameModeID_SegaScreen,(Game_Mode).w ; set Game Mode to Sega Screen
+	
+; >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+; Start of debugger code. Only assembled when the debug flag is active
+
+	if EDDebug
+	bra.w	MainGameLoop ; This jump is only here because the debug code goes here
+	include "s2.debugger.asm"
+	endif
+	
+; ===========================================================================
 ; loc_394:
 MainGameLoop:
 	move.b	(Game_Mode).w,d0 ; load Game Mode
@@ -407,17 +443,17 @@ MainGameLoop:
 ; ===========================================================================
 ; loc_3A2:
 GameModesArray: ;;
-GameMode_SegaScreen:	bra.w	SegaScreen		; SEGA screen mode
-GameMode_TitleScreen:	bra.w	TitleScreen		; Title screen mode
-GameMode_Demo:		bra.w	Level			; Demo mode
-GameMode_Level:		bra.w	Level			; Zone play mode
-GameMode_SpecialStage:	bra.w	SpecialStage		; Special stage play mode
-GameMode_ContinueScreen:bra.w	ContinueScreen		; Continue mode
-GameMode_2PResults:	bra.w	TwoPlayerResults	; 2P results mode
-GameMode_2PLevelSelect:	bra.w	LevelSelectMenu2P	; 2P level select mode
+GameMode_SegaScreen:	bra.w	SegaScreen				; SEGA screen mode
+GameMode_TitleScreen:	bra.w	TitleScreen				; Title screen mode
+GameMode_Demo:			bra.w	Level					; Demo mode
+GameMode_Level:			bra.w	Level					; Zone play mode
+GameMode_SpecialStage:	bra.w	SpecialStage			; Special stage play mode
+GameMode_ContinueScreen:bra.w	ContinueScreen			; Continue mode
+GameMode_2PResults:		bra.w	TwoPlayerResults		; 2P results mode
+GameMode_2PLevelSelect:	bra.w	LevelSelectMenu2P		; 2P level select mode
 GameMode_EndingSequence:bra.w	JmpTo_EndingSequence	; End sequence mode
-GameMode_OptionsMenu:	bra.w	OptionsMenu		; Options mode
-GameMode_LevelSelect:	bra.w	LevelSelectMenu		; Level select mode
+GameMode_OptionsMenu:	bra.w	OptionsMenu				; Options mode
+GameMode_LevelSelect:	bra.w	LevelSelectMenu			; Level select mode
 ; ===========================================================================
     if skipChecksumCheck=0	; checksum error code
 ; loc_3CE:
@@ -453,13 +489,19 @@ LevelSelectMenu: ;;
 	jmp	(MenuScreen).l
 ; ===========================================================================
 
+
 ; >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 ; vertical and horizontal interrupt handlers
 ; VERTICAL INTERRUPT HANDLER:
 V_Int:
-	SendMCDInt2	; Sub CPU boot requires that we send it level 2 interrupt requests.
+	SendMCDInt2						; Sub CPU boot requires that we send it level 2 interrupt requests.
 	
 	movem.l	d0-a6,-(sp)
+	
+	if EDDebug
+		bsr.w EDDebugger
+	endif
+	
 	tst.b	(Vint_routine).w
 	beq.w	Vint_Lag
 
@@ -1290,7 +1332,6 @@ VDP_ClrCRAM:
 	dbf	d7,VDP_ClrCRAM	; clear	the CRAM
 
 	clr.l	(Vscroll_Factor).w
-	clr.l	(unk_F61A).w
 	move.l	d1,-(sp)
 
 	dmaFillVRAM 0,$0000,$10000	; fill entire VRAM with 0
@@ -1339,7 +1380,6 @@ ClearScreen:
 	dmaFillVRAM 0,VRAM_Plane_A_Name_Table_2P,VRAM_Plane_Table_Size
 +
 	clr.l	(Vscroll_Factor).w
-	clr.l	(unk_F61A).w
 
 	; These '+4's shouldn't be here; clearRAM accidentally clears an additional 4 bytes
 	clearRAM Sprite_Table,Sprite_Table_End+4
@@ -4126,14 +4166,14 @@ TitleScreen:
 	bsr.w	NemDec
 
 	; Clear some variables.
-	move.b	#0,(Last_star_pole_hit).w
-	move.b	#0,(Last_star_pole_hit_2P).w
-	move.w	#0,(Debug_placement_mode).w
-	move.w	#0,(Demo_mode_flag).w
-	move.w	#0,(unk_FFDA).w
-	move.w	#0,(PalCycle_Timer).w
-	move.w	#0,(Two_player_mode).w
-	move.b	#0,(Level_started_flag).w
+	moveq	#0, d0
+	move.b	d0, (Last_star_pole_hit).w
+	move.b	d0, (Last_star_pole_hit_2P).w
+	move.b	d0, (Debug_placement_mode).w
+	move.w	d0, (Demo_mode_flag).w
+	move.w	d0, (PalCycle_Timer).w
+	move.w	d0, (Two_player_mode).w
+	move.b	d0, (Level_started_flag).w
 
 	; And finally fade out.
 	bsr.w	Pal_FadeToBlack
@@ -4347,7 +4387,8 @@ TitleScreen_Loop:
 	move.w	d0,(Current_Special_StageAndAct).w
 	move.w	d0,(Got_Emerald).w
 	move.l	d0,(Got_Emeralds_array).w
-	move.l	d0,(Got_Emeralds_array+4).w
+	move.w	d0,(Got_Emeralds_array+4).w
+	move.b	d0,(Got_Emeralds_array+6).w
 	rts
 ; ===========================================================================
 ; loc_3CF6:
@@ -4362,7 +4403,8 @@ TitleScreen_CheckIfChose2P:
 	moveq	#0,d0
 	move.w	d0,(Got_Emerald).w
 	move.l	d0,(Got_Emeralds_array).w
-	move.l	d0,(Got_Emeralds_array+4).w
+	move.w	d0,(Got_Emeralds_array+4).w
+	move.b	d0,(Got_Emeralds_array+6).w
 
 	move.b	#GameModeID_2PLevelSelect,(Game_Mode).w ; => LevelSelectMenu2P
 	move.b	#emerald_hill_zone,(Current_Zone_2P).w
@@ -4782,7 +4824,7 @@ Level_FromCheckpoint:
 	move.b	d0,(Time_Over_flag_2P).w
 	move.b	d0,(SlotMachine_Routine).w
 	move.w	d0,(SlotMachineInUse).w
-	move.w	d0,(Debug_placement_mode).w
+	move.b	d0,(Debug_placement_mode).w
 	move.w	d0,(Level_Inactive_flag).w
 	move.b	d0,(Teleport_timer).w
 	move.b	d0,(Teleport_flag).w
@@ -4877,6 +4919,7 @@ Level_FromCheckpoint:
 ; ---------------------------------------------------------------------------
 ; loc_4360:
 Level_MainLoop:
+	;illegal
 	bsr.w	PauseGame
 	move.b	#VintID_Level,(Vint_routine).w
 	bsr.w	WaitForVint
@@ -5236,7 +5279,7 @@ windtunnel_max_y_pos	= 6
 
 ; sub_460A:
 WindTunnel:
-	tst.w	(Debug_placement_mode).w
+	tst.b	(Debug_placement_mode).w
 	bne.w	WindTunnel_End	; don't interact with wind tunnels while in debug mode
 	lea	(WindTunnelsCoordinates).l,a2
 	moveq	#(WindTunnelsCoordinates_End-WindTunnelsCoordinates)/8-1,d1
@@ -5905,7 +5948,7 @@ LevelEnd_SetSignpost:
 CheckLoadSignpostArt:
 	tst.w	(Level_Has_Signpost).w
 	beq.s	+	; rts
-	tst.w	(Debug_placement_mode).w
+	tst.b	(Debug_placement_mode).w
 	bne.s	+	; rts
 	move.w	(Camera_X_pos).w,d0
 	move.w	(Camera_Max_X_pos).w,d1
@@ -6373,7 +6416,6 @@ SpecialStage:
 	dmaFillVRAM 0,VRAM_SS_Horiz_Scroll_Table,VRAM_SS_Horiz_Scroll_Table_Size  ; clear Horizontal scroll table
 
 	clr.l	(Vscroll_Factor).w
-	clr.l	(unk_F61A).w
 	clr.b	(SpecialStage_Started).w
 
 ; /------------------------------------------------------------------------\
@@ -11978,7 +12020,8 @@ OptionScreen_Select:
 	move.w	d0,(Current_Special_StageAndAct).w
 	move.w	d0,(Got_Emerald).w
 	move.l	d0,(Got_Emeralds_array).w
-	move.l	d0,(Got_Emeralds_array+4).w
+	move.w	d0,(Got_Emeralds_array+4).w
+	move.b	d0,(Got_Emeralds_array+6).w
     endif
 	move.b	#GameModeID_Level,(Game_Mode).w ; => Level (Zone play mode)
 	rts
@@ -11998,7 +12041,8 @@ OptionScreen_Select_Not1P:
 	; similar logic in the title screen, which doesn't make this mistake.
 	move.w	d0,(Got_Emerald).w
 	move.l	d0,(Got_Emeralds_array).w
-	move.l	d0,(Got_Emeralds_array+4).w
+	move.w	d0,(Got_Emeralds_array+4).w
+	move.b	d0,(Got_Emeralds_array+6).w
     endif
 	move.b	#GameModeID_2PLevelSelect,(Game_Mode).w ; => LevelSelectMenu2P
 	move.b	#0,(Current_Zone_2P).w
@@ -12855,7 +12899,6 @@ EndingSequence:
 	stopZ80
 	dmaFillVRAM 0,VRAM_Plane_A_Name_Table,VRAM_Plane_Table_Size ; clear Plane A pattern name table
 	clr.l	(Vscroll_Factor).w
-	clr.l	(unk_F61A).w
 	startZ80
 
 	lea	(VDP_control_port).l,a6
@@ -12929,7 +12972,7 @@ EndingSequence:
 
 	clr.b	(Screen_Shaking_Flag).w
 	moveq	#0,d0
-	move.w	d0,(Debug_placement_mode).w
+	move.b	d0,(Debug_placement_mode).w
 	move.w	d0,(Level_Inactive_flag).w
 	move.w	d0,(Timer_frames).w
 	move.w	d0,(Camera_X_pos).w
@@ -14579,13 +14622,10 @@ LevelSizeLoad:
 	lea	LevelSize(pc,d0.w),a0
 	move.l	(a0)+,d0
 	move.l	d0,(Camera_Min_X_pos).w
-	move.l	d0,(unk_EEC0).w	; unused besides this one write...
 	move.l	d0,(Tails_Min_X_pos).w
 	move.l	(a0)+,d0
 	move.l	d0,(Camera_Min_Y_pos).w
-	; Warning: unk_EEC4 is only a word long, this line also writes to Camera_Max_Y_pos
-	; If you remove this instruction, the camera will scroll up until it kills Sonic
-	move.l	d0,(unk_EEC4).w	; unused besides this one write...
+	move.w	d0,(Camera_Max_Y_pos).w
 	move.l	d0,(Tails_Min_Y_pos).w
 	move.w	#$1010,(Horiz_block_crossed_flag).w
 	move.w	#(224/2)-16,(Camera_Y_pos_bias).w
@@ -14965,7 +15005,7 @@ DeformBgLayer:
 	; Sky Chase Zone handles scrolling manually, in 'SwScrl_SCZ'.
 	cmpi.b	#sky_chase_zone,(Current_Zone).w
 	bne.w	+
-	tst.w	(Debug_placement_mode).w
+	tst.b	(Debug_placement_mode).w
 	beq.w	loc_C4D0
 +
 	tst.b	(Scroll_lock).w
@@ -17649,7 +17689,7 @@ SwScrl_ARZ_RowHeights:
 ; ===========================================================================
 ; loc_D5DE:
 SwScrl_SCZ:
-	tst.w	(Debug_placement_mode).w
+	tst.b	(Debug_placement_mode).w
 	bne.w	SwScrl_Minimal
 
 	; Set the flags to dynamically load the foreground manually. This is
@@ -18285,7 +18325,7 @@ SetHorizScrollFlagsBG2:	; only used by CPZ
 
 ; ===========================================================================
 ; some apparently unused code
-;SetHorizScrollFlagsBG3:
+SetHorizScrollFlagsBG3:
 	move.l	(Camera_BG3_X_pos).w,d2
 	move.l	d2,d0
 	add.l	d4,d0
@@ -18308,21 +18348,6 @@ SetHorizScrollFlagsBG2:	; only used by CPZ
 +
 	rts
 ; ===========================================================================
-; Unused - dead code leftover from S1:
-	lea	(VDP_control_port).l,a5
-	lea	(VDP_data_port).l,a6
-	lea	(Scroll_flags_BG).w,a2
-	lea	(Camera_BG_X_pos).w,a3
-	lea	(Level_Layout+$80).w,a4
-	move.w	#vdpComm(VRAM_Plane_B_Name_Table,VRAM,WRITE)>>16,d2
-	bsr.w	Draw_BG1
-	lea	(Scroll_flags_BG2).w,a2
-	lea	(Camera_BG2_X_pos).w,a3
-	bra.w	Draw_BG2
-
-; ===========================================================================
-
-
 
 
 ; ---------------------------------------------------------------------------
@@ -22472,7 +22497,7 @@ loc_FF6E:
 	addi.w	#$20,d0
 	cmpi.w	#$40,d0
 	bhs.s	loc_10006
-	tst.w	(Debug_placement_mode).w
+	tst.b	(Debug_placement_mode).w
 	bne.w	loc_10006
 	move.b	#1,objoff_34(a0)
 +
@@ -31884,7 +31909,6 @@ SpecialCNZBumpers_Init:
 	bhi.s	-
 	move.l	a1,(CNZ_Visible_bumpers_end).w
 	move.l	a1,(CNZ_Visible_bumpers_end_P2).w
-	move.b	#1,(CNZ_Bumper_UnkFlag).w
 	rts
 ; ===========================================================================
 ; loc_17422:
@@ -32129,19 +32153,15 @@ loc_175EA:
 	move.w	x_vel(a0),d1
 	move.w	y_vel(a0),d2
 	jsr	(CalcAngle).l
-	move.b	d0,(unk_FFDC).w
 	sub.w	d3,d0
 	mvabs.w	d0,d1
 	neg.w	d0
 	add.w	d3,d0
-	move.b	d0,(unk_FFDD).w
-	move.b	d1,(unk_FFDF).w
 	cmpi.b	#$38,d1
 	blo.s	loc_17618
 	move.w	d3,d0
 
 loc_17618:
-	move.b	d0,(unk_FFDE).w
 	jsr	(CalcSine).l
 	muls.w	#-$A00,d1
 	asr.l	#8,d1
@@ -34271,7 +34291,7 @@ Obj0D_RingSparklePositions:
 ; ===========================================================================
 ; loc_19418:
 Obj0D_Main_State3:
-	tst.w	(Debug_placement_mode).w
+	tst.b	(Debug_placement_mode).w
 	bne.w	return_194D0
     if fixBugs
 	; This function's checks are a mess, creating an edgecase where it's
@@ -34836,7 +34856,7 @@ SolidObject_ChkBounds:
 	bmi.w	SolidObject_TestClearPush	; Branch if object collisions are disabled for Sonic.
 	cmpi.b	#6,routine(a1)			; Is Sonic dead?
 	bhs.w	SolidObject_NoCollision		; If yes, branch.
-	tst.w	(Debug_placement_mode).w
+	tst.b	(Debug_placement_mode).w
 	bne.w	SolidObject_NoCollision		; Branch if in Debug Mode.
 
 	move.w	d0,d5
@@ -35064,7 +35084,7 @@ loc_19BA2:
 	bmi.s	return_19BCA
 	cmpi.b	#6,routine(a1)
 	bhs.s	return_19BCA
-	tst.w	(Debug_placement_mode).w
+	tst.b	(Debug_placement_mode).w
 	bne.s	return_19BCA
 	moveq	#0,d1
 	move.b	y_radius(a1),d1
@@ -35503,7 +35523,7 @@ loc_19F4C:
 ; Sprite_19F50: Object_Sonic:
 Obj01:
 	; a0=character
-	tst.w	(Debug_placement_mode).w	; is debug mode being used?
+	tst.b	(Debug_placement_mode).w	; is debug mode being used?
 	beq.s	Obj01_Normal			; if not, branch
 	jmp	(DebugMode).l
 ; ---------------------------------------------------------------------------
@@ -35574,7 +35594,7 @@ Obj01_Control:
 	beq.s	+			; if not, branch
 	btst	#button_B,(Ctrl_1_Press).w	; is button B pressed?
 	beq.s	+			; if not, branch
-	move.w	#1,(Debug_placement_mode).w	; change Sonic into a ring/item
+	move.b	#1,(Debug_placement_mode).w	; change Sonic into a ring/item
 	clr.b	(Control_Locked).w		; unlock control
 	rts
 ; -----------------------------------------------------------------------
@@ -37456,7 +37476,7 @@ Obj01_Hurt:
 	beq.s	Obj01_Hurt_Normal
 	btst	#button_B,(Ctrl_1_Press).w
 	beq.s	Obj01_Hurt_Normal
-	move.w	#1,(Debug_placement_mode).w
+	move.b	#1,(Debug_placement_mode).w
 	clr.b	(Control_Locked).w
 	rts
 ; ---------------------------------------------------------------------------
@@ -37527,7 +37547,7 @@ Obj01_Dead:
 	beq.s	+
 	btst	#button_B,(Ctrl_1_Press).w
 	beq.s	+
-	move.w	#1,(Debug_placement_mode).w
+	move.b	#1,(Debug_placement_mode).w
 	clr.b	(Control_Locked).w
 	rts
 +
@@ -43763,7 +43783,7 @@ loc_1F120:
 
 ; loc_1F12C:
 Obj79_Main:
-	tst.w	(Debug_placement_mode).w
+	tst.b	(Debug_placement_mode).w
 	bne.w	Obj79_Animate
 	lea	(MainCharacter).w,a3 ; a3=character
 	move.b	(Last_star_pole_hit).w,d1
@@ -44162,7 +44182,7 @@ Obj7D_Init:
 	add.w	d2,d1
 	cmp.w	d3,d1
 	bhs.s	Obj7D_NoAdd
-	tst.w	(Debug_placement_mode).w
+	tst.b	(Debug_placement_mode).w
 	bne.s	Obj7D_NoAdd
 	tst.b	(SpecialStage_flag_2P).w
 	bne.s	Obj7D_NoAdd
@@ -44859,7 +44879,7 @@ Obj03_Init_CheckX:
 
 ; loc_1FDA4:
 Obj03_MainX:
-	tst.w	(Debug_placement_mode).w
+	tst.b	(Debug_placement_mode).w
 	bne.w	return_1FEAC
 	move.w	x_pos(a0),d1
 	lea	objoff_34(a0),a2
@@ -44941,7 +44961,7 @@ return_1FEAC:
 ; ===========================================================================
 
 Obj03_MainY:
-	tst.w	(Debug_placement_mode).w
+	tst.b	(Debug_placement_mode).w
 	bne.w	return_1FFB6
 	move.w	y_pos(a0),d1
 	lea	objoff_34(a0),a2
@@ -45716,7 +45736,7 @@ Obj31_Init:
     else
 	; This dumb code is a workaround for the bug below.
 	move.l	#Obj31_MapUnc_20E6C,mappings(a0)
-	tst.w	(Debug_placement_mode).w
+	tst.b	(Debug_placement_mode).w
 	beq.s	+
 	move.l	#Obj31_MapUnc_20E74,mappings(a0)
 +
@@ -45744,7 +45764,7 @@ Obj31_Main:
 	cmpi.w	#$280,d0
 	bhi.w	JmpTo18_DeleteObject
 +
-	tst.w	(Debug_placement_mode).w
+	tst.b	(Debug_placement_mode).w
 	beq.s	+	; rts
 	jsrto	DisplaySprite, JmpTo10_DisplaySprite
 +
@@ -45819,7 +45839,7 @@ Obj74_Main:
     if gameRevision=0
     ; this object was visible with debug mode in REV00
 +
-	tst.w	(Debug_placement_mode).w
+	tst.b	(Debug_placement_mode).w
 	beq.s	+	; rts
 	jmp	(DisplaySprite).l
     endif
@@ -46026,7 +46046,7 @@ Obj84_Init_CheckX:
 ; loc_21224:
 Obj84_MainX:
 
-	tst.w	(Debug_placement_mode).w
+	tst.b	(Debug_placement_mode).w
 	bne.s	return_21284
 	move.w	x_pos(a0),d1
 	lea	objoff_34(a0),a2 ; a2=object
@@ -46103,7 +46123,7 @@ loc_212C4:
 ; loc_212F6:
 Obj84_MainY:
 
-	tst.w	(Debug_placement_mode).w
+	tst.b	(Debug_placement_mode).w
 	bne.s	return_21350
 	move.w	y_pos(a0),d1
 	lea	objoff_34(a0),a2 ; a2=object
@@ -46212,7 +46232,7 @@ loc_21402:
 	move.b	#1,objoff_35(a0)
 ; loc_21412:
 Obj8B_Main:
-	tst.w	(Debug_placement_mode).w
+	tst.b	(Debug_placement_mode).w
 	bne.s	return_2146A
 	move.w	x_pos(a0),d1
 	lea	objoff_34(a0),a2 ; a2=object
@@ -47792,7 +47812,7 @@ Obj1E_Modes:	offsetTable
 ; ===========================================================================
 
 loc_225FC:
-	tst.w	(Debug_placement_mode).w
+	tst.b	(Debug_placement_mode).w
 	bne.w	return_22718
 	move.w	objoff_2A(a0),d2
 	move.w	x_pos(a1),d0
@@ -49507,7 +49527,7 @@ Obj07_Init:
 ; loc_24054:
 Obj07_Main:
 	; check player 1
-	tst.w	(Debug_placement_mode).w
+	tst.b	(Debug_placement_mode).w
 	bne.w	Obj07_End
 	lea	(MainCharacter).w,a1 ; a1=character
 	moveq	#p1_standing,d1
@@ -50735,7 +50755,7 @@ Obj48_Modes:	offsetTable
 ; ===========================================================================
 
 loc_252F0:
-	tst.w	(Debug_placement_mode).w
+	tst.b	(Debug_placement_mode).w
 	bne.w	return_253C4
 	move.w	x_pos(a1),d0
 	sub.w	x_pos(a0),d0
@@ -50754,7 +50774,7 @@ loc_252F0:
 +
 	cmpi.b	#6,routine(a1)
 	bhs.w	return_253C4
-	tst.w	(Debug_placement_mode).w
+	tst.b	(Debug_placement_mode).w
 	bne.w	return_253C4
 	btst	#3,status(a1)
 	beq.s	+
@@ -51175,7 +51195,7 @@ Obj23_Modes:	offsetTable
 ; ===========================================================================
 
 loc_2595E:
-	tst.w	(Debug_placement_mode).w
+	tst.b	(Debug_placement_mode).w
 	bne.s	return_2598C
 	lea	(MainCharacter).w,a1 ; a1=character
 	bsr.s	loc_2596E
@@ -51330,7 +51350,7 @@ off_25B36:	offsetTable
 ; ===========================================================================
 
 loc_25B3C:
-	tst.w	(Debug_placement_mode).w
+	tst.b	(Debug_placement_mode).w
 	bne.s	return_25B64
 	lea	(MainCharacter).w,a1 ; a1=character
 	bsr.s	loc_25B4C
@@ -51537,7 +51557,7 @@ Obj2C_Main:
 	bhi.w	JmpTo29_DeleteObject
     if fixBugs
 	; This object never actually displays itself, even in Debug Mode.
-	tst.w	(Debug_placement_mode).w
+	tst.b	(Debug_placement_mode).w
 	beq.s	+
 	jsr	(DisplaySprite).l
 +
@@ -52831,7 +52851,7 @@ loc_2702C:
 	bhi.w	JmpTo33_DeleteObject
     if gameRevision=0
        ; this object was visible with debug mode in REV00
-	tst.w	(Debug_placement_mode).w
+	tst.b	(Debug_placement_mode).w
 	beq.s	+	; rts
 	jsrto	DisplaySprite, JmpTo47_DisplaySprite
 +
@@ -52988,7 +53008,7 @@ off_271CA:	offsetTable
 ; ===========================================================================
 
 loc_271D0:
-	tst.w	(Debug_placement_mode).w
+	tst.b	(Debug_placement_mode).w
 	bne.w	return_2725E
 	move.w	x_pos(a1),d0
 	sub.w	x_pos(a0),d0
@@ -56329,7 +56349,7 @@ loc_29890:
 	bmi.s	return_29936
 	cmpi.b	#4,routine(a1)
 	bhs.s	return_29936
-	tst.w	(Debug_placement_mode).w
+	tst.b	(Debug_placement_mode).w
 	bne.s	return_29936
 	clr.w	x_vel(a1)
 	clr.w	y_vel(a1)
@@ -56565,7 +56585,7 @@ loc_29B5E:
 	bmi.s	return_29BF8
 	cmpi.b	#4,routine(a1)
 	bhs.s	return_29BF8
-	tst.w	(Debug_placement_mode).w
+	tst.b	(Debug_placement_mode).w
 	bne.s	return_29BF8
 	clr.w	x_vel(a1)
 	clr.w	y_vel(a1)
@@ -57813,7 +57833,7 @@ loc_2AD26:
 	bne.s	loc_2AD7A
 
 loc_2AD2A:
-	tst.w	(Debug_placement_mode).w
+	tst.b	(Debug_placement_mode).w
 	bne.s	return_2AD78
 	tst.w	y_vel(a1)
 	bmi.s	return_2AD78
@@ -57970,7 +57990,7 @@ return_2AF04:
 loc_2AF06:
 	move.b	(a2),d0
 	bne.s	loc_2AF7A
-	tst.w	(Debug_placement_mode).w
+	tst.b	(Debug_placement_mode).w
 	bne.s	return_2AF78
 	tst.w	y_vel(a1)
 	bmi.s	return_2AF78
@@ -58143,7 +58163,7 @@ Obj86_Init:
 ; ===========================================================================
 ; loc_2B194:
 Obj86_UpwardsType:
-	tst.w	(Debug_placement_mode).w
+	tst.b	(Debug_placement_mode).w
 	bne.s	return_2B208
 	lea	(byte_2B3C6).l,a2
 	move.b	mapping_frame(a0),d0
@@ -60233,7 +60253,7 @@ loc_2C9A0:
 	bmi.s	ObjD9_CheckCharacter_End
 	cmpi.b	#6,routine(a1)
 	bhs.s	ObjD9_CheckCharacter_End
-	tst.w	(Debug_placement_mode).w
+	tst.b	(Debug_placement_mode).w
 	bne.s	ObjD9_CheckCharacter_End
 	clr.w	x_vel(a1)
 	clr.w	y_vel(a1)
@@ -73735,7 +73755,7 @@ loc_371E8:
 loc_371FA:
 	cmpi.w	#$50,d0
 	bhs.s	loc_3720C
-	tst.w	(Debug_placement_mode).w
+	tst.b	(Debug_placement_mode).w
 	bne.s	loc_3720C
 	move.b	#1,anim(a0)
 
@@ -78378,7 +78398,7 @@ ObjB2_Init:
 ; loc_3A7DE:
 ObjB2_Main_SCZ:
 	bsr.w	ObjB2_Animate_Pilot
-	tst.w	(Debug_placement_mode).w
+	tst.b	(Debug_placement_mode).w
 	bne.w	ObjB2_animate
 	lea	(MainCharacter).w,a1 ; a1=character
 	move.w	art_tile(a1),d0
@@ -85203,7 +85223,7 @@ Hurt_Sound:
 
 ; loc_3F926: KillSonic:
 KillCharacter:
-	tst.w	(Debug_placement_mode).w
+	tst.b	(Debug_placement_mode).w
 	bne.s	++
 	clr.b	status_secondary(a0)
 	move.b	#6,routine(a0)
@@ -88342,7 +88362,7 @@ Debug_ExitDebugMode:
 	beq.s	return_41CB6
 	; Exit debug mode
 	moveq	#0,d0
-	move.w	d0,(Debug_placement_mode).w
+	move.b	d0,(Debug_placement_mode).w
 	lea	(MainCharacter).w,a1 ; a1=character
 	move.l	#MapUnc_Sonic,mappings(a1)
 	move.w	#make_art_tile(ArtTile_ArtUnc_Sonic,0,0),art_tile(a1)

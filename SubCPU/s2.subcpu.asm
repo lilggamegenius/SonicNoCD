@@ -33,6 +33,8 @@ Init:
 	spinWaitTst.b	(CdCommMainflag)			; Is the Main CPU ready to send commands?
 	
 	move.b    #1,(CdCommSubflag)				; Mark as ready to retrieve commands
+	
+	move.w		#$02, (RAM.CDTrack)
 	rts
 	
 Main:
@@ -41,14 +43,14 @@ Main:
 	lea		(InitParams), 	a0
 	BIOS_DRVINIT
 	
-    ;BIOS_CDBSTAT								; Check the BIOS
-    ;move.w    (a0),d0
-    ;andi.w    #$F000,d0							; Is it ready?
-    ;bne.s    .loop								; If not, wait
+    BIOS_CDBSTAT								; Check the BIOS
+    move.w    (a0),d0
+    andi.w    #$F000,d0							; Is it ready?
+    bne.s    .loop								; If not, wait
 	
 	
-	;lea		(InitialTrack), a0
-	;BIOS_MSCPLAYR
+	lea		(RAM.CDTrack), a0
+	BIOS_MSCPLAYR
 	bra.w *
 	rts
 	
@@ -57,11 +59,7 @@ L2Int:
 	
 UserDefined:
 	rts
-
 	
 InitParams:
-	dc.b	$41									; Track # to read TOC from (normally $01)
-	dc.b	$FF									; Last track # ($FF = read all tracks)
+	dc.b	$01, $FF
 	
-InitialTrack:
-	dc.w	$02	

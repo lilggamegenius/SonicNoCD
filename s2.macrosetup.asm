@@ -65,6 +65,9 @@ paddingSoFar		set paddingSoFar+1
 ; make ds work in Z80 code without creating a new segment
 ds macro
 	if notZ80(MOMCPU)
+		if ("ATTRIBUTE"<>"b") && ((*)&1) && (ALLARGS<>0)
+			warning "Attempting to create word at odd address $\{*}"
+		endif
 		!ds.ATTRIBUTE ALLARGS
 	else
 		rept ALLARGS

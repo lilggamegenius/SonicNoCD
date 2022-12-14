@@ -32,7 +32,9 @@ CdCommSub8		=	CdRegisters+$2E  ; Sub-CPU to Main-CPU port #8
 
 
 	phase	ramaddr($FF0C0000)	; Pretend we're in the RAM
-RAM_Start:
+RAM:
+
+.CDTrack:		ds.w	$01	
 	
 RAM_End:
 

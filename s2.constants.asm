@@ -1100,10 +1100,10 @@ Tails_InvincibilityStars:
 				ds.b	object_size
 LevelOnly_Object_RAM_End:
 
-				ds.b	$200	; unused
-
 Primary_Collision:		ds.b	$300
 Secondary_Collision:		ds.b	$300
+
+				ds.b	$200 ; Empty space
 
 SS_Shared_RAM_End:
 
@@ -1115,7 +1115,6 @@ Sprite_Table_2:			ds.b	$280	; Sprite attribute table buffer for the bottom split
 
 Horiz_Scroll_Buf:		ds.l	224
 				ds.l	16 	; A bug/optimisation in 'Swscrl_CPZ' causes 'Horiz_Scroll_Buf' to overflow into this.
-				ds.b	$40	; unused
 Horiz_Scroll_Buf_End:
 
 Sonic_Stat_Record_Buf:		ds.b	$100
@@ -1128,7 +1127,6 @@ Tails_Pos_Record_Buf_End:
 
 CNZ_saucer_data:		ds.b	$40	; the number of saucer bumpers in a group which have been destroyed. Used to decide when to give 500 points instead of 10
 CNZ_saucer_data_End:
-				ds.b	$C0	; $FFFFE740-$FFFFE7FF ; unused as far as I can tell
 Ring_Positions:			ds.b	$600
 Ring_Positions_End:
 
@@ -1292,8 +1290,6 @@ Underwater_palette:		ds.b palette_line_size	; main palette for underwater parts 
 Underwater_palette_line2:	ds.b palette_line_size
 Underwater_palette_line3:	ds.b palette_line_size
 Underwater_palette_line4:	ds.b palette_line_size
-
-				ds.b	$500	; $FFFFF100-$FFFFF5FF ; unused, leftover from the Sonic 1 sound driver (and used by it when you port it to Sonic 2)
 
 Game_Mode:			ds.b	1	; see GameModesArray (master level trigger, Mstr_Lvl_Trigger)
 				ds.b	1	; unused
@@ -1781,11 +1777,6 @@ Correct_cheat_entries:		ds.w	1
 Correct_cheat_entries_2:	ds.w	1	; for 14 continues or 7 emeralds codes
 
 Two_player_mode:		ds.w	1	; flag (0 for main game)
-unk_FFDA:			ds.w	1	; Written to once at title screen, never read from
-unk_FFDC:			ds.b	1	; Written to near loc_175EA, never read from
-unk_FFDD:			ds.b	1	; Written to near loc_175EA, never read from
-unk_FFDE:			ds.b	1	; Written to near loc_175EA, never read from
-unk_FFDF:			ds.b	1	; Written to near loc_175EA, never read from
 
 ; Values in these variables are passed to the sound driver during V-INT.
 ; They use a playlist index, not a sound test index.
@@ -1977,10 +1968,9 @@ SS_NoRingsTogoLifetime:			ds.w	1
 SS_RingsToGoBCD:			ds.w	1
 SS_HideRingsToGo:			ds.b	1
 SS_TriggerRingsToGo:			ds.b	1
-					ds.b	$58	; unused
 
     if * > SS_Shared_RAM_End
-	fatal "Special stage variables exceed size of shared RAM."
+	fatal "Special stage variables exceed size of shared RAM by $\{* - SS_Shared_RAM_End} bytes"
     endif
 	dephase
 
@@ -1996,7 +1986,7 @@ SS_Offset_Y:			ds.w	1
 SS_Swap_Positions_Flag:	ds.b	1
 
     if * > Boss_variables_end
-	fatal "Special stage variables exceed size of boss variables."
+	fatal "Special stage variables exceed size of boss variables by $\{* - Boss_variables_end} bytes"
     endif
 	dephase
 
@@ -2010,7 +2000,7 @@ ContinueText:			; "CONTINUE" on the Continue screen
 ContinueIcons:			; The icons in the Continue screen
 				ds.b	$D*object_size
     if * > Object_RAM_End
-	fatal "Continue screen objects exceed size of object RAM buffer."
+	fatal "Continue screen objects exceed size of object RAM buffer by $\{* - Object_RAM_End} bytes"
     endif
 	dephase
 
@@ -2019,7 +2009,7 @@ ContinueIcons:			; The icons in the Continue screen
 VSResults_HUD:			; Blinking text at the bottom of the screen
 				ds.b	object_size
     if * > Object_RAM_End
-	fatal "2P VS results screen objects exceed size of object RAM buffer."
+	fatal "2P VS results screen objects exceed size of object RAM buffer by $\{* - Object_RAM_End} bytes"
     endif
 	dephase
 
@@ -2027,7 +2017,7 @@ VSResults_HUD:			; Blinking text at the bottom of the screen
 	phase	Object_RAM	; Move back to the object RAM
 				; No objects are loaded in the menu screens
     if * > Object_RAM_End
-	fatal "Menu screen objects exceed size of object RAM buffer."
+	fatal "Menu screen objects exceed size of object RAM buffer by $\{* - Object_RAM_End} bytes"
     endif
 	dephase
 
@@ -2044,7 +2034,7 @@ CutScene:
 				ds.b	object_size
 
     if * > Object_RAM_End
-	fatal "Ending sequence objects exceed size of object RAM buffer."
+	fatal "Ending sequence objects exceed size of object RAM buffer by $\{* - Object_RAM_End} bytes"
     endif
 	dephase		; Stop pretending
 
