@@ -47,74 +47,74 @@ StartOfRom:
 	fatal "StartOfRom was $\{*} but it should be 0"
     endif
 Vectors:
-	dc.l System_Stack	; Initial stack pointer value
-	dc.l EntryPoint		; Start of program
-	dc.l ErrorTrap		; Bus error
-	dc.l ErrorTrap		; Address error (4)
-	dc.l BreakPointHandler		; Illegal instruction
-	dc.l ErrorTrap		; Division by zero
-	dc.l ErrorTrap		; CHK exception
-	dc.l ErrorTrap		; TRAPV exception (8)
-	dc.l ErrorTrap		; Privilege violation
-	dc.l ErrorTrap		; TRACE exception
-	dc.l ErrorTrap		; Line-A emulator
-	dc.l ErrorTrap		; Line-F emulator (12)
-	dc.l ErrorTrap		; Unused (reserved)
-	dc.l ErrorTrap		; Unused (reserved)
-	dc.l ErrorTrap		; Unused (reserved)
-	dc.l ErrorTrap		; Unused (reserved) (16)
-	dc.l ErrorTrap		; Unused (reserved)
-	dc.l ErrorTrap		; Unused (reserved)
-	dc.l ErrorTrap		; Unused (reserved)
-	dc.l ErrorTrap		; Unused (reserved) (20)
-	dc.l ErrorTrap		; Unused (reserved)
-	dc.l ErrorTrap		; Unused (reserved)
-	dc.l ErrorTrap		; Unused (reserved)
-	dc.l ErrorTrap		; Unused (reserved) (24)
-	dc.l ErrorTrap		; Spurious exception
-	dc.l ErrorTrap		; IRQ level 1
-	dc.l ErrorTrap		; IRQ level 2
-	dc.l ErrorTrap		; IRQ level 3 (28)
-	dc.l H_Int			; IRQ level 4 (horizontal retrace interrupt)
-	dc.l ErrorTrap		; IRQ level 5
-	dc.l V_Int			; IRQ level 6 (vertical retrace interrupt)
-	dc.l ErrorTrap		; IRQ level 7 (32)
-	dc.l ErrorTrap		; TRAP #00 exception
-	dc.l ErrorTrap		; TRAP #01 exception
-	dc.l ErrorTrap		; TRAP #02 exception
-	dc.l ErrorTrap		; TRAP #03 exception (36)
-	dc.l ErrorTrap		; TRAP #04 exception
-	dc.l ErrorTrap		; TRAP #05 exception
-	dc.l ErrorTrap		; TRAP #06 exception
-	dc.l ErrorTrap		; TRAP #07 exception (40)
-	dc.l ErrorTrap		; TRAP #08 exception
-	dc.l ErrorTrap		; TRAP #09 exception
-	dc.l ErrorTrap		; TRAP #10 exception
-	dc.l ErrorTrap		; TRAP #11 exception (44)
-	dc.l ErrorTrap		; TRAP #12 exception
-	dc.l ErrorTrap		; TRAP #13 exception
-	dc.l ErrorTrap		; TRAP #14 exception
-	dc.l ErrorTrap		; TRAP #15 exception (48)
-	dc.l ErrorTrap		; Unused (reserved)
-	dc.l ErrorTrap		; Unused (reserved)
-	dc.l ErrorTrap		; Unused (reserved)
-	dc.l ErrorTrap		; Unused (reserved) (52)
-	dc.l ErrorTrap		; Unused (reserved)
-	dc.l ErrorTrap		; Unused (reserved)
-	dc.l ErrorTrap		; Unused (reserved)
-	dc.l ErrorTrap		; Unused (reserved) (56)
-	dc.l ErrorTrap		; Unused (reserved)
-	dc.l ErrorTrap		; Unused (reserved)
-	dc.l ErrorTrap		; Unused (reserved)
-	dc.l ErrorTrap		; Unused (reserved) (60)
-	dc.l ErrorTrap		; Unused (reserved)
-	dc.l ErrorTrap		; Unused (reserved)
-	dc.l ErrorTrap		; Unused (reserved)
-	dc.l ErrorTrap		; Unused (reserved) (64)
+	dc.l System_Stack		; Initial stack pointer value
+	dc.l EntryPoint			; Start of program
+	dc.l BusError			; Bus error
+	dc.l AddressError		; Address error (4)
+	dc.l IllegalInstr		; Illegal instruction
+	dc.l ZeroDivide			; Division by zero
+	dc.l ChkInstr			; CHK exception
+	dc.l TrapvInstr			; TRAPV exception (8)
+	dc.l PrivilegeViol		; Privilege violation
+	dc.l Trace				; TRACE exception
+	dc.l Line1010Emu		; Line-A emulator
+	dc.l Line1111Emu		; Line-F emulator (12)
+	dc.l ErrorExcept		; Unused (reserved)
+	dc.l ErrorExcept		; Unused (reserved)
+	dc.l ErrorExcept		; Unused (reserved)
+	dc.l ErrorExcept		; Unused (reserved) (16)
+	dc.l ErrorExcept		; Unused (reserved)
+	dc.l ErrorExcept		; Unused (reserved)
+	dc.l ErrorExcept		; Unused (reserved)
+	dc.l ErrorExcept		; Unused (reserved) (20)
+	dc.l ErrorExcept		; Unused (reserved)
+	dc.l ErrorExcept		; Unused (reserved)
+	dc.l ErrorExcept		; Unused (reserved)
+	dc.l ErrorExcept		; Unused (reserved) (24)
+	dc.l ErrorExcept		; Spurious exception
+	dc.l ErrorExcept		; IRQ level 1
+	dc.l ErrorExcept		; IRQ level 2
+	dc.l ErrorExcept		; IRQ level 3 (28)
+	dc.l H_Int				; IRQ level 4 (horizontal retrace interrupt)
+	dc.l ErrorExcept		; IRQ level 5
+	dc.l V_Int				; IRQ level 6 (vertical retrace interrupt)
+	dc.l ErrorExcept		; IRQ level 7 (32)
+	dc.l ErrorExcept		; TRAP #00 exception
+	dc.l ErrorExcept		; TRAP #01 exception
+	dc.l ErrorExcept		; TRAP #02 exception
+	dc.l ErrorExcept		; TRAP #03 exception (36)
+	dc.l ErrorExcept		; TRAP #04 exception
+	dc.l ErrorExcept		; TRAP #05 exception
+	dc.l ErrorExcept		; TRAP #06 exception
+	dc.l ErrorExcept		; TRAP #07 exception (40)
+	dc.l ErrorExcept		; TRAP #08 exception
+	dc.l ErrorExcept		; TRAP #09 exception
+	dc.l ErrorExcept		; TRAP #10 exception
+	dc.l ErrorExcept		; TRAP #11 exception (44)
+	dc.l ErrorExcept		; TRAP #12 exception
+	dc.l ErrorExcept		; TRAP #13 exception
+	dc.l ErrorExcept		; TRAP #14 exception
+	dc.l ErrorExcept		; TRAP #15 exception (48)
+	dc.l ErrorExcept		; Unused (reserved)
+	dc.l ErrorExcept		; Unused (reserved)
+	dc.l ErrorExcept		; Unused (reserved)
+	dc.l ErrorExcept		; Unused (reserved) (52)
+	dc.l ErrorExcept		; Unused (reserved)
+	dc.l ErrorExcept		; Unused (reserved)
+	dc.l ErrorExcept		; Unused (reserved)
+	dc.l ErrorExcept		; Unused (reserved) (56)
+	dc.l ErrorExcept		; Unused (reserved)
+	dc.l ErrorExcept		; Unused (reserved)
+	dc.l ErrorExcept		; Unused (reserved)
+	dc.l ErrorExcept		; Unused (reserved) (60)
+	dc.l ErrorExcept		; Unused (reserved)
+	dc.l ErrorExcept		; Unused (reserved)
+	dc.l ErrorExcept		; Unused (reserved)
+	dc.l ErrorExcept		; Unused (reserved) (64)
 ; byte_100:
 Header:
 	dc.b "SEGA SSF        " ; Console name
-	dc.b "Lil-G   2022.SEP" ; Copyright holder and release date (generally year)
+	dc.b "Lil-G   2023.JAN" ; Copyright holder and release date (generally year)
 	dc.b "SONIC THE             HEDGEHOG 2                " ; Domestic name
 	dc.b "SONIC THE             HEDGEHOG 2                " ; International name
     if gameRevision=0
@@ -126,52 +126,176 @@ Header:
     endif
 ; word_18E
 Checksum:
-	dc.w $D951		; Checksum (patched later if incorrect)
+	dc.w $D951				; Checksum (patched later if incorrect)
 	dc.b "JC              " ; I/O Support
-	dc.l StartOfRom		; Start address of ROM
+	dc.l StartOfRom			; Start address of ROM
 ; dword_1A4
 ROMEndLoc:
-	dc.l EndOfRom-1		; End address of ROM
-	dc.l RAM_Start&$FFFFFF		; Start address of RAM
-	dc.l (RAM_End-1)&$FFFFFF		; End address of RAM
-	dc.b "    "		; Backup RAM ID
-	dc.l $20202020		; Backup RAM start address
-	dc.l $20202020		; Backup RAM end address
-	dc.b "            "	; Modem support
+	dc.l EndOfRom-1			; End address of ROM
+	dc.l RAM_Start&$FFFFFF	; Start address of RAM
+	dc.l (RAM_End-1)&$FFFFFF; End address of RAM
+	dc.b "    "				; Backup RAM ID
+	dc.l $20202020			; Backup RAM start address
+	dc.l $20202020			; Backup RAM end address
+	dc.b "            "		; Modem support
 	dc.b "                                        "	; Notes (unused, anything can be put in this space, but it has to be 52 bytes.)
-	dc.b "JUE             " ; Country code (region)
+	dc.b "JUE             "	; Country code (region)
 EndOfHeader:
 
 	include "s2.mapper.asm"
 
-; ===========================================================================
-; Pause execution and wait for the debugger
-BreakPointHandler:
-.Setup:
 	if EDDebug
+ErrorExcept:
 	MapperEnable
-	move.l	6(sp), (.ScratchSpace)
-	movem.l	d0-a6,-(sp)
-.loop:
-	nop
-	nop
-	move.b	(RegSTE+1), d0
-	andi.b	#USB_RD_RDY, d0
-	beq.s	.loop
+	move.b	#FlagExceptionFrameStart+0, d0
+	bra.w	ExceptionTypeB
+BusError:
+	MapperEnable
+	move.b	#FlagExceptionFrameStart+1, d0
+	bra.w	ExceptionTypeA
+AddressError:
+	MapperEnable
+	move.b	#FlagExceptionFrameStart+2, d0
+	bra.w	ExceptionTypeA
+IllegalInstr:
+	MapperEnable
+	move.b	#FlagExceptionFrameStart+3, d0
+	addq.l	#2,2(sp)
+	bra.w	ExceptionTypeB
+ZeroDivide:
+	MapperEnable
+	move.b	#FlagExceptionFrameStart+4, d0
+	bra.w	ExceptionTypeB
+ChkInstr:
+	MapperEnable
+	move.b	#FlagExceptionFrameStart+5, d0
+	bra.w	ExceptionTypeB
+TrapvInstr:
+	MapperEnable
+	move.b	#FlagExceptionFrameStart+6, d0
+	bra.w	ExceptionTypeB
+PrivilegeViol:
+	MapperEnable
+	move.b	#FlagExceptionFrameStart+7, d0
+	bra.w	ExceptionTypeB
+Trace:
+	MapperEnable
+	move.b	#FlagExceptionFrameStart+8, d0
+	bra.w	ExceptionTypeB
+Line1010Emu:
+	MapperEnable
+	move.b	#FlagExceptionFrameStart+9, d0
+	addq.l	#2,2(sp)
+	bra.w	ExceptionTypeB
+Line1111Emu:
+	MapperEnable
+	move.b	#FlagExceptionFrameStart+10, d0
+	addq.l	#2,2(sp)
+	bra.w	ExceptionTypeB
 	
-	MapperDisable
-	movem.l	(sp)+,d0-a6
-	rte
-.ScratchSpace:
-	ds.l	$1
-	else
-	
-	rte
-	
-	endif
+; ===========================================================================
+v_regbuffer:	ds.b $40	; stores registers d0-a7 during an error event ($40 bytes)
+v_spbuffer:		ds.l 1		; stores most recent sp address (4 bytes)
 
 ; ===========================================================================
-; Crash/Freeze the 68000. Note that the Z80 continues to run, so the music keeps playing.
+; Format A Exception Stack Frames
+; +0	Word
+;	Bits 0-2	Function code
+;	Bit 3		0:Instruction
+;	Bit 4		0:Write 1:Read	
+;	Bits 5-15	Unused
+; +2	Longword	Access address
+; +6	Word		IR
+; +8	Word		SR
+; +10	Longword	PC
+ExceptionTypeA:
+	disableInterrupts
+	addq.w	#2,sp
+	move.l	(sp)+,(v_spbuffer).w
+	addq.w	#2,sp
+	movem.l	d0-a7,(v_regbuffer).w
+	lea		(RegUSB), a0			; Load FIFO into a0
+	bsr.w	ClearUSBCommandQueue	; Clear out the command queue to make sure we see the exception
+	move.b	d0, (a0)				; Send the error flag
+	lea		7(sp), a1				; Load the address of one past the end of the PC in SP
+	moveq	#4-1, d0				; Load the amount of bytes to send minus 1
+	bsr.w	SendUSBData				; Send the PC
+	lea		(v_spbuffer+4).w, a1	; Load the pointer to what address we tried to access	
+	moveq	#4-1, d0				; Load the amount of bytes to send minus 1
+	bsr.w	SendUSBData				; Send the PC
+	lea		(v_spbuffer).w, a1		; Load the end of v_regbuffer into a1
+	moveq	#$40-1, d0				; Load the amount of bytes to send minus 1
+	bsr.w	SendUSBData				; Now send all of the registers
+	bra.s	ReturnFromException
+; ===========================================================================
+; Format B Exception Stack Frames
+; +0	Word		SR
+; +2	Longword	PC
+; ===========================================================================
+ExceptionTypeB:
+	disableInterrupts
+	movem.l	d0-a7,(v_regbuffer).w
+	lea		(RegUSB), a0			; Load FIFO into a0
+	bsr.w	ClearUSBCommandQueue	; Clear out the command queue to make sure we see the exception
+	move.b	d0, (a0)				; Send the error flag
+	lea		7(sp), a1				; Load the address of one past the end of the PC in SP
+	moveq	#4-1, d0				; Load the amount of bytes to send minus 1
+	bsr.w	SendUSBData				; Send the PC
+	lea		(v_spbuffer).w, a1		; Load the end of v_regbuffer into a1
+	moveq	#$40-1, d0				; Load the amount of bytes to send minus 1
+	bsr.w	SendUSBData				; Now send all of the registers
+
+ReturnFromException:
+	bsr.w	ErrorWaitForC
+	movem.l	(v_regbuffer).w,d0-a7
+	enableInterrupts
+	rte	
+		
+ErrorWaitForC:
+	bra.w	ErrorWaitForC			; Wait for input from PC. Todo: Make it actually do that
+	rts	
+	
+ClearUSBCommandQueue:				; Writes a bunch of zeros to the buffer so the PC will see this exception
+	moveq	#WatchListSize, d1
+.loop:
+	rept 4
+	move.b	#0, (a0)
+	endm
+	dbf d1,.loop
+	rts
+	
+; ===========================================================================
+; Copy data to USB
+; ===========================================================================
+; PARAMETERS:
+;	a0.l - FIFO USB Register
+;	a1.l - Pointer to one byte past the end of the data to copy
+;	d0.b - Number of bytes to copy minus 1
+; RETURNS:
+;	a1.l - Pointer to the start of the data
+; ===========================================================================
+SendUSBData:
+	move.b	-(a1), (a0)
+	dbf		d0,SendUSBData
+	rts
+
+	else
+	; Debug disabled, point all exceptions to ErrorTrap
+BusError:
+AddressError:
+IllegalInstr:
+ZeroDivide:
+ChkInstr:
+TrapvInstr:
+PrivilegeViol:
+Trace:
+Line1010Emu:
+Line1111Emu:
+ErrorExcept:
+	endif
+	
+; ===========================================================================
+; Crash/Freeze the 68000.
 ; loc_200:
 ErrorTrap:
 	stopZ80
