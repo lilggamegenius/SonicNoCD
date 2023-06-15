@@ -25,6 +25,7 @@ EDDebug = 1
 ; AS-specific macros and assembler settings
 	CPU 68000
 	include "s2.macrosetup.asm"
+	include "Debugger/Debugger.asm"           ; ++
 	
 ; >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 ; Simplifying macros and functions
@@ -143,156 +144,6 @@ ROMEndLoc:
 EndOfHeader:
 
 	include "s2.mapper.asm"
-
-	if EDDebug
-ErrorExcept:
-	MapperEnable
-	move.b	#FlagExceptionFrameStart+0, d0
-	bra.w	ExceptionTypeB
-BusError:
-	MapperEnable
-	move.b	#FlagExceptionFrameStart+1, d0
-	bra.w	ExceptionTypeA
-AddressError:
-	MapperEnable
-	move.b	#FlagExceptionFrameStart+2, d0
-	bra.w	ExceptionTypeA
-IllegalInstr:
-	MapperEnable
-	move.b	#FlagExceptionFrameStart+3, d0
-	addq.l	#2,2(sp)
-	bra.w	ExceptionTypeB
-ZeroDivide:
-	MapperEnable
-	move.b	#FlagExceptionFrameStart+4, d0
-	bra.w	ExceptionTypeB
-ChkInstr:
-	MapperEnable
-	move.b	#FlagExceptionFrameStart+5, d0
-	bra.w	ExceptionTypeB
-TrapvInstr:
-	MapperEnable
-	move.b	#FlagExceptionFrameStart+6, d0
-	bra.w	ExceptionTypeB
-PrivilegeViol:
-	MapperEnable
-	move.b	#FlagExceptionFrameStart+7, d0
-	bra.w	ExceptionTypeB
-Trace:
-	MapperEnable
-	move.b	#FlagExceptionFrameStart+8, d0
-	bra.w	ExceptionTypeB
-Line1010Emu:
-	MapperEnable
-	move.b	#FlagExceptionFrameStart+9, d0
-	addq.l	#2,2(sp)
-	bra.w	ExceptionTypeB
-Line1111Emu:
-	MapperEnable
-	move.b	#FlagExceptionFrameStart+10, d0
-	addq.l	#2,2(sp)
-	bra.w	ExceptionTypeB
-	
-; ===========================================================================
-v_regbuffer:	ds.b $40	; stores registers d0-a7 during an error event ($40 bytes)
-v_spbuffer:		ds.l 1		; stores most recent sp address (4 bytes)
-
-; ===========================================================================
-; Format A Exception Stack Frames
-; +0	Word
-;	Bits 0-2	Function code
-;	Bit 3		0:Instruction
-;	Bit 4		0:Write 1:Read	
-;	Bits 5-15	Unused
-; +2	Longword	Access address
-; +6	Word		IR
-; +8	Word		SR
-; +10	Longword	PC
-ExceptionTypeA:
-	disableInterrupts
-	addq.w	#2,sp
-	move.l	(sp)+,(v_spbuffer).w
-	addq.w	#2,sp
-	movem.l	d0-a7,(v_regbuffer).w
-	lea		(RegUSB), a0			; Load FIFO into a0
-	bsr.w	ClearUSBCommandQueue	; Clear out the command queue to make sure we see the exception
-	move.b	d0, (a0)				; Send the error flag
-	lea		7(sp), a1				; Load the address of one past the end of the PC in SP
-	moveq	#4-1, d0				; Load the amount of bytes to send minus 1
-	bsr.w	SendUSBData				; Send the PC
-	lea		(v_spbuffer+4).w, a1	; Load the pointer to what address we tried to access	
-	moveq	#4-1, d0				; Load the amount of bytes to send minus 1
-	bsr.w	SendUSBData				; Send the PC
-	lea		(v_spbuffer).w, a1		; Load the end of v_regbuffer into a1
-	moveq	#$40-1, d0				; Load the amount of bytes to send minus 1
-	bsr.w	SendUSBData				; Now send all of the registers
-	bra.s	ReturnFromException
-; ===========================================================================
-; Format B Exception Stack Frames
-; +0	Word		SR
-; +2	Longword	PC
-; ===========================================================================
-ExceptionTypeB:
-	disableInterrupts
-	movem.l	d0-a7,(v_regbuffer).w
-	lea		(RegUSB), a0			; Load FIFO into a0
-	bsr.w	ClearUSBCommandQueue	; Clear out the command queue to make sure we see the exception
-	move.b	d0, (a0)				; Send the error flag
-	lea		7(sp), a1				; Load the address of one past the end of the PC in SP
-	moveq	#4-1, d0				; Load the amount of bytes to send minus 1
-	bsr.w	SendUSBData				; Send the PC
-	lea		(v_spbuffer).w, a1		; Load the end of v_regbuffer into a1
-	moveq	#$40-1, d0				; Load the amount of bytes to send minus 1
-	bsr.w	SendUSBData				; Now send all of the registers
-
-ReturnFromException:
-	bsr.w	ErrorWaitForC
-	movem.l	(v_regbuffer).w,d0-a7
-	enableInterrupts
-	rte	
-		
-ErrorWaitForC:
-	bra.w	ErrorWaitForC			; Wait for input from PC. Todo: Make it actually do that
-	rts	
-	
-ClearUSBCommandQueue:				; Writes a bunch of zeros to the buffer so the PC will see this exception
-	moveq	#WatchListSize, d1
-.loop:
-	rept 4
-	move.b	#0, (a0)
-	endm
-	dbf d1,.loop
-	rts
-	
-; ===========================================================================
-; Copy data to USB
-; ===========================================================================
-; PARAMETERS:
-;	a0.l - FIFO USB Register
-;	a1.l - Pointer to one byte past the end of the data to copy
-;	d0.b - Number of bytes to copy minus 1
-; RETURNS:
-;	a1.l - Pointer to the start of the data
-; ===========================================================================
-SendUSBData:
-	move.b	-(a1), (a0)
-	dbf		d0,SendUSBData
-	rts
-
-	else
-	; Debug disabled, point all exceptions to ErrorTrap
-BusError:
-AddressError:
-IllegalInstr:
-ZeroDivide:
-ChkInstr:
-TrapvInstr:
-PrivilegeViol:
-Trace:
-Line1010Emu:
-Line1111Emu:
-ErrorExcept:
-	endif
 	
 ; ===========================================================================
 ; Crash/Freeze the 68000.
@@ -92587,6 +92438,13 @@ SubCPU:
 SubCPU_End:
 
 SubCPU_Size = SubCPU_End-SubCPU
+
+; ==============================================================
+; --------------------------------------------------------------
+; Debugging modules
+; --------------------------------------------------------------
+
+   include   "Debugger/ErrorHandler.asm"
 
 ; end of 'ROM'
 	if padToPowerOfTwo && (*)&(*-1)

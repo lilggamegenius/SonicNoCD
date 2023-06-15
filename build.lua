@@ -265,4 +265,6 @@ if assemble_result == "warning" then
 	os.exit(false)
 end
 
+os.execute("ConvSym s2.lst s2built.bin -input as_lst -a")
+
 -- A successful build; we can quit now.
