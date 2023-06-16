@@ -3995,11 +3995,11 @@ Sega_WaitPalette:
 	beq.s	Sega_WaitPalette
     if ~~fixBugs
 	; This is a leftover from Sonic 1: ObjB0 plays the Sega sound now.
-	; Normally, you'll only hear one Sega sound, but the actually tries
-	; to play it twice. The only reason it doesn't is because the sound
-	; queue only has room for one sound per frame. Some custom sound
-	; drivers don't have this limitation, however, and the sound will
-	; indeed play twice in those.
+	; Normally, you'll only hear one Sega sound, but the game actually
+	; tries to play it twice. The only reason it doesn't is because the
+	; sound queue only has room for one sound per frame. Some custom
+	; sound drivers don't have this limitation, however, and the sound
+	; will indeed play twice in those.
 	move.b	#SndID_SegaSound,d0
 	bsr.w	PlaySound	; play "SEGA" sound
     endif
@@ -4607,16 +4607,16 @@ Level:
 	moveq	#PLCID_Std2,d0
 	bsr.w	LoadPLC
 	bsr.w	Level_SetPlayerMode
-	moveq	#PLCID_Miles1up,d0
+	moveq	#PLCID_MilesLife2P,d0
 	tst.w	(Two_player_mode).w
 	bne.s	+
 	cmpi.w	#2,(Player_mode).w
 	bne.s	Level_ClrRam
-	addq.w	#PLCID_MilesLife-PLCID_Miles1up,d0
+	addq.w	#PLCID_MilesLife-PLCID_MilesLife2P,d0
 +
 	tst.b	(Graphics_Flags).w
 	bpl.s	+
-	addq.w	#PLCID_Tails1up-PLCID_Miles1up,d0
+	addq.w	#PLCID_TailsLife2P-PLCID_MilesLife2P,d0
 +
 	bsr.w	LoadPLC
 ; loc_3F48:
@@ -14720,8 +14720,8 @@ StartLocations: zoneOrderedTable 2,4	; WrdArr_StartLoc
 	zoneTableEntry.w	$1E0,	$4CC
 	zoneTableBinEntry	2, "startpos/HTZ_1.bin"	; $07
 	zoneTableBinEntry	2, "startpos/HTZ_2.bin"
-	zoneTableEntry.w	$230,	$1AC		; $08
-	zoneTableEntry.w	$230,	$1AC
+	zoneTableBinEntry	2, "startpos/HPZ_1.bin"	; $08
+	zoneTableBinEntry	2, "startpos/HPZ_2.bin"
 	zoneTableEntry.w	$60,	$28F		; $09
 	zoneTableEntry.w	$60,	$2AF
 	zoneTableBinEntry	2, "startpos/OOZ_1.bin"	; $0A
@@ -14987,21 +14987,21 @@ DeformBgLayer:
 	bne.s	DeformBgLayerAfterScrollVert
 	lea	(MainCharacter).w,a0 ; a0=character
 	lea	(Camera_X_pos).w,a1
-	lea	(Camera_Min_X_pos).w,a2
+	lea	(Camera_Boundaries).w,a2
 	lea	(Scroll_flags).w,a3
 	lea	(Camera_X_pos_diff).w,a4
-	lea	(Horiz_scroll_delay_val).w,a5
+	lea	(Camera_Delay).w,a5
 	lea	(Sonic_Pos_Record_Buf).w,a6
 	cmpi.w	#2,(Player_mode).w
 	bne.s	+
-	lea	(Horiz_scroll_delay_val_P2).w,a5
+	lea	(Camera_Delay_P2).w,a5
 	lea	(Tails_Pos_Record_Buf).w,a6
 +
 	bsr.w	ScrollHoriz
 	lea	(Horiz_block_crossed_flag).w,a2
 	bsr.w	SetHorizScrollFlags
 	lea	(Camera_Y_pos).w,a1
-	lea	(Camera_Min_X_pos).w,a2
+	lea	(Camera_Boundaries).w,a2
 	lea	(Camera_Y_pos_diff).w,a4
 	move.w	(Camera_Y_pos_bias).w,d3
 	cmpi.w	#2,(Player_mode).w
@@ -15019,16 +15019,16 @@ DeformBgLayerAfterScrollVert:
 	bne.s	loc_C4D0
 	lea	(Sidekick).w,a0 ; a0=character
 	lea	(Camera_X_pos_P2).w,a1
-	lea	(Tails_Min_X_pos).w,a2
+	lea	(Camera_Boundaries_P2).w,a2
 	lea	(Scroll_flags_P2).w,a3
 	lea	(Camera_X_pos_diff_P2).w,a4
-	lea	(Horiz_scroll_delay_val_P2).w,a5
+	lea	(Camera_Delay_P2).w,a5
 	lea	(Tails_Pos_Record_Buf).w,a6
 	bsr.w	ScrollHoriz
 	lea	(Horiz_block_crossed_flag_P2).w,a2
 	bsr.w	SetHorizScrollFlags
 	lea	(Camera_Y_pos_P2).w,a1
-	lea	(Tails_Min_X_pos).w,a2
+	lea	(Camera_Boundaries_P2).w,a2
 	lea	(Camera_Y_pos_diff_P2).w,a4
 	move.w	(Camera_Y_pos_bias_P2).w,d3
 	bsr.w	ScrollVerti
@@ -17861,15 +17861,42 @@ ScrollHoriz:
 	move.w	(a1),d4		; get camera X pos
 	tst.b	(Teleport_flag).w
 	bne.s	.return		; if a teleport is in progress, return
-	move.w	(a5),d1		; should scrolling be delayed?
-	beq.s	.scrollNotDelayed	; if not, branch
-	subi.w	#$100,d1	; reduce delay value
-	move.w	d1,(a5)
+    if fixBugs
+	; To prevent the bug that is described below, this caps the position
+	; array index offset so that it does not access position data from
+	; before the spin dash was performed. Note that this required
+	; modifications to 'Sonic_UpdateSpindash' and 'Tails_UpdateSpindash'.
+	move.b	Horiz_scroll_delay_val-Camera_Delay(a5),d1	; should scrolling be delayed?
+	beq.s	.scrollNotDelayed				; if not, branch
+	lsl.b	#2,d1		; multiply by 4, the size of a position buffer entry
+	subq.b	#1,Horiz_scroll_delay_val-Camera_Delay(a5)	; reduce delay value
+	move.b	Sonic_Pos_Record_Index+1-Camera_Delay(a5),d0
+	sub.b	Horiz_scroll_delay_val+1-Camera_Delay(a5),d0
+	cmp.b	d0,d1
+	blo.s	.doNotCap
+	move.b	d0,d1
+.doNotCap:
+    else
+	; The intent of this code is to make the camera briefly lag behind the
+	; player right after releasing a spin dash, however it does this by
+	; simply making the camera use position data from previous frames. This
+	; means that if the camera had been moving recently enough, then
+	; releasing a spin dash will cause the camera to jerk around instead of
+	; remain still. This can be encountered by running into a wall, and
+	; quickly turning around and spin dashing away. Sonic 3 would have had
+	; this same issue with the Fire Shield's dash abiliity, but it shoddily
+	; works around the issue by resetting the old position values to the
+	; current position (see 'Reset_Player_Position_Array').
+	move.w	Horiz_scroll_delay_val-Camera_Delay(a5),d1	; should scrolling be delayed?
+	beq.s	.scrollNotDelayed				; if not, branch
+	subi.w	#$100,d1					; reduce delay value
+	move.w	d1,Horiz_scroll_delay_val-Camera_Delay(a5)
 	moveq	#0,d1
-	move.b	(a5),d1		; get delay value
+	move.b	Horiz_scroll_delay_val-Camera_Delay(a5),d1	; get delay value
 	lsl.b	#2,d1		; multiply by 4, the size of a position buffer entry
 	addq.b	#4,d1
-	move.w	2(a5),d0	; get current position buffer index
+    endif
+	move.w	Sonic_Pos_Record_Index-Camera_Delay(a5),d0	; get current position buffer index
 	sub.b	d1,d0
 	move.w	(a6,d0.w),d0	; get Sonic's position a certain number of frames ago
 	andi.w	#$3FFF,d0
@@ -17897,10 +17924,10 @@ ScrollHoriz:
 	move.w	#-16,d0		; limit scrolling to 16 pixels per frame
 ; loc_D74E:
 .maxNotReached:
-	add.w	(a1),d0		; get new camera position
-	cmp.w	(a2),d0		; is it greater than the minimum position?
-	bgt.s	.doScroll		; if it is, branch
-	move.w	(a2),d0		; prevent camera from going any further back
+	add.w	(a1),d0						; get new camera position
+	cmp.w	Camera_Min_X_pos-Camera_Boundaries(a2),d0	; is it greater than the minimum position?
+	bgt.s	.doScroll					; if it is, branch
+	move.w	Camera_Min_X_pos-Camera_Boundaries(a2),d0	; prevent camera from going any further back
 	bra.s	.doScroll
 ; ===========================================================================
 ; loc_D758:
@@ -17910,10 +17937,10 @@ ScrollHoriz:
 	move.w	#16,d0
 ; loc_D762:
 .maxNotReached2:
-	add.w	(a1),d0		; get new camera position
-	cmp.w	Camera_Max_X_pos-Camera_Min_X_pos(a2),d0	; is it less than the max position?
-	blt.s	.doScroll	; if it is, branch
-	move.w	Camera_Max_X_pos-Camera_Min_X_pos(a2),d0	; prevent camera from going any further forward
+	add.w	(a1),d0						; get new camera position
+	cmp.w	Camera_Max_X_pos-Camera_Boundaries(a2),d0	; is it less than the max position?
+	blt.s	.doScroll					; if it is, branch
+	move.w	Camera_Max_X_pos-Camera_Boundaries(a2),d0	; prevent camera from going any further forward
 ; loc_D76E:
 .doScroll:
 	move.w	d0,d1
@@ -18040,7 +18067,7 @@ ScrollVerti:
 	swap	d1	; actual Y-coordinate is now the low word
 ; loc_D82E:
 .scrollUp:
-	cmp.w	Camera_Min_Y_pos-Camera_Min_X_pos(a2),d1	; is the new position less than the minimum Y pos?
+	cmp.w	Camera_Min_Y_pos-Camera_Boundaries(a2),d1	; is the new position less than the minimum Y pos?
 	bgt.s	.doScroll	; if not, branch
 	cmpi.w	#-$100,d1
 	bgt.s	.minYPosReached
@@ -18050,7 +18077,7 @@ ScrollVerti:
 ; ===========================================================================
 ; loc_D844:
 .minYPosReached:
-	move.w	Camera_Min_Y_pos-Camera_Min_X_pos(a2),d1	; prevent camera from going any further up
+	move.w	Camera_Min_Y_pos-Camera_Boundaries(a2),d1	; prevent camera from going any further up
 	bra.s	.doScroll
 ; ===========================================================================
 ; loc_D84A:
@@ -18061,7 +18088,7 @@ ScrollVerti:
 	swap	d1		; actual Y-coordinate is now the low word
 ; loc_D852:
 .scrollDown:
-	cmp.w	Camera_Max_Y_pos_now-Camera_Min_X_pos(a2),d1	; is the new position greater than the maximum Y pos?
+	cmp.w	Camera_Max_Y_pos_now-Camera_Boundaries(a2),d1	; is the new position greater than the maximum Y pos?
 	blt.s	.doScroll	; if not, branch
 	subi.w	#$800,d1
 	bcs.s	.maxYPosReached
@@ -18070,7 +18097,7 @@ ScrollVerti:
 ; ===========================================================================
 ; loc_D864:
 .maxYPosReached:
-	move.w	Camera_Max_Y_pos_now-Camera_Min_X_pos(a2),d1	; prevent camera from going any further down
+	move.w	Camera_Max_Y_pos_now-Camera_Boundaries(a2),d1	; prevent camera from going any further down
 ; loc_D868:
 .doScroll:
 	move.w	(a1),d4		; get old pos (used by SetVertiScrollFlags)
@@ -29451,13 +29478,13 @@ ObjPtr_LauncherBall:	dc.l Obj48	; Round ball thing from OOZ that fires you off i
 ObjPtr_EHZWaterfall:	dc.l Obj49	; Waterfall from EHZ
 ObjPtr_Octus:		dc.l Obj4A	; Octus (octopus badnik) from OOZ
 ObjPtr_Buzzer:		dc.l Obj4B	; Buzzer (Buzz bomber) from EHZ
-			dc.l ObjNull	; Obj4C
-			dc.l ObjNull	; Obj4D
-			dc.l ObjNull	; Obj4E
-			dc.l ObjNull	; Obj4F
+			dc.l ObjNull	; Used to be the "BBat" badnik from HPZ
+			dc.l ObjNull	; Used to be the "Stego" badnik
+			dc.l ObjNull	; Used to be the "Gator" badnik
+			dc.l ObjNull	; Used to be the "Redz" badnik from HPZ
 ObjPtr_Aquis:		dc.l Obj50	; Aquis (seahorse badnik) from OOZ
 ObjPtr_CNZBoss:		dc.l Obj51	; CNZ boss
-ObjPtr_HTZBoss:		dc.l Obj52	; HTZ boss
+ObjPtr_HTZBoss:		dc.l Obj52	; HTZ boss ; Used to be the "BFish" badnik
 ObjPtr_MTZBossOrb:	dc.l Obj53	; Shield orbs that surround MTZ boss
 ObjPtr_MTZBoss:		dc.l Obj54	; MTZ boss
 ObjPtr_OOZBoss:		dc.l Obj55	; OOZ boss
@@ -32344,13 +32371,22 @@ loc_177FA:
 	bclr	#5,status(a0)
 	clr.b	jumping(a0)
 	move.w	#SndID_LargeBumper,d0
+	; This line unintentionally acts as a boundary marker for the below
+	; bumper data. Changes to this instruction, or the location of
+	; `PlaySound`, may cause Casino Night Zone Act 1 to crash. Fix the
+	; below bug to prevent this.
 	jmp	(PlaySound).l
 ; ===========================================================================
 SpecialCNZBumpers_Act1:
     if fixBugs
 	; Sonic Team forgot to start this file with a boundary marker,
 	; meaning the game could potentially read past the start of the file
-	; and load random bumpers.
+	; and load random bumpers. In a stroke of luck, the above `jmp`
+	; instruction happens to resemble a boundary marker well enough to
+	; prevent any misbehaviour. However, this is not the case in
+	; 'Knuckles in Sonic 2' due to the code being located at a
+	; wildly-different address, which necessitated that this bug be fixed
+	; properly, like this.
 	dc.w	$0000, $0000, $0000
     endif
 	BINCLUDE	"level/objects/CNZ 1 bumpers.bin"	; byte_1781A
@@ -36937,13 +36973,31 @@ Sonic_UpdateSpindash:
 	beq.s	+
 	move.w	SpindashSpeedsSuper(pc,d0.w),inertia(a0)
 +
+	; Determine how long to lag the camera for.
+	; Notably, the faster Sonic goes, the less the camera lags.
+	; This is seemingly to prevent Sonic from going off-screen.
 	move.w	inertia(a0),d0
-	subi.w	#$800,d0
+	subi.w	#$800,d0 ; $800 is the lowest spin dash speed
+    if fixBugs
+	; To fix a bug in 'ScrollHoriz', we need an extra variable, so this
+	; code has been modified to make the delay value only a single byte.
+	; The lower byte has been repurposed to hold a copy of the position
+	; array index at the time that the spin dash was released.
+	; This is used by the fixed 'ScrollHoriz'.
+	lsr.w	#7,d0
+	neg.w	d0
+	addi.w	#$20,d0
+	move.b	d0,(Horiz_scroll_delay_val).w
+	; Back up the position array index for later.
+	move.b	(Sonic_Pos_Record_Index+1).w,(Horiz_scroll_delay_val+1).w
+    else
 	add.w	d0,d0
-	andi.w	#$1F00,d0
+	andi.w	#$1F00,d0 ; This line is not necessary, as none of the removed bits are ever set in the first place
 	neg.w	d0
 	addi.w	#$2000,d0
 	move.w	d0,(Horiz_scroll_delay_val).w
+    endif
+
 	btst	#0,status(a0)
 	beq.s	+
 	neg.w	inertia(a0)
@@ -39774,13 +39828,32 @@ Tails_UpdateSpindash:
 	move.b	spindash_counter(a0),d0
 	add.w	d0,d0
 	move.w	Tails_SpindashSpeeds(pc,d0.w),inertia(a0)
+
+	; Determine how long to lag the camera for.
+	; Notably, the faster Tails goes, the less the camera lags.
+	; This is seemingly to prevent Tails from going off-screen.
 	move.w	inertia(a0),d0
-	subi.w	#$800,d0
+	subi.w	#$800,d0 ; $800 is the lowest spin dash speed
+    if fixBugs
+	; To fix a bug in 'ScrollHoriz', we need an extra variable, so this
+	; code has been modified to make the delay value only a single byte.
+	; The lower byte has been repurposed to hold a copy of the position
+	; array index at the time that the spin dash was released.
+	; This is used by the fixed 'ScrollHoriz'.
+	lsr.w	#7,d0
+	neg.w	d0
+	addi.w	#$20,d0
+	move.b	d0,(Horiz_scroll_delay_val_P2).w
+	; Back up the position array index for later.
+	move.b	(Tails_Pos_Record_Index+1).w,(Horiz_scroll_delay_val_P2+1).w
+    else
 	add.w	d0,d0
-	andi.w	#$1F00,d0
+	andi.w	#$1F00,d0 ; This line is not necessary, as none of the removed bits are ever set in the first place
 	neg.w	d0
 	addi.w	#$2000,d0
 	move.w	d0,(Horiz_scroll_delay_val_P2).w
+    endif
+
 	btst	#0,status(a0)
 	beq.s	+
 	neg.w	inertia(a0)
@@ -61612,13 +61685,13 @@ Obj5D_Main:
 	jmp	(DisplaySprite).l
 ; ===========================================================================
 Obj5D_Main_Index:	offsetTable
-		offsetTableEntry.w Obj5D_Main_0	;  0
-		offsetTableEntry.w Obj5D_Main_2	;  2
-		offsetTableEntry.w Obj5D_Main_4	;  4
-		offsetTableEntry.w Obj5D_Main_6	;  6
-		offsetTableEntry.w Obj5D_Main_8	;  8
-		offsetTableEntry.w Obj5D_Main_A	; $A
-		offsetTableEntry.w Obj5D_Main_C	; $C
+		offsetTableEntry.w Obj5D_Main_Descend		;  0
+		offsetTableEntry.w Obj5D_Main_MoveTowardTarget	;  2
+		offsetTableEntry.w Obj5D_Main_Wait		;  4
+		offsetTableEntry.w Obj5D_Main_FollowPlayer	;  6
+		offsetTableEntry.w Obj5D_Main_Explode		;  8
+		offsetTableEntry.w Obj5D_Main_StopExploding	; $A
+		offsetTableEntry.w Obj5D_Main_Retreat		; $C
 ; ===========================================================================
 ; Makes the boss look in Sonic's direction under certain circumstances.
 
@@ -61636,26 +61709,28 @@ Obj5D_LookAtChar:
 	bset	#0,status(a0)
 	rts
 ; ===========================================================================
-
-Obj5D_Main_8:
+;Obj5D_Main_8:
+Obj5D_Main_Explode:
 	subq.w	#1,Obj5D_defeat_timer(a0)
-	bpl.w	Obj5D_Main_Explode
+	bpl.w	Obj5D_Main_CreateExplosion
 	bset	#0,status(a0)
 	bclr	#7,status(a0)
 	clr.w	x_vel(a0)
-	addq.b	#2,routine_secondary(a0)	; => Obj5D_Main_A
+	addq.b	#2,routine_secondary(a0)	; => Obj5D_Main_StopExploding
 	move.w	#-$26,Obj5D_defeat_timer(a0)
 	rts
 ; ===========================================================================
-
-Obj5D_Main_A:
+;Obj5D_Main_A:
+Obj5D_Main_StopExploding:
 	addq.w	#1,Obj5D_defeat_timer(a0)
 	beq.s	+
 	bpl.s	++
+	; Fall slightly
 	addi.w	#$18,y_vel(a0)
 	bra.s	Obj5D_Main_A_End
 ; ---------------------------------------------------------------------------
 +
+	; Stop falling
 	clr.w	y_vel(a0)
 	bra.s	Obj5D_Main_A_End
 ; ---------------------------------------------------------------------------
@@ -61665,14 +61740,16 @@ Obj5D_Main_A:
 	beq.s	++
 	cmpi.w	#$38,Obj5D_defeat_timer(a0)
 	blo.s	Obj5D_Main_A_End
-	addq.b	#2,routine_secondary(a0)	; => Obj5D_Main_C
+	addq.b	#2,routine_secondary(a0)	; => Obj5D_Main_Retreat
 	bra.s	Obj5D_Main_A_End
 ; ---------------------------------------------------------------------------
 +
+	; Rise slightly
 	subi_.w	#8,y_vel(a0)
 	bra.s	Obj5D_Main_A_End
 ; ---------------------------------------------------------------------------
 +
+	; Stop rising
 	clr.w	y_vel(a0)
 	jsrto	PlayLevelMusic, JmpTo_PlayLevelMusic
 	jsrto	LoadPLC_AnimalExplosion, JmpTo_LoadPLC_AnimalExplosion
@@ -61681,8 +61758,8 @@ Obj5D_Main_A_End:
 	bsr.w	Obj5D_Main_Move
 	bra.w	Obj5D_Main_Pos_and_Collision
 ; ===========================================================================
-
-Obj5D_Main_C:
+;Obj5D_Main_C:
+Obj5D_Main_Retreat:
 	bset	#6,Obj5D_status2(a0)
 	move.w	#$400,x_vel(a0)
 	move.w	#-$40,y_vel(a0)
@@ -61711,14 +61788,20 @@ JmpTo51_DeleteObject ; JmpTo
 
 	jmp	(DeleteObject).l
 ; ===========================================================================
-
-Obj5D_Main_0:
+;Obj5D_Main_0:
+Obj5D_Main_Descend:
+	; Strangely, there is code here for Eggman to descend into the arena
+	; just like he does in Green Hill Zone in Sonic 1. Because Eggman
+	; spawns off-screen, the player never gets to see him do this.
+	; The reason for this is that this entire function is copied from
+	; Green Hill Zone's boss (see `BGHZ_ShipStart` in the Sonic 1
+	; disassembly).
 	move.w	#$100,y_vel(a0)
 	bsr.w	Obj5D_Main_Move
 	cmpi.w	#$4C0,Obj5D_y_pos_next(a0)
 	bne.s	Obj5D_Main_Pos_and_Collision
 	move.w	#0,y_vel(a0)
-	addq.b	#2,routine_secondary(a0)	; => Obj5D_Main_2
+	addq.b	#2,routine_secondary(a0)	; => Obj5D_Main_MoveTowardTarget
 
 Obj5D_Main_Pos_and_Collision:
 	; do hovering motion using sine wave
@@ -61740,10 +61823,12 @@ Obj5D_Main_Pos_and_Collision:
 	; if collisions are turned off, it means the boss was hit
 	tst.b	Obj5D_invulnerable_time(a0)
 	bne.s	+			; branch, if still invulnerable
-	move.b	#$20,Obj5D_invulnerable_time(a0)
+	move.b	#32,Obj5D_invulnerable_time(a0)
 	move.w	#SndID_BossHit,d0
 	jsr	(PlaySound).l
 +
+	; Make the boss sprite flash by alternating the black
+	; colour in palette line 3 between black and white.
 	lea	(Normal_palette_line2+2).w,a1
 	moveq	#0,d0		; color black
 	tst.w	(a1)	; test palette entry
@@ -61751,6 +61836,7 @@ Obj5D_Main_Pos_and_Collision:
 	move.w	#$EEE,d0	; color white
 +
 	move.w	d0,(a1)		; set color for flashing effect
+
 	subq.b	#1,Obj5D_invulnerable_time(a0)
 	bne.s	return_2DAE8
 	move.b	#$F,collision_flags(a0)	; restore collisions
@@ -61764,8 +61850,8 @@ return_2DAE8:
 Obj5D_Defeated:
 	moveq	#100,d0
 	jsrto	AddPoints, JmpTo2_AddPoints
-	move.b	#8,routine_secondary(a0)	; => Obj5D_Main_8
-	move.w	#$B3,Obj5D_defeat_timer(a0)
+	move.b	#8,routine_secondary(a0)	; => Obj5D_Main_Explode
+	move.w	#60*3-1,Obj5D_defeat_timer(a0)
 	movea.l	Obj5D_parent(a0),a1 ; a1=object
 	move.b	#4,anim(a1)
 	moveq	#PLCID_Capsule,d0
@@ -61790,8 +61876,8 @@ Obj5D_Main_Move:
 	rts
 ; ===========================================================================
 ; Creates an explosion every 8 frames at a random position relative to boss.
-
-Obj5D_Main_Explode:
+;Obj5D_Main_Explode:
+Obj5D_Main_CreateExplosion:
 	move.b	(Vint_runcount+3).w,d0
 	andi.b	#7,d0
 	bne.s	+	; rts
@@ -61820,13 +61906,20 @@ Obj5D_Main_Explode2:
 	jsr	(SingleObjLoad).l
 	bne.s	+	; rts
 	_move.b	#ObjID_BossExplosion,id(a1) ; load obj58
+	; This code suggests that the intended effect is for each piece of
+	; the boss to explode before falling off. However, this does not work
+	; as the `x_pos` and `y_pos` values do not match the actual physical
+	; locations of the pieces. In fact, most pieces' X and Y positions are
+	; in the middle of the Eggmobile, completely ruining the effect.
+	; I would use `fixBugs` to fix this, but this is a pretty deep-rooted
+	; issue to would be complicated to fix.
 	move.w	x_pos(a0),x_pos(a1)
 	move.w	y_pos(a0),y_pos(a1)
 +
 	rts
 ; ===========================================================================
-
-Obj5D_Main_2:
+;Obj5D_Main_2:
+Obj5D_Main_MoveTowardTarget:
 	btst	#3,Obj5D_status(a0)	; is boss on the left side of the arena?
 	bne.s	+			; if yes, branch
 	move.w	#$2B30,d0	; right side of arena
@@ -61859,30 +61952,35 @@ Obj5D_Main_2_End:
 ; ===========================================================================
 
 Obj5D_Main_2_Stop:
+	; Once again, there's some strange code that changes Eggman's
+	; behaviour if he's above or below his target. Because Eggman is
+	; always at the expected Y position, this behaviour is never seen
+	; in-game.
 	cmpi.w	#$4C0,Obj5D_y_pos_next(a0)
 	bne.w	Obj5D_Main_Pos_and_Collision
+
 	move.w	#0,x_vel(a0)
-	move.w	#0,y_vel(a0)
-	addq.b	#2,routine_secondary(a0)	; => Obj5D_Main_4
+	move.w	#0,y_vel(a0)	; Halt Eggman's vertical movement... not that he had any to begin with.
+	addq.b	#2,routine_secondary(a0)	; => Obj5D_Main_Wait
 	bchg	#3,Obj5D_status(a0)	; indicate boss is now at the other side
 	bset	#0,Obj5D_status2(a0)	; action 0
 	bra.w	Obj5D_Main_Pos_and_Collision
 ; ===========================================================================
 ; when status2 bit 0 set, wait for something
-
-Obj5D_Main_4:
+;Obj5D_Main_4:
+Obj5D_Main_Wait:
 	btst	#0,Obj5D_status2(a0)	; action 0?
 	beq.s	+			; if not, branch
 	bra.w	Obj5D_Main_Pos_and_Collision
 ; ---------------------------------------------------------------------------
 +
-	addq.b	#2,routine_secondary(a0)	; => Obj5D_Main_6
+	addq.b	#2,routine_secondary(a0)	; => Obj5D_Main_FollowPlayer
 	bra.w	Obj5D_Main_Pos_and_Collision
 ; ===========================================================================
-
-Obj5D_Main_6:
+;Obj5D_Main_6:
+Obj5D_Main_FollowPlayer:
 	move.w	(MainCharacter+x_pos).w,d0
-	addi.w	#$4C,d0
+	addi.w	#76,d0				; Keep a distance of 76 pixels when following the player.
 	cmp.w	Obj5D_x_pos_next(a0),d0
 	bgt.s	Obj5D_Main_6_MoveRight
 	beq.w	Obj5D_Main_Pos_and_Collision
@@ -61932,7 +62030,8 @@ Obj5D_FallingParts:
 
 Obj5D_Pump:
 	btst	#7,status(a0)
-	bne.s	+
+	bne.s	.bossDefeated
+
 	movea.l	Obj5D_parent(a0),a1 ; a1=object
 	move.l	x_pos(a1),x_pos(a0)
 	move.l	y_pos(a1),y_pos(a0)
@@ -61942,8 +62041,11 @@ Obj5D_Pump:
 	jsr	(AnimateSprite).l
 	jmp	(DisplaySprite).l
 ; ---------------------------------------------------------------------------
-+
-	moveq	#$22,d3
+
+.bossDefeated:
+	; Split this object into three pieces which each separately fall
+	; apart from the boss.
+	moveq	#$22,d3	; Start with sprite $22
 	move.b	#$78,Obj5D_timer(a0)
 	movea.l	Obj5D_parent(a0),a1 ; a1=object
 	move.w	x_pos(a1),x_pos(a0)
@@ -61955,7 +62057,8 @@ Obj5D_Pump:
 	asr.w	#6,d0
 	move.w	d0,x_vel(a0)
 	move.w	#-$380,y_vel(a0)
-	moveq	#1,d2
+
+	moveq	#2-1,d2 ; Create two more objects
 	addq.w	#1,d3
 
 -
@@ -61982,9 +62085,16 @@ Obj5D_Pump:
 	addi.b	#$1E,d0
 	andi.w	#$7F,d0
 	move.b	d0,Obj5D_timer(a1)
-	addq.w	#1,d3
+	addq.w	#1,d3	; Next sprite
 	dbf	d2,-
+    if fixBugs
+	jmp	(DisplaySprite).l
+    else
+	; This function fails to display the current object, causing the top
+	; piece of the Chemical Plant Zone boss to disappear for one frame when
+	; the boss is defeated.
 	rts
+    endif
 ; ===========================================================================
 ; Object to control the pipe's actions before pumping starts.
 
@@ -61995,12 +62105,14 @@ Obj5D_Pipe:
 	jmp	Obj5D_Pipe_Index(pc,d1.w)
 ; ===========================================================================
 Obj5D_Pipe_Index:	offsetTable
-		offsetTableEntry.w Obj5D_Pipe_0	; 0
-		offsetTableEntry.w Obj5D_Pipe_2_Load	; 2
+		offsetTableEntry.w Obj5D_Pipe_Wait	; 0
+		offsetTableEntry.w Obj5D_Pipe_Extend	; 2
 ; ===========================================================================
 ; wait for main vehicle's action 0
-
-Obj5D_Pipe_0:
+;Obj5D_Pipe_0:
+Obj5D_Pipe_Wait:
+	; Bit 0 of `Obj5D_status2` is set when the boss has reached its
+	; destination and is ready to begin filling its tank.
 	movea.l	Obj5D_parent(a0),a1	; parent = main vehicle ; a1=object
 	btst	#0,Obj5D_status2(a1)	; parent's action 0?
 	bne.s	+			; if yes, branch
@@ -62017,20 +62129,20 @@ Obj5D_Pipe_0:
 	; See the below bugfix.
 	move.w	#$C,Obj5D_pipe_segments(a0)
     endif
-	addq.b	#2,routine_secondary(a0)	; => Obj5D_Pipe_2_Load
+	addq.b	#2,routine_secondary(a0)	; => Obj5D_Pipe_Extend
 	movea.l	a0,a1
-	bra.s	Obj5D_Pipe_2_Load_Part2		; skip initial loading setup
+	bra.s	Obj5D_Pipe_Extend_Part2		; skip initial loading setup
 ; ===========================================================================
 ; load pipe segments, first object controls rest of pipe
 ; objects not loaded in a loop => one segment loaded per frame
 ; pipe extends gradually
-
-Obj5D_Pipe_2_Load:
+;Obj5D_Pipe_2_Load:
+Obj5D_Pipe_Extend:
 	; This code allocates one more object than necessary, leaving a
 	; partially initialised object in memory.
     if fixBugs
 	subq.w  #1,Obj5D_pipe_segments(a0)	; is pipe fully extended?
-	blt.s   Obj5D_Pipe_2_Load_End		; if yes, branch
+	blt.s   Obj5D_Pipe_Extend_End		; if yes, branch
     endif
 	jsr	(SingleObjLoad2).l
 	beq.s	+
@@ -62038,11 +62150,11 @@ Obj5D_Pipe_2_Load:
 ; ---------------------------------------------------------------------------
 +
 	move.l	a0,Obj5D_parent(a1)
-
-Obj5D_Pipe_2_Load_Part2:
+;Obj5D_Pipe_2_Load_Part2:
+Obj5D_Pipe_Extend_Part2:
     if ~~fixBugs
 	subq.w  #1,Obj5D_pipe_segments(a0)	; is pipe fully extended?
-	blt.s   Obj5D_Pipe_2_Load_End		; if yes, branch
+	blt.s   Obj5D_Pipe_Extend_End		; if yes, branch
     endif
 
 	_move.b #ObjID_CPZBoss,id(a1)	; load obj5D
@@ -62056,7 +62168,7 @@ Obj5D_Pipe_2_Load_Part2:
 
 	; calculate y position for current pipe segment
 	move.w	Obj5D_pipe_segments(a0),d0
-	subi.w	#$B,d0	; $B = maximum number of pipe segments -1, result is always negative or zero
+	subi.w	#$C-1,d0	; $B = maximum number of pipe segments -1, result is always negative or zero
 	neg.w	d0	; positive value needed
 	lsl.w	#3,d0	; multiply with 8
 	move.w	d0,Obj5D_y_pos_next(a1)
@@ -62068,10 +62180,10 @@ Obj5D_Pipe_2_Load_Part2:
 	bra.w	Obj5D_PipeSegment
 ; ===========================================================================
 ; once all pipe segments have been loaded, switch to pumping routine
-
-Obj5D_Pipe_2_Load_End:
-	move.b	#0,routine_secondary(a0)
-	move.b	#6,routine(a0)	; => Obj5D_Pipe_Pump_0
+;Obj5D_Pipe_2_Load_End:
+Obj5D_Pipe_Extend_End:
+	move.b	#0,routine_secondary(a0)	; => Obj5D_Pipe_Pump_0
+	move.b	#6,routine(a0)			; => Obj5D_Pipe_Pump
 	bra.w	Obj5D_PipeSegment
 ; ===========================================================================
 ; Object to control the pipe's actions while pumping.
@@ -62093,7 +62205,7 @@ Obj5D_Pipe_Pump_0:
 	jsr	(SingleObjLoad2).l
 	bne.w	Obj5D_PipeSegment
 	move.b	#$E,routine(a0)	; => Obj5D_PipeSegment	; temporarily turn control object into a pipe segment
-	move.b	#6,routine(a1)
+	move.b	#6,routine(a1)			; => Obj5D_Pipe_Pump
 	move.b	#2,routine_secondary(a1)	; => Obj5D_Pipe_Pump_2
 	_move.b	#ObjID_CPZBoss,id(a1) ; load obj5D
 	move.l	#Obj5D_MapUnc_2EADC,mappings(a1)
@@ -62112,6 +62224,7 @@ Obj5D_Pipe_Pump_0:
 	move.b	#2,anim(a1)
 	move.l	a0,Obj5D_parent(a1)	; address of control object
 	move.b	#$12,Obj5D_timer(a1)
+
 	jsr	(SingleObjLoad2).l
 	bne.s	BranchTo_Obj5D_PipeSegment
 	_move.b	#ObjID_CPZBoss,id(a1) ; load obj5D
@@ -62267,7 +62380,7 @@ BranchTo_JmpTo51_DeleteObject ; BranchTo
 ; ===========================================================================
 
 Obj5D_PipeSegment_End:
-	move.b	#$14,routine(a0)
+	move.b	#$14,routine(a0)	; => Obj5D_FallingParts
 	jsr	(RandomNumber).l
 	asr.w	#8,d0
 	asr.w	#6,d0
@@ -62277,7 +62390,26 @@ Obj5D_PipeSegment_End:
 	addi.b	#$1E,d0
 	andi.w	#$7F,d0
 	move.b	d0,Obj5D_timer(a0)
+    if fixBugs
+	lea	(Ani_Obj5D_Dripper).l,a1
+	jsr	(AnimateSprite).l
+	jmp	(DisplaySprite).l
+    else
+	; If the Chemical Plant Zone boss is defeated while its pipe is
+	; extending, then an incorrect sprite will appear at the boss's rear
+	; as it explodes.
+	; Pipe segments are supposed to use sprite frame 1, but the
+	; AnimateSprite function must be called for that to happen. When the
+	; boss is defeated, the segment will switch from calling
+	; Obj5D_PipeSegment to Obj5D_PipeSegment_End, which does not call
+	; AnimateSprite.
+	; This means that if the boss were to be defeated right as a pipe
+	; segment spawns, then it will never call AnimateSprite, causing it to
+	; display sprite frame 0 instead of 1.
+	; To fix this bug, Obj5D_PipeSegment_End should be made to call
+	; AnimateSprite.
 	jmpto	DisplaySprite, JmpTo34_DisplaySprite
+    endif
 ; ===========================================================================
 
 Obj5D_Dripper:
@@ -62462,7 +62594,7 @@ Obj5D_Container_FallOff:
 +
 	add.w	d0,x_pos(a0)
 	move.b	#$20,mapping_frame(a0)
-	move.b	#$14,routine(a0)
+	move.b	#$14,routine(a0)	; => Obj5D_FallingParts
 	jsr	(RandomNumber).l
 	asr.w	#8,d0
 	asr.w	#6,d0
@@ -62494,7 +62626,7 @@ loc_2E35C:
 	_move.b	#ObjID_CPZBoss,id(a1) ; load obj5D
 	move.l	#Obj5D_MapUnc_2EADC,mappings(a1)
 	move.b	#$21,mapping_frame(a1)
-	move.b	#$14,routine(a1)
+	move.b	#$14,routine(a1)	; => Obj5D_FallingParts
 	move.w	#make_art_tile(ArtTile_ArtNem_CPZBoss,1,0),art_tile(a1)
 	move.b	render_flags(a0),render_flags(a1)
 	move.b	#$20,width_pixels(a1)
@@ -62578,8 +62710,8 @@ loc_2E464:
 	bne.s	return_2E4CC
 	_move.b	#ObjID_CPZBoss,id(a1) ; load obj5D
 	move.l	a0,Obj5D_parent(a1)
-	move.b	#$10,routine(a1)
-	move.b	#8,routine_secondary(a1)
+	move.b	#$10,routine(a1)		; => Obj5D_Container
+	move.b	#8,routine_secondary(a1)	; => Obj5D_Container_Floor2
 	move.l	#Obj5D_MapUnc_2EADC,mappings(a1)
 	move.w	#make_art_tile(ArtTile_ArtNem_CPZBoss,1,0),art_tile(a1)
 	move.b	#4,render_flags(a1)
@@ -62618,11 +62750,12 @@ loc_2E4CE:
 	move.b	#4,priority(a1)
 	move.l	x_pos(a0),x_pos(a1)
 	move.l	y_pos(a0),y_pos(a1)
-	move.b	#4,routine(a1)
+	move.b	#4,routine(a1)		; => Obj5D_Pipe
 	move.b	#0,routine_secondary(a0)
 	bra.s	return_2E550
 ; ===========================================================================
-	move.b	#$A,routine(a1)
+	; Some mysterious dead code...
+	move.b	#$A,routine(a1)		; => Obj5D_Dripper
 	move.l	Obj5D_parent(a0),Obj5D_parent(a1)
 
 return_2E550:
@@ -62937,11 +63070,11 @@ Obj5D_Robotnik_End:
 	jsr	(AnimateSprite).l
 	jmp	(DisplaySprite).l
 ; ===========================================================================
-byte_2E94A:
+;byte_2E94A:
+Obj5D_Flame_Frames:
 	dc.b   0
-	dc.b $FF	; 1
+	dc.b  -1	; 1
 	dc.b   1	; 2
-	dc.b   0	; 3
 	even
 ; ===========================================================================
 
@@ -62962,7 +63095,7 @@ Obj5D_Flame:
 	ble.s	+
 	moveq	#0,d0
 +
-	move.b	byte_2E94A(pc,d0.w),mapping_frame(a0)
+	move.b	Obj5D_Flame_Frames(pc,d0.w),mapping_frame(a0)
 	move.b	d0,Obj5D_timer2(a0)
 
 loc_2E996:
@@ -62982,7 +63115,7 @@ loc_2E9A8:
     if fixBugs
 	addq.b	#2,routine(a0)
     else
-	; Eggman is supposed to starting leaving a trail of smoke here, but
+	; Eggman is supposed to start leaving a trail of smoke here, but
 	; this code is incorrect which prevents it from appearing.
 	; This should be 'routine' instead of 'routine_secondary'...
 	addq.b	#2,routine_secondary(a0)
@@ -69062,7 +69195,7 @@ Obj09_Index:	offsetTable
 loc_33908:
 	lea	(SS_Ctrl_Record_Buf_End).w,a1
 
-	moveq	#(SS_Ctrl_Record_Buf_End-SS_Ctrl_Record_Buf)/2-2,d0
+	moveq	#bytesToWcnt(SS_Ctrl_Record_Buf_End-SS_Ctrl_Record_Buf)-1,d0
 -	move.w	-4(a1),-(a1)
 	dbf	d0,-
 
@@ -70067,11 +70200,18 @@ SSTailsCPU_Control:
 	andi.b	#button_up_mask|button_down_mask|button_left_mask|button_right_mask|button_B_mask|button_C_mask|button_A_mask,d0
 	beq.s	+
 	moveq	#0,d0
-	moveq	#3,d1
+	moveq	#bytesToXcnt(SS_Ctrl_Record_Buf_End-SS_Ctrl_Record_Buf,4*2),d1
 	lea	(SS_Ctrl_Record_Buf).w,a1
 -
+    if fixBugs
+	move.l	d0,(a1)+
+	move.l	d0,(a1)+
+    else
+	; The pointer does not increment, preventing the 'SS_Ctrl_Record_Buf'
+	; buffer from being cleared!
 	move.l	d0,(a1)
 	move.l	d0,(a1)
+    endif
 	dbf	d1,-
 	move.w	#$B4,(Tails_control_counter).w
 	rts
@@ -70083,7 +70223,7 @@ SSTailsCPU_Control:
 	rts
 ; ===========================================================================
 +
-	lea	(SS_Last_Ctrl_Record).w,a1
+	lea	(SS_Ctrl_Record_Buf_End-2).w,a1 ; Last value
 	move.w	(a1),(Ctrl_2_Logical).w
 	rts
 ; ===========================================================================
@@ -88030,7 +88170,7 @@ Hud_ClrBonusLoop:
 
 ; sub_412D4:
 Hud_Lives2:
-	move.l	#vdpComm(tiles_to_bytes(ArtTile_ArtUnc_2p_life_counter_lives),VRAM,WRITE),d0
+	move.l	#vdpComm(tiles_to_bytes(ArtTile_ArtNem_2p_life_counter_lives),VRAM,WRITE),d0
 	moveq	#0,d1
 	move.b	(Life_count_2P).w,d1
 	bra.s	loc_412EE
@@ -88800,23 +88940,23 @@ cur_zone_str := "\{cur_zone_id}"
 ; BEGIN SArt_Ptrs Art_Ptrs_Array[17]
 ; dword_42594: MainLoadBlocks: saArtPtrs:
 LevelArtPointers:
-	levartptrs PLCID_Ehz1,     PLCID_Ehz2,      PalID_EHZ,  ArtKos_EHZ, BM16_EHZ, BM128_EHZ ;   0 ; EHZ  ; EMERALD HILL ZONE
-	levartptrs PLCID_Miles1up, PLCID_MilesLife, PalID_EHZ2, ArtKos_EHZ, BM16_EHZ, BM128_EHZ ;   1 ; LEV1 ; LEVEL 1 (UNUSED)
-	levartptrs PLCID_Tails1up, PLCID_TailsLife, PalID_WZ,   ArtKos_EHZ, BM16_EHZ, BM128_EHZ ;   2 ; LEV2 ; LEVEL 2 (UNUSED)
-	levartptrs PLCID_Unused1,  PLCID_Unused2,   PalID_EHZ3, ArtKos_EHZ, BM16_EHZ, BM128_EHZ ;   3 ; LEV3 ; LEVEL 3 (UNUSED)
-	levartptrs PLCID_Mtz1,     PLCID_Mtz2,      PalID_MTZ,  ArtKos_MTZ, BM16_MTZ, BM128_MTZ ;   4 ; MTZ  ; METROPOLIS ZONE ACTS 1 & 2
-	levartptrs PLCID_Mtz1,     PLCID_Mtz2,      PalID_MTZ,  ArtKos_MTZ, BM16_MTZ, BM128_MTZ ;   5 ; MTZ3 ; METROPOLIS ZONE ACT 3
-	levartptrs PLCID_Wfz1,     PLCID_Wfz2,      PalID_WFZ,  ArtKos_SCZ, BM16_WFZ, BM128_WFZ ;   6 ; WFZ  ; WING FORTRESS ZONE
-	levartptrs PLCID_Htz1,     PLCID_Htz2,      PalID_HTZ,  ArtKos_EHZ, BM16_EHZ, BM128_EHZ ;   7 ; HTZ  ; HILL TOP ZONE
-	levartptrs PLCID_Hpz1,     PLCID_Hpz2,      PalID_HPZ,  ArtKos_HPZ, BM16_HPZ, BM128_HPZ ;   8 ; HPZ  ; HIDDEN PALACE ZONE (UNUSED)
-	levartptrs PLCID_Unused3,  PLCID_Unused4,   PalID_EHZ4, ArtKos_EHZ, BM16_EHZ, BM128_EHZ ;   9 ; LEV9 ; LEVEL 9 (UNUSED)
-	levartptrs PLCID_Ooz1,     PLCID_Ooz2,      PalID_OOZ,  ArtKos_OOZ, BM16_OOZ, BM128_OOZ ;  $A ; OOZ  ; OIL OCEAN ZONE
-	levartptrs PLCID_Mcz1,     PLCID_Mcz2,      PalID_MCZ,  ArtKos_MCZ, BM16_MCZ, BM128_MCZ ;  $B ; MCZ  ; MYSTIC CAVE ZONE
-	levartptrs PLCID_Cnz1,     PLCID_Cnz2,      PalID_CNZ,  ArtKos_CNZ, BM16_CNZ, BM128_CNZ ;  $C ; CNZ  ; CASINO NIGHT ZONE
-	levartptrs PLCID_Cpz1,     PLCID_Cpz2,      PalID_CPZ,  ArtKos_CPZ, BM16_CPZ, BM128_CPZ ;  $D ; CPZ  ; CHEMICAL PLANT ZONE
-	levartptrs PLCID_Dez1,     PLCID_Dez2,      PalID_DEZ,  ArtKos_CPZ, BM16_CPZ, BM128_CPZ ;  $E ; DEZ  ; DEATH EGG ZONE
-	levartptrs PLCID_Arz1,     PLCID_Arz2,      PalID_ARZ,  ArtKos_ARZ, BM16_ARZ, BM128_ARZ ;  $F ; ARZ  ; AQUATIC RUIN ZONE
-	levartptrs PLCID_Scz1,     PLCID_Scz2,      PalID_SCZ,  ArtKos_SCZ, BM16_WFZ, BM128_WFZ ; $10 ; SCZ  ; SKY CHASE ZONE
+	levartptrs PLCID_Ehz1,        PLCID_Ehz2,      PalID_EHZ,  ArtKos_EHZ, BM16_EHZ, BM128_EHZ ;   0 ; EHZ  ; EMERALD HILL ZONE
+	levartptrs PLCID_MilesLife2P, PLCID_MilesLife, PalID_EHZ2, ArtKos_EHZ, BM16_EHZ, BM128_EHZ ;   1 ; LEV1 ; LEVEL 1 (UNUSED)
+	levartptrs PLCID_TailsLife2P, PLCID_TailsLife, PalID_WZ,   ArtKos_EHZ, BM16_EHZ, BM128_EHZ ;   2 ; LEV2 ; LEVEL 2 (UNUSED)
+	levartptrs PLCID_Unused1,     PLCID_Unused2,   PalID_EHZ3, ArtKos_EHZ, BM16_EHZ, BM128_EHZ ;   3 ; LEV3 ; LEVEL 3 (UNUSED)
+	levartptrs PLCID_Mtz1,        PLCID_Mtz2,      PalID_MTZ,  ArtKos_MTZ, BM16_MTZ, BM128_MTZ ;   4 ; MTZ  ; METROPOLIS ZONE ACTS 1 & 2
+	levartptrs PLCID_Mtz1,        PLCID_Mtz2,      PalID_MTZ,  ArtKos_MTZ, BM16_MTZ, BM128_MTZ ;   5 ; MTZ3 ; METROPOLIS ZONE ACT 3
+	levartptrs PLCID_Wfz1,        PLCID_Wfz2,      PalID_WFZ,  ArtKos_SCZ, BM16_WFZ, BM128_WFZ ;   6 ; WFZ  ; WING FORTRESS ZONE
+	levartptrs PLCID_Htz1,        PLCID_Htz2,      PalID_HTZ,  ArtKos_EHZ, BM16_EHZ, BM128_EHZ ;   7 ; HTZ  ; HILL TOP ZONE
+	levartptrs PLCID_Hpz1,        PLCID_Hpz2,      PalID_HPZ,  ArtKos_HPZ, BM16_HPZ, BM128_HPZ ;   8 ; HPZ  ; HIDDEN PALACE ZONE (UNUSED)
+	levartptrs PLCID_Unused3,     PLCID_Unused4,   PalID_EHZ4, ArtKos_EHZ, BM16_EHZ, BM128_EHZ ;   9 ; LEV9 ; LEVEL 9 (UNUSED)
+	levartptrs PLCID_Ooz1,        PLCID_Ooz2,      PalID_OOZ,  ArtKos_OOZ, BM16_OOZ, BM128_OOZ ;  $A ; OOZ  ; OIL OCEAN ZONE
+	levartptrs PLCID_Mcz1,        PLCID_Mcz2,      PalID_MCZ,  ArtKos_MCZ, BM16_MCZ, BM128_MCZ ;  $B ; MCZ  ; MYSTIC CAVE ZONE
+	levartptrs PLCID_Cnz1,        PLCID_Cnz2,      PalID_CNZ,  ArtKos_CNZ, BM16_CNZ, BM128_CNZ ;  $C ; CNZ  ; CASINO NIGHT ZONE
+	levartptrs PLCID_Cpz1,        PLCID_Cpz2,      PalID_CPZ,  ArtKos_CPZ, BM16_CPZ, BM128_CPZ ;  $D ; CPZ  ; CHEMICAL PLANT ZONE
+	levartptrs PLCID_Dez1,        PLCID_Dez2,      PalID_DEZ,  ArtKos_CPZ, BM16_CPZ, BM128_CPZ ;  $E ; DEZ  ; DEATH EGG ZONE
+	levartptrs PLCID_Arz1,        PLCID_Arz2,      PalID_ARZ,  ArtKos_ARZ, BM16_ARZ, BM128_ARZ ;  $F ; ARZ  ; AQUATIC RUIN ZONE
+	levartptrs PLCID_Scz1,        PLCID_Scz2,      PalID_SCZ,  ArtKos_SCZ, BM16_WFZ, BM128_WFZ ; $10 ; SCZ  ; SKY CHASE ZONE
 
     if (cur_zone_id<>no_of_zones)&&(MOMPASS=1)
 	message "Warning: Table LevelArtPointers has \{cur_zone_id/1.0} entries, but it should have \{no_of_zones/1.0} entries"
@@ -88865,10 +89005,10 @@ PLCptr_StdWtr:		offsetTableEntry.w PlrList_StdWtr		; 2
 PLCptr_GameOver:	offsetTableEntry.w PlrList_GameOver		; 3
 PLCptr_Ehz1:		offsetTableEntry.w PlrList_Ehz1			; 4
 PLCptr_Ehz2:		offsetTableEntry.w PlrList_Ehz2			; 5
-PLCptr_Miles1up:	offsetTableEntry.w PlrList_Miles1up		; 6
-PLCptr_MilesLife:	offsetTableEntry.w PlrList_MilesLifeCounter	; 7
-PLCptr_Tails1up:	offsetTableEntry.w PlrList_Tails1up		; 8
-PLCptr_TailsLife:	offsetTableEntry.w PlrList_TailsLifeCounter	; 9
+PLCptr_MilesLife2P:	offsetTableEntry.w PlrList_MilesLife2P		; 6
+PLCptr_MilesLife:	offsetTableEntry.w PlrList_MilesLife		; 7
+PLCptr_TailsLife2P:	offsetTableEntry.w PlrList_TailsLife2P		; 8
+PLCptr_TailsLife:	offsetTableEntry.w PlrList_TailsLife		; 9
 PLCptr_Unused1:		offsetTableEntry.w PlrList_Mtz1			; 10
 PLCptr_Unused2:		offsetTableEntry.w PlrList_Mtz1			; 11
 PLCptr_Mtz1:		offsetTableEntry.w PlrList_Mtz1			; 12
@@ -89005,30 +89145,30 @@ PlrList_Ehz2_End
 ; Pattern load queue
 ; Miles 1up patch
 ;---------------------------------------------------------------------------------------
-PlrList_Miles1up: plrlistheader
-	plreq ArtTile_ArtUnc_2p_life_counter, ArtUnc_MilesLife
-PlrList_Miles1up_End
+PlrList_MilesLife2P: plrlistheader
+	plreq ArtTile_ArtNem_2p_life_counter, ArtNem_MilesLife
+PlrList_MilesLife2P_End
 ;---------------------------------------------------------------------------------------
 ; Pattern load queue
 ; Miles life counter
 ;---------------------------------------------------------------------------------------
-PlrList_MilesLifeCounter: plrlistheader
-	plreq ArtTile_ArtNem_life_counter, ArtUnc_MilesLife
-PlrList_MilesLifeCounter_End
+PlrList_MilesLife: plrlistheader
+	plreq ArtTile_ArtNem_life_counter, ArtNem_MilesLife
+PlrList_MilesLife_End
 ;---------------------------------------------------------------------------------------
 ; Pattern load queue
 ; Tails 1up patch
 ;---------------------------------------------------------------------------------------
-PlrList_Tails1up: plrlistheader
-	plreq ArtTile_ArtUnc_2p_life_counter, ArtNem_TailsLife
-PlrList_Tails1up_End
+PlrList_TailsLife2P: plrlistheader
+	plreq ArtTile_ArtNem_2p_life_counter, ArtNem_TailsLife
+PlrList_TailsLife2P_End
 ;---------------------------------------------------------------------------------------
 ; Pattern load queue
 ; Tails life counter
 ;---------------------------------------------------------------------------------------
-PlrList_TailsLifeCounter: plrlistheader
+PlrList_TailsLife: plrlistheader
 	plreq ArtTile_ArtNem_life_counter, ArtNem_TailsLife
-PlrList_TailsLifeCounter_End
+PlrList_TailsLife_End
 ;---------------------------------------------------------------------------------------
 ; PATTERN LOAD REQUEST LIST
 ; Metropolis Zone primary
@@ -90355,7 +90495,8 @@ ArtNem_Explosion:	BINCLUDE	"art/nemesis/Explosion.bin"
 ; Nemesis compressed art (12 blocks)
 ; Miles life counter	; ArtNem_7B946:
 	even
-ArtUnc_MilesLife:	BINCLUDE	"art/nemesis/Miles life counter.bin"
+; ArtUnc_MilesLife:
+ArtNem_MilesLife:	BINCLUDE	"art/nemesis/Miles life counter.bin"
 ;---------------------------------------------------------------------------------------
 ; Nemesis compressed art (49 blocks)
 ; Egg prison		; ArtNem_7BA32:

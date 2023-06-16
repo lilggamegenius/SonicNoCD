@@ -15,27 +15,31 @@ local improved_sound_driver_compression = true
 
 local common = require "build_tools.lua.common"
 
+local exit_code
+local repository = "https://github.com/sonicretro/s2disasm"
+
+local function success_continue_wrapper(success, continue)
+	if not success then
+		exit_code = false
+	end
+
+	if not continue then
+		os.exit(false)
+	end
+end
+
 -- Obtain the paths to the native build tools for the current platform.
-local tools, platform_directory = common.find_tools("s2p2bin", "fixpointer", "saxman")
+local tools, platform_directory = common.find_tools("build tool bundle", "build_tools/source_code/", repository, "fixpointer", "saxman")
 
 -- Present an error message to the user if the build tools for their platform do not exist.
-if not tools then
-	print(string.format("\z
-		Sorry, the build tools for your platform are outdated and need recompiling.\n\z
-		\n\z
-		You can find the source code in 'build_tools/source_code'.\n\z
-		Once compiled, copy the executables to '%s'.\n\z
-		\n\z
-		We'd appreciate it if you could send us your executables in a pull request at\n\z
-		https://github.com/sonicretro/s2disasm, so that other users don't have this\n\z
-		problem in the future.", platform_directory))
-
+if tools == nil then
+	common.show_flashy_message("Build failed. See above for more details.")
 	os.exit(false)
 end
 
 -- Begin assembling then compressing the SubCPU program
 
-local assemble_result = common.assemble_file("SubCPU/s2.subcpu.asm", "SubCPU/s2subcpu.bin", tools.as, "", tools.s2p2bin, "", false)
+local assemble_result = common.assemble_file("SubCPU/s2.subcpu.asm", "SubCPU/s2subcpu.bin", "", "", false, repository)
 
 if assemble_result == "crash" then
 	print "\n\z
@@ -129,45 +133,12 @@ SonicDriverVer = 2
 		song_file:close()
 
 		-- Assemble the song to an uncompressed binary.
-		local assemble_result = common.assemble_file("song.asm", "song.bin", tools.as, "", tools.s2p2bin, improved_sound_driver_compression and "" or "-a", false)
+		local success, continue = common.assemble_file("song.asm", "song.bin", "", "", false, repository)
 
 		-- We can get rid of this wrapper ASM file now.
 		os.remove("song.asm")
 
-		if assemble_result == "crash" then
-			print "\n\z
-				**********************************************************************\n\z
-				*                                                                    *\n\z
-				*         The assembler crashed. See above for more details.         *\n\z
-				*                                                                    *\n\z
-				**********************************************************************\n\z"
-
-			os.exit(false)
-		elseif assemble_result == "error" then
-			for line in io.lines("song.log") do
-				print(line)
-			end
-
-			print "\n\z
-				**********************************************************************\n\z
-				*                                                                    *\n\z
-				*       There were build errors. See song.log for more details.      *\n\z
-				*                                                                    *\n\z
-				**********************************************************************\n\z"
-
-			os.exit(false)
-		elseif assemble_result == "warning" then
-			for line in io.lines("song.log") do
-				print(line)
-			end
-
-			print "\n\z
-				**********************************************************************\n\z
-				*                                                                    *\n\z
-				*      There were build warnings. See song.log for more details.     *\n\z
-				*                                                                    *\n\z
-				**********************************************************************\n\z"
-		end
+		success_continue_wrapper(success, continue)
 
 		-- Now that we have an assembled song binary, compress it.
 		os.execute(tools.saxman .. " " .. (improved_sound_driver_compression and "" or "-a") .. " song.bin \"sound/music/compressed/" .. song_name .. ".bin\"")
@@ -208,38 +179,7 @@ hashes_file:close()
 -- Huzzah: we are done with assembling and compressing the music.
 -- We can move onto building the rest of the ROM.
 
--- Delete old ROM.
-os.remove("s2built.prev.bin")
-
--- Backup the most recent ROM.
-os.rename("s2built.bin", "s2built.prev.bin")
-
--- Assemble the ROM.
-local assemble_result = common.assemble_file("s2.asm", "s2built.bin", tools.as, "", tools.s2p2bin, improved_sound_driver_compression and "" or "-a", true)
-
-if assemble_result == "crash" then
-	print "\n\z
-		**********************************************************************\n\z
-		*                                                                    *\n\z
-		*         The assembler crashed. See above for more details.         *\n\z
-		*                                                                    *\n\z
-		**********************************************************************\n\z"
-
-	os.exit(false)
-elseif assemble_result == "error" then
-	for line in io.lines("s2.log") do
-		print(line)
-	end
-
-	print "\n\z
-		**********************************************************************\n\z
-		*                                                                    *\n\z
-		*        There were build errors. See s2.log for more details.       *\n\z
-		*                                                                    *\n\z
-		**********************************************************************\n\z"
-
-	os.exit(false)
-end
+success_continue_wrapper(common.build_rom("s2", "s2built", "", "-p=0 -z=0," .. (improved_sound_driver_compression and "saxman-optimised" or "saxman-bugged") .. ",Size_of_Snd_driver_guess,after", true, repository))
 
 -- Correct some pointers and other data that we couldn't until after the ROM had been assembled.
 os.execute(tools.fixpointer .. " s2.h s2built.bin   off_3A294 MapRUnc_Sonic 0x2D 0 4   word_728C_user Obj5F_MapUnc_7240 2 2 1")
@@ -268,3 +208,4 @@ end
 os.execute("ConvSym s2.lst s2built.bin -input as_lst -a")
 
 -- A successful build; we can quit now.
+os.exit(exit_code)

@@ -488,9 +488,9 @@ PLCID_StdWtr =		id(PLCptr_StdWtr) ; 2
 PLCID_GameOver =	id(PLCptr_GameOver) ; 3
 PLCID_Ehz1 =		id(PLCptr_Ehz1) ; 4
 PLCID_Ehz2 =		id(PLCptr_Ehz2) ; 5
-PLCID_Miles1up =	id(PLCptr_Miles1up) ; 6
+PLCID_MilesLife2P =	id(PLCptr_MilesLife2P) ; 6
 PLCID_MilesLife =	id(PLCptr_MilesLife) ; 7
-PLCID_Tails1up =	id(PLCptr_Tails1up) ; 8
+PLCID_TailsLife2P =	id(PLCptr_TailsLife2P) ; 8
 PLCID_TailsLife =	id(PLCptr_TailsLife) ; 9
 PLCID_Unused1 =		id(PLCptr_Unused1) ; A
 PLCID_Unused2 =		id(PLCptr_Unused2) ; B
@@ -1938,12 +1938,10 @@ SSDrawRegBuffer:			ds.w	6
 SSDrawRegBuffer_End
 					ds.b	2
 SpecialStage_LastSegment2:		ds.b	1
-SS_unk_DB4D:				ds.b	1
+SS_unk_DB4D:				ds.b	1	; written but never read
 					ds.b	$14
 SS_Ctrl_Record_Buf:
-					ds.w	$F
-SS_Last_Ctrl_Record:
-					ds.w	1
+					ds.w	$10
 SS_Ctrl_Record_Buf_End
 SS_CurrentPerspective:			ds.l	1
 SS_Check_Rings_flag:			ds.b	1
@@ -2530,8 +2528,8 @@ ArtTile_HUD_Score                     = ArtTile_HUD_Score_E + 2
 ArtTile_HUD_Rings                     = ArtTile_ArtNem_HUD + $30
 ArtTile_HUD_Minutes                   = ArtTile_ArtNem_HUD + $28
 ArtTile_HUD_Seconds                   = ArtTile_HUD_Minutes + 4
-ArtTile_ArtUnc_2p_life_counter        = ArtTile_ArtNem_HUD + $2A
-ArtTile_ArtUnc_2p_life_counter_lives  = ArtTile_ArtUnc_2p_life_counter + 9
+ArtTile_ArtNem_2p_life_counter        = ArtTile_ArtNem_HUD + $2A
+ArtTile_ArtNem_2p_life_counter_lives  = ArtTile_ArtNem_2p_life_counter + 9
 ArtTile_ArtNem_life_counter           = ArtTile_ArtNem_HUD + $10A
 ArtTile_ArtNem_life_counter_lives     = ArtTile_ArtNem_life_counter + 9
 
