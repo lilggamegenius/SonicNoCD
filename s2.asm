@@ -8972,7 +8972,7 @@ ssLdComprsdData:
 	lea	(MiscKoz_SpecialPerspective).l,a0
 	lea	(SSRAM_MiscKoz_SpecialPerspective).l,a1
 	bsr.w	KosDec
-	lea	(MiscKoz_SpecialLevelLayout).l,a0
+	lea	(MiscNem_SpecialLevelLayout).l,a0
 	lea	(SSRAM_MiscNem_SpecialLevelLayout).w,a4
 	bsr.w	NemDecToRAM
 	lea	(MiscKoz_SpecialObjectLocations).l,a0
@@ -15823,7 +15823,7 @@ SwScrl_HTZ:
 	dbf	d2,--
 
 	; 128 + 8 + 7 + 8 + 10 + 15 + 48 = 224
-	; All lines have bene written.
+	; All lines have been written.
 
 	rts
 ; ===========================================================================
@@ -16472,7 +16472,7 @@ SwScrl_MCZ_2P:
 	; aren't set here. This is because the background is not dynamically
 	; loaded in two player mode: instead, the whole background is
 	; pre-loaded into Plane B. This is possible because Plane B is larger
-	; in two player mode (able to 512x512 pixels instead of 512x256).
+	; in two player mode (able to hold 512x512 pixels instead of 512x256).
 	moveq	#0,d0
 	move.w	(Camera_Y_pos).w,d0
 	; Curiously, the background moves vertically at different speeds
@@ -16643,7 +16643,7 @@ SwScrl_MCZ2P_RowHeights:
 	; aren't set here. This is because the background is not dynamically
 	; loaded in two player mode: instead, the whole background is
 	; pre-loaded into Plane B. This is possible because Plane B is larger
-	; in two player mode (able to 512x512 pixels instead of 512x256).
+	; in two player mode (able to hold 512x512 pixels instead of 512x256).
 	moveq	#0,d0
 	move.w	(Camera_Y_pos_P2).w,d0
 	; Curiously, the background moves vertically at different speeds
@@ -29999,7 +29999,7 @@ Anim_End_FA:
 Anim_End_F9:
 	addq.b	#1,d0	; is the end flag = $F9?
 	bne.s	Anim_End	; if not, branch
-	addq.b	#2,objoff_2A(a0)	; Actually obj89_arrow_routine
+	addq.b	#2,obj89_arrow_routine(a0)
 ; return_16602:
 Anim_End:
 	rts
@@ -91721,10 +91721,10 @@ ArtNem_SpecialTailsText:	BINCLUDE	"art/nemesis/Tails text patterns from special 
 ;--------------------------------------------------------------------------------------
 MiscKoz_SpecialPerspective:	BINCLUDE	"misc/Special stage object perspective data (Kosinski compression).bin"
 ;--------------------------------------------------------------------------------------
-; Special stage level layout (Nemesis compression)	; MiscNem_E34EE:
+; Special stage level layout (Nemesis compression)	; MiscNem_E34EE: MiscKoz_SpecialLevelLayout:
 ;--------------------------------------------------------------------------------------
 	even
-MiscKoz_SpecialLevelLayout:	BINCLUDE	"misc/Special stage level layouts (Nemesis compression).bin"
+MiscNem_SpecialLevelLayout:	BINCLUDE	"misc/Special stage level layouts (Nemesis compression).bin"
 ;--------------------------------------------------------------------------------------
 ; Special stage object location list (Kosinski compression)	; MiscKoz_E35F2:
 ;--------------------------------------------------------------------------------------
