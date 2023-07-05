@@ -19,7 +19,13 @@
 ;
 
 MCDEnable = 1
+
+	ifdef __DEBUG__
 EDDebug = 1
+	else
+EDDebug = 0
+	endif
+	
 	include "s2.options.asm"
 ; >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 ; AS-specific macros and assembler settings
@@ -92604,7 +92610,11 @@ paddingSoFar	:= paddingSoFar+1
 	endif
 	
 		; "About" because it will be off by the same amount that Size_of_Snd_driver_guess is incorrect (if you changed it), and because I may have missed a small amount of internal padding somewhere
-		message "ROM size is $\{*} bytes (\{*/1024.0} kb). About $\{paddingSoFar} bytes are padding. "
+		ifdef __DEBUG__
+			message "Debug ROM size is $\{*} bytes (\{*/1024.0} kb). About $\{paddingSoFar} bytes are padding. "
+		else 
+			message "Release ROM size is $\{*} bytes (\{*/1024.0} kb). About $\{paddingSoFar} bytes are padding. "
+		endif
 	endif
 	; share these symbols externally (WARNING: don't rename, move or remove these labels!)
 	shared word_728C_user,Obj5F_MapUnc_7240,off_3A294,MapRUnc_Sonic,movewZ80CompSize

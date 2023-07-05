@@ -84,7 +84,7 @@ EDDebuggerInput:
 	lea			(EDRam.WatchList).w, a0				; Reset a0 back to the beginning of the watch list
 	lea			(EDRam.WatchCount).w, a1			; Load the address of the watch count into a1
 	moveq		#0, d0								; Clear d0 so the upper 24-bits aren't garbage
-	
+
 .ProcessCommands:
 	move.b		(RegSTE+1), d0
 	andi.b		#USB_RD_RDY, d0
@@ -98,9 +98,9 @@ EDDebuggerInput:
 
 WatchCommandTable:
 .ReturnCommand:		bra.w	EDDebuggerReturn	;   0	-	No more commands
-.AddWatchCommand:	bra.w	.AddWatch			;   2
+.AddWatchCommand:	bra.w	AddWatch			;   2
 
-.AddWatch:
+AddWatch:
 	move.l		a0, a2							; Copy the start of the watch list into a2
 	moveq		#0, d0							; Clear out d0
 	
