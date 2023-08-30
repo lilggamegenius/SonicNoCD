@@ -297,6 +297,11 @@ menutxt	macro	text
 	dc.b	strlen(text)-1
 	dc.b	text
 	endm
+
+childObjectData macro objoff, objectID, subtype
+	dc.w	objoff
+	dc.b	objectID, subtype
+	endm
 	
 ; ---------------------------------------------------------------------------
 ; disable interrupts

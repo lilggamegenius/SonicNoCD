@@ -42,6 +42,10 @@ EDDebug = 0
 	include "s2.constants.asm"
 
 ; >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+; Equates section - Names for variables.
+	include "s2.constants.asm"
+
+; >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 ; Expressing SMPS bytecode in a portable and human-readable form
 SonicDriverVer = 2 ; Tell SMPS2ASM that we are targetting Sonic 2's sound driver
 	include "sound/_smps2asm_inc.asm"
@@ -581,8 +585,13 @@ loc_54A:
 
 Vint0_noWater:
 	move.w	(VDP_control_port).l,d0
+    if ~~fixBugs
+	; As with the sprite table upload, this only needs to be done in two-player mode.
+
+	; Update V-Scroll.
 	move.l	#vdpComm($0000,VSRAM,WRITE),(VDP_control_port).l
 	move.l	(Vscroll_Factor).w,(VDP_data_port).l
+    endif
 	btst	#6,(Graphics_Flags).w
 	beq.s	+
 
@@ -592,10 +601,39 @@ Vint0_noWater:
 	move.w	#1,(Hint_flag).w
 	move.w	(Hint_counter_reserve).w,(VDP_control_port).l
 	move.w	#$8200|(VRAM_Plane_A_Name_Table/$400),(VDP_control_port).l	; Set scroll A PNT base to $C000
+    if ~~fixBugs
+	; Does not need to be done on lag frames.
 	move.l	(Vscroll_Factor_P2).w,(Vscroll_Factor_P2_HInt).w
+    endif
 
 	stopZ80
+    if fixBugs
+	; In two-player mode, we have to update the sprite table
+	; even during a lag frame so that the top half of the screen
+	; shows the correct sprites.
+	tst.w	(Two_player_mode).w
+	beq.s	++
+
+	; Update V-Scroll.
+	move.l	#vdpComm($0000,VSRAM,WRITE),(VDP_control_port).l
+	move.l	(Vscroll_Factor).w,(VDP_data_port).l
+
+	; Like in Sonic 3, the sprite tables are page-flipped in two-player mode.
+	; This fixes a race-condition where incomplete sprite tables can be uploaded
+	; to the VDP on lag frames, causing corrupted sprites to appear.
+
+	; Upload the front buffer.
+	tst.b	(Current_sprite_table_page).w
+	beq.s	+
 	dma68kToVDP Sprite_Table,VRAM_Sprite_Attribute_Table,VRAM_Sprite_Attribute_Table_Size,VRAM
+	bra.s	++
++
+	dma68kToVDP Sprite_Table_Alternate,VRAM_Sprite_Attribute_Table,VRAM_Sprite_Attribute_Table_Size,VRAM
++
+    else
+	; In the original game, the sprite table is needlessly updated on lag frames.
+	dma68kToVDP Sprite_Table,VRAM_Sprite_Attribute_Table,VRAM_Sprite_Attribute_Table_Size,VRAM
+    endif
 	bsr.w	sndDriverInput
 	startZ80
 
@@ -707,7 +745,29 @@ loc_748:
 	move.w	#$8200|(VRAM_Plane_A_Name_Table/$400),(VDP_control_port).l	; Set scroll A PNT base to $C000
 
 	dma68kToVDP Horiz_Scroll_Buf,VRAM_Horiz_Scroll_Table,VRAM_Horiz_Scroll_Table_Size,VRAM
+
+    if fixBugs
+	tst.w	(Two_player_mode).w
+	beq.s	++
+	; Like in Sonic 3, the sprite tables are page-flipped in two-player mode.
+	; This fixes a race-condition where incomplete sprite tables can be uploaded
+	; to the VDP on lag frames, causing corrupted sprites to appear.
+
+	; Perform page-flipping.
+	tst.b	(Sprite_table_page_flip_pending).w
+	beq.s	+
+	sf.b	(Sprite_table_page_flip_pending).w
+	not.b	(Current_sprite_table_page).w
++
+	; Upload the front buffer.
+	tst.b	(Current_sprite_table_page).w
+	bne.s	+
+	dma68kToVDP Sprite_Table_Alternate,VRAM_Sprite_Attribute_Table,VRAM_Sprite_Attribute_Table_Size,VRAM
+	bra.s	++
++
+    endif
 	dma68kToVDP Sprite_Table,VRAM_Sprite_Attribute_Table,VRAM_Sprite_Attribute_Table_Size,VRAM
++
 
 	bsr.w	ProcessDMAQueue
 	bsr.w	sndDriverInput
@@ -951,8 +1011,29 @@ loc_BD6:
 	move.w	(Hint_counter_reserve).w,(a5)
 
 	dma68kToVDP Horiz_Scroll_Buf,VRAM_Horiz_Scroll_Table,VRAM_Horiz_Scroll_Table_Size,VRAM
-	dma68kToVDP Sprite_Table,VRAM_Sprite_Attribute_Table,VRAM_Sprite_Attribute_Table_Size,VRAM
 
+    if fixBugs
+	tst.w	(Two_player_mode).w
+	beq.s	++
+	; Like in Sonic 3, the sprite tables are page-flipped in two-player mode.
+	; This fixes a race-condition where incomplete sprite tables can be uploaded
+	; to the VDP on lag frames, causing corrupted sprites to appear.
+
+	; Perform page-flipping.
+	tst.b	(Sprite_table_page_flip_pending).w
+	beq.s	+
+	sf.b	(Sprite_table_page_flip_pending).w
+	not.b	(Current_sprite_table_page).w
++
+	; Upload the front buffer.
+	tst.b	(Current_sprite_table_page).w
+	bne.s	+
+	dma68kToVDP Sprite_Table_Alternate,VRAM_Sprite_Attribute_Table,VRAM_Sprite_Attribute_Table_Size,VRAM
+	bra.s	++
++
+    endif
+	dma68kToVDP Sprite_Table,VRAM_Sprite_Attribute_Table,VRAM_Sprite_Attribute_Table_Size,VRAM
++
 	bsr.w	ProcessDMAQueue
 	jsr	(DrawLevelTitleCard).l
 	jsr	(sndDriverInput).l
@@ -1086,7 +1167,7 @@ loc_EFE:
 ; Start of H-INT code
 H_Int:
 	tst.w	(Hint_flag).w
-	beq.w	+
+	beq.w	H_Int_Done
 	tst.w	(Two_player_mode).w
 	beq.w	PalToCRAM
 	move.w	#0,(Hint_flag).w
@@ -1100,12 +1181,30 @@ H_Int:
 	move.w	(VDP_Reg1_val).w,d0
 	andi.b	#$BF,d0
 	move.w	d0,(VDP_control_port).l		; Display disable
+
 	move.w	#$8200|(VRAM_Plane_A_Name_Table_2P/$400),(VDP_control_port).l	; PNT A base: $A000
+
+	; Update V-Scroll.
 	move.l	#vdpComm($0000,VSRAM,WRITE),(VDP_control_port).l
 	move.l	(Vscroll_Factor_P2_HInt).w,(VDP_data_port).l
 
 	stopZ80
-	dma68kToVDP Sprite_Table_2,VRAM_Sprite_Attribute_Table,VRAM_Sprite_Attribute_Table_Size,VRAM
+    if fixBugs
+	; Like in Sonic 3, the sprite tables are page-flipped in two-player mode.
+	; This fixes a race-condition where incomplete sprite tables can be uploaded
+	; to the VDP on lag frames.
+
+	; Upload the front buffer.
+	tst.b	(Current_sprite_table_page).w
+	beq.s	+
+	dma68kToVDP Sprite_Table_P2,VRAM_Sprite_Attribute_Table,VRAM_Sprite_Attribute_Table_Size,VRAM
+	bra.s	++
++
+	dma68kToVDP Sprite_Table_P2_Alternate,VRAM_Sprite_Attribute_Table,VRAM_Sprite_Attribute_Table_Size,VRAM
++
+    else
+	dma68kToVDP Sprite_Table_P2,VRAM_Sprite_Attribute_Table,VRAM_Sprite_Attribute_Table_Size,VRAM
+    endif
 	startZ80
 
 -	move.w	(VDP_control_port).l,d0
@@ -1117,7 +1216,8 @@ H_Int:
 	move.w	d0,(VDP_control_port).l		; Display enable
 	move.l	(sp)+,d0
 	movea.l	(sp)+,a5
-+
+
+H_Int_Done:
 	rte
 
 
@@ -1362,9 +1462,14 @@ ClearScreen:
 +
 	clr.l	(Vscroll_Factor).w
 
+    if fixBugs
+	clearRAM Sprite_Table,Sprite_Table_End
+	clearRAM Horiz_Scroll_Buf,Horiz_Scroll_Buf+HorizontalScrollBuffer.len
+    else
 	; These '+4's shouldn't be here; clearRAM accidentally clears an additional 4 bytes
 	clearRAM Sprite_Table,Sprite_Table_End+4
-	clearRAM Horiz_Scroll_Buf,Horiz_Scroll_Buf_End+4
+	clearRAM Horiz_Scroll_Buf,Horiz_Scroll_Buf+HorizontalScrollBuffer.len+4
+    endif
 
 	startZ80
 	rts
@@ -2099,6 +2204,22 @@ ProcessDPLC_Pop:
 	moveq	#bytesToLcnt(Plc_Buffer_Only_End-Plc_Buffer-6),d0
 -	move.l	6(a0),(a0)+
 	dbf	d0,-
+
+    if fixBugs
+	; The above code does not properly 'pop' the 16th PLC entry.
+	; Because of this, occupying the 16th slot will cause it to
+	; be repeatedly decompressed infinitely.
+	; Granted, this could be conisdered more of an optimisation
+	; than a bug: treating the 16th entry as a dummy that
+	; should never be occupied makes this code unnecessary.
+	; Still, the overhead of this code is minimal.
+    if (Plc_Buffer_Only_End-Plc_Buffer-6)&2
+	move.w	6(a0),(a0)
+    endif
+
+	clr.l	(Plc_Buffer_Only_End-6).w
+    endif
+
 	rts
 
 ; End of function ProcessDPLC
@@ -2539,23 +2660,23 @@ PalCycle_Load:
 ; ===========================================================================
 ; off_19F4:
 PalCycle: zoneOrderedOffsetTable 2,1
-	zoneOffsetTableEntry.w PalCycle_EHZ	; 0
-	zoneOffsetTableEntry.w PalCycle_Null	; 1
-	zoneOffsetTableEntry.w PalCycle_WZ	; 2
-	zoneOffsetTableEntry.w PalCycle_Null	; 3
-	zoneOffsetTableEntry.w PalCycle_MTZ	; 4
-	zoneOffsetTableEntry.w PalCycle_MTZ	; 5
-	zoneOffsetTableEntry.w PalCycle_WFZ	; 6
-	zoneOffsetTableEntry.w PalCycle_HTZ	; 7
-	zoneOffsetTableEntry.w PalCycle_HPZ	; 8
-	zoneOffsetTableEntry.w PalCycle_Null	; 9
-	zoneOffsetTableEntry.w PalCycle_OOZ	; 10
-	zoneOffsetTableEntry.w PalCycle_MCZ	; 11
-	zoneOffsetTableEntry.w PalCycle_CNZ	; 12
-	zoneOffsetTableEntry.w PalCycle_CPZ	; 13
-	zoneOffsetTableEntry.w PalCycle_CPZ	; 14
-	zoneOffsetTableEntry.w PalCycle_ARZ	; 15
-	zoneOffsetTableEntry.w PalCycle_WFZ	; 16
+	zoneOffsetTableEntry.w PalCycle_EHZ	; EHZ
+	zoneOffsetTableEntry.w PalCycle_Null	; Zone 1
+	zoneOffsetTableEntry.w PalCycle_WZ	; WZ
+	zoneOffsetTableEntry.w PalCycle_Null	; Zone 3
+	zoneOffsetTableEntry.w PalCycle_MTZ	; MTZ1,2
+	zoneOffsetTableEntry.w PalCycle_MTZ	; MTZ3
+	zoneOffsetTableEntry.w PalCycle_WFZ	; WFZ
+	zoneOffsetTableEntry.w PalCycle_HTZ	; HTZ
+	zoneOffsetTableEntry.w PalCycle_HPZ	; HPZ
+	zoneOffsetTableEntry.w PalCycle_Null	; Zone 9
+	zoneOffsetTableEntry.w PalCycle_OOZ	; OOZ
+	zoneOffsetTableEntry.w PalCycle_MCZ	; MCZ
+	zoneOffsetTableEntry.w PalCycle_CNZ	; CNZ
+	zoneOffsetTableEntry.w PalCycle_CPZ	; CPZ
+	zoneOffsetTableEntry.w PalCycle_CPZ	; DEZ
+	zoneOffsetTableEntry.w PalCycle_ARZ	; ARZ
+	zoneOffsetTableEntry.w PalCycle_WFZ	; SCZ
     zoneTableEnd
 
 ; ===========================================================================
@@ -4388,7 +4509,7 @@ TitleScreen_CheckIfChose2P:
 	move.b	d0,(Got_Emeralds_array+6).w
 
 	move.b	#GameModeID_2PLevelSelect,(Game_Mode).w ; => LevelSelectMenu2P
-	move.b	#emerald_hill_zone,(Current_Zone_2P).w
+	move.b	#0,(Current_Zone_2P).w
 	rts
 ; ---------------------------------------------------------------------------
 ; loc_3D20:
@@ -4527,23 +4648,23 @@ JmpTo_SwScrl_Title ; JmpTo
 ;----------------------------------------------------------------------------
 ; byte_3EA0:
 MusicList: zoneOrderedTable 1,1
-	zoneTableEntry.b MusID_EHZ	; 0 ; EHZ
-	zoneTableEntry.b MusID_EHZ	; 1
-	zoneTableEntry.b MusID_MTZ	; 2
-	zoneTableEntry.b MusID_OOZ	; 3
-	zoneTableEntry.b MusID_MTZ	; 4 ; MTZ1,2
-	zoneTableEntry.b MusID_MTZ	; 5 ; MTZ3
-	zoneTableEntry.b MusID_WFZ	; 6 ; WFZ
-	zoneTableEntry.b MusID_HTZ	; 7 ; HTZ
-	zoneTableEntry.b MusID_HPZ	; 8
-	zoneTableEntry.b MusID_SCZ	; 9
-	zoneTableEntry.b MusID_OOZ	; 10 ; OOZ
-	zoneTableEntry.b MusID_MCZ	; 11 ; MCZ
-	zoneTableEntry.b MusID_CNZ	; 12 ; CNZ
-	zoneTableEntry.b MusID_CPZ	; 13 ; CPZ
-	zoneTableEntry.b MusID_DEZ	; 14 ; DEZ
-	zoneTableEntry.b MusID_ARZ	; 15 ; ARZ
-	zoneTableEntry.b MusID_SCZ	; 16 ; SCZ
+	zoneTableEntry.b MusID_EHZ	; EHZ
+	zoneTableEntry.b MusID_EHZ	; Zone 1
+	zoneTableEntry.b MusID_MTZ	; WZ
+	zoneTableEntry.b MusID_OOZ	; Zone 3
+	zoneTableEntry.b MusID_MTZ	; MTZ1,2
+	zoneTableEntry.b MusID_MTZ	; MTZ3
+	zoneTableEntry.b MusID_WFZ	; WFZ
+	zoneTableEntry.b MusID_HTZ	; HTZ
+	zoneTableEntry.b MusID_HPZ	; HPZ
+	zoneTableEntry.b MusID_SCZ	; Zone 9
+	zoneTableEntry.b MusID_OOZ	; OOZ
+	zoneTableEntry.b MusID_MCZ	; MCZ
+	zoneTableEntry.b MusID_CNZ	; CNZ
+	zoneTableEntry.b MusID_CPZ	; CPZ
+	zoneTableEntry.b MusID_DEZ	; DEZ
+	zoneTableEntry.b MusID_ARZ	; ARZ
+	zoneTableEntry.b MusID_SCZ	; SCZ
     zoneTableEnd
 	even
 ;----------------------------------------------------------------------------
@@ -4551,23 +4672,23 @@ MusicList: zoneOrderedTable 1,1
 ;----------------------------------------------------------------------------
 ; byte_3EB2:
 MusicList2: zoneOrderedTable 1,1
-	zoneTableEntry.b MusID_EHZ_2P	; 0  ; EHZ 2P
-	zoneTableEntry.b MusID_EHZ	; 1
-	zoneTableEntry.b MusID_MTZ	; 2
-	zoneTableEntry.b MusID_OOZ	; 3
-	zoneTableEntry.b MusID_MTZ	; 4
-	zoneTableEntry.b MusID_MTZ	; 5
-	zoneTableEntry.b MusID_WFZ	; 6
-	zoneTableEntry.b MusID_HTZ	; 7
-	zoneTableEntry.b MusID_HPZ	; 8
-	zoneTableEntry.b MusID_SCZ	; 9
-	zoneTableEntry.b MusID_OOZ	; 10
-	zoneTableEntry.b MusID_MCZ_2P	; 11 ; MCZ 2P
-	zoneTableEntry.b MusID_CNZ_2P	; 12 ; CNZ 2P
-	zoneTableEntry.b MusID_CPZ	; 13
-	zoneTableEntry.b MusID_DEZ	; 14
-	zoneTableEntry.b MusID_ARZ	; 15
-	zoneTableEntry.b MusID_SCZ	; 16
+	zoneTableEntry.b MusID_EHZ_2P	; EHZ
+	zoneTableEntry.b MusID_EHZ	; Zone 1
+	zoneTableEntry.b MusID_MTZ	; WZ
+	zoneTableEntry.b MusID_OOZ	; Zone 3
+	zoneTableEntry.b MusID_MTZ	; MTZ1,2
+	zoneTableEntry.b MusID_MTZ	; MTZ3
+	zoneTableEntry.b MusID_WFZ	; WFZ
+	zoneTableEntry.b MusID_HTZ	; HTZ
+	zoneTableEntry.b MusID_HPZ	; HPZ
+	zoneTableEntry.b MusID_SCZ	; Zone 9
+	zoneTableEntry.b MusID_OOZ	; OOZ
+	zoneTableEntry.b MusID_MCZ_2P	; MCZ
+	zoneTableEntry.b MusID_CNZ_2P	; CNZ
+	zoneTableEntry.b MusID_CPZ	; CPZ
+	zoneTableEntry.b MusID_DEZ	; DEZ
+	zoneTableEntry.b MusID_ARZ	; ARZ
+	zoneTableEntry.b MusID_SCZ	; SCZ
     zoneTableEnd
 	even
 ; ===========================================================================
@@ -4754,9 +4875,9 @@ Level_TtlCard:
 	bsr.w	LevelSizeLoad
 	jsrto	DeformBgLayer, JmpTo_DeformBgLayer
 	clr.w	(Vscroll_Factor_FG).w
-	move.w	#-$E0,(Vscroll_Factor_P2_FG).w
+	move.w	#-224,(Vscroll_Factor_P2_FG).w
 
-	clearRAM Horiz_Scroll_Buf,Horiz_Scroll_Buf_End
+	clearRAM Horiz_Scroll_Buf,Horiz_Scroll_Buf+HorizontalScrollBuffer.len
 
 	bsr.w	LoadZoneTiles
 	jsrto	loadZoneBlockMaps, JmpTo_loadZoneBlockMaps
@@ -4842,7 +4963,11 @@ Level_FromCheckpoint:
 	movea.l	(a1,d0.w),a1
 +
 	move.b	1(a1),(Demo_press_counter).w
+    if emerald_hill_zone<>0
+	cmpi.b	#emerald_hill_zone,(Current_Zone).w
+    else
 	tst.b	(Current_Zone).w	; emerald_hill_zone
+    endif
 	bne.s	+
 	lea	(Demo_EHZ_Tails).l,a1
 	move.b	1(a1),(Demo_press_counter_2P).w
@@ -5127,8 +5252,8 @@ WaterHeight: zoneOrderedTable 2,2
 	zoneTableEntry.w  $600, $600	; Zone 1
 	zoneTableEntry.w  $600, $600	; WZ
 	zoneTableEntry.w  $600, $600	; Zone 3
-	zoneTableEntry.w  $600, $600	; MTZ
-	zoneTableEntry.w  $600, $600	; MTZ
+	zoneTableEntry.w  $600, $600	; MTZ1,2
+	zoneTableEntry.w  $600, $600	; MTZ3
 	zoneTableEntry.w  $600, $600	; WFZ
 	zoneTableEntry.w  $600, $600	; HTZ
 	zoneTableEntry.w  $600, $600	; HPZ
@@ -5145,7 +5270,7 @@ WaterHeight: zoneOrderedTable 2,2
 ; word_4584:
 WaterHeight:
 	dc.w  $600, $600	; HPZ
-	dc.w  $600, $600	; Zone 9
+	dc.w  $600, $600
 	dc.w  $600, $600	; OOZ
 	dc.w  $600, $600	; MCZ
 	dc.w  $600, $600	; CNZ
@@ -5184,60 +5309,85 @@ DynamicWater:
 ; ===========================================================================
     if useFullWaterTables
 Dynamic_water_routine_table: zoneOrderedOffsetTable 2,2
-	zoneOffsetTableEntry.w DynamicWaterNull ; EHZ 1
-	zoneOffsetTableEntry.w DynamicWaterNull ; EHZ 2
-	zoneOffsetTableEntry.w DynamicWaterNull ; Zone 1
-	zoneOffsetTableEntry.w DynamicWaterNull ; Zone 1
-	zoneOffsetTableEntry.w DynamicWaterNull ; WZ 1
-	zoneOffsetTableEntry.w DynamicWaterNull ; WZ 2
-	zoneOffsetTableEntry.w DynamicWaterNull ; Zone 3
-	zoneOffsetTableEntry.w DynamicWaterNull ; Zone 3
-	zoneOffsetTableEntry.w DynamicWaterNull ; MTZ 1
-	zoneOffsetTableEntry.w DynamicWaterNull ; MTZ 2
-	zoneOffsetTableEntry.w DynamicWaterNull ; MTZ 3
-	zoneOffsetTableEntry.w DynamicWaterNull ; MTZ 4
-	zoneOffsetTableEntry.w DynamicWaterNull ; WFZ 1
-	zoneOffsetTableEntry.w DynamicWaterNull ; WFZ 2
-	zoneOffsetTableEntry.w DynamicWaterNull ; HTZ 1
-	zoneOffsetTableEntry.w DynamicWaterNull ; HTZ 2
-	zoneOffsetTableEntry.w DynamicWaterNull ; HPZ 1
-	zoneOffsetTableEntry.w DynamicWaterNull ; HPZ 2
-	zoneOffsetTableEntry.w DynamicWaterNull ; Zone 9
-	zoneOffsetTableEntry.w DynamicWaterNull ; Zone 9
-	zoneOffsetTableEntry.w DynamicWaterNull ; OOZ 1
-	zoneOffsetTableEntry.w DynamicWaterNull ; OOZ 2
-	zoneOffsetTableEntry.w DynamicWaterNull ; MCZ 1
-	zoneOffsetTableEntry.w DynamicWaterNull ; MCZ 2
-	zoneOffsetTableEntry.w DynamicWaterNull ; CNZ 1
-	zoneOffsetTableEntry.w DynamicWaterNull ; CNZ 2
-	zoneOffsetTableEntry.w DynamicWaterNull ; CPZ 1
-	zoneOffsetTableEntry.w DynamicWaterCPZ2 ; CPZ 2
-	zoneOffsetTableEntry.w DynamicWaterNull ; DEZ 1
-	zoneOffsetTableEntry.w DynamicWaterNull ; DEZ 2
-	zoneOffsetTableEntry.w DynamicWaterNull ; ARZ 1
-	zoneOffsetTableEntry.w DynamicWaterNull ; ARZ 2
-	zoneOffsetTableEntry.w DynamicWaterNull ; SCZ 1
-	zoneOffsetTableEntry.w DynamicWaterNull ; SCZ 2
+	; EHZ
+	zoneOffsetTableEntry.w DynamicWaterNull ; Act 1
+	zoneOffsetTableEntry.w DynamicWaterNull ; Act 2
+	; Zone 1
+	zoneOffsetTableEntry.w DynamicWaterNull ; Act 1
+	zoneOffsetTableEntry.w DynamicWaterNull ; Act 2
+	; WZ
+	zoneOffsetTableEntry.w DynamicWaterNull ; Act 1
+	zoneOffsetTableEntry.w DynamicWaterNull ; Act 2
+	; Zone 3
+	zoneOffsetTableEntry.w DynamicWaterNull ; Act 1
+	zoneOffsetTableEntry.w DynamicWaterNull ; Act 2
+	; MTZ
+	zoneOffsetTableEntry.w DynamicWaterNull ; Act 1
+	zoneOffsetTableEntry.w DynamicWaterNull ; Act 2
+	; MTZ
+	zoneOffsetTableEntry.w DynamicWaterNull ; Act 3
+	zoneOffsetTableEntry.w DynamicWaterNull ; Act 4
+	; WFZ
+	zoneOffsetTableEntry.w DynamicWaterNull ; Act 1
+	zoneOffsetTableEntry.w DynamicWaterNull ; Act 2
+	; HTZ
+	zoneOffsetTableEntry.w DynamicWaterNull ; Act 1
+	zoneOffsetTableEntry.w DynamicWaterNull ; Act 2
+	; HPZ
+	zoneOffsetTableEntry.w DynamicWaterNull ; Act 1
+	zoneOffsetTableEntry.w DynamicWaterNull ; Act 2
+	; Zone 9
+	zoneOffsetTableEntry.w DynamicWaterNull ; Act 1
+	zoneOffsetTableEntry.w DynamicWaterNull ; Act 2
+	; OOZ
+	zoneOffsetTableEntry.w DynamicWaterNull ; Act 1
+	zoneOffsetTableEntry.w DynamicWaterNull ; Act 2
+	; MCZ
+	zoneOffsetTableEntry.w DynamicWaterNull ; Act 1
+	zoneOffsetTableEntry.w DynamicWaterNull ; Act 2
+	; CNZ
+	zoneOffsetTableEntry.w DynamicWaterNull ; Act 1
+	zoneOffsetTableEntry.w DynamicWaterNull ; Act 2
+	; CPZ
+	zoneOffsetTableEntry.w DynamicWaterNull ; Act 1
+	zoneOffsetTableEntry.w DynamicWaterCPZ2 ; Act 2
+	; DEZ
+	zoneOffsetTableEntry.w DynamicWaterNull ; Act 1
+	zoneOffsetTableEntry.w DynamicWaterNull ; Act 2
+	; ARZ
+	zoneOffsetTableEntry.w DynamicWaterNull ; Act 1
+	zoneOffsetTableEntry.w DynamicWaterNull ; Act 2
+	; SCZ
+	zoneOffsetTableEntry.w DynamicWaterNull ; Act 1
+	zoneOffsetTableEntry.w DynamicWaterNull ; Act 2
     zoneTableEnd
     else
 ; off_45D8:
 Dynamic_water_routine_table: offsetTable
-	offsetTableEntry.w DynamicWaterNull ; HPZ 1
-	offsetTableEntry.w DynamicWaterNull ; HPZ 2
-	offsetTableEntry.w DynamicWaterNull ; Zone 9
-	offsetTableEntry.w DynamicWaterNull ; Zone 9
-	offsetTableEntry.w DynamicWaterNull ; OOZ 1
-	offsetTableEntry.w DynamicWaterNull ; OOZ 2
-	offsetTableEntry.w DynamicWaterNull ; MCZ 1
-	offsetTableEntry.w DynamicWaterNull ; MCZ 2
-	offsetTableEntry.w DynamicWaterNull ; CNZ 1
-	offsetTableEntry.w DynamicWaterNull ; CNZ 2
-	offsetTableEntry.w DynamicWaterNull ; CPZ 1
-	offsetTableEntry.w DynamicWaterCPZ2 ; CPZ 2
-	offsetTableEntry.w DynamicWaterNull ; DEZ 1
-	offsetTableEntry.w DynamicWaterNull ; DEZ 2
-	offsetTableEntry.w DynamicWaterNull ; ARZ 1
-	offsetTableEntry.w DynamicWaterNull ; ARZ 2
+	; HPZ
+	offsetTableEntry.w DynamicWaterNull ; Act 1
+	offsetTableEntry.w DynamicWaterNull ; Act 2
+	; Zone 9
+	offsetTableEntry.w DynamicWaterNull ; Act 1
+	offsetTableEntry.w DynamicWaterNull ; Act 2
+	; OOZ
+	offsetTableEntry.w DynamicWaterNull ; Act 1
+	offsetTableEntry.w DynamicWaterNull ; Act 2
+	; MCZ
+	offsetTableEntry.w DynamicWaterNull ; Act 1
+	offsetTableEntry.w DynamicWaterNull ; Act 2
+	; CNZ
+	offsetTableEntry.w DynamicWaterNull ; Act 1
+	offsetTableEntry.w DynamicWaterNull ; Act 2
+	; CPZ
+	offsetTableEntry.w DynamicWaterNull ; Act 1
+	offsetTableEntry.w DynamicWaterCPZ2 ; Act 2
+	; DEZ
+	offsetTableEntry.w DynamicWaterNull ; Act 1
+	offsetTableEntry.w DynamicWaterNull ; Act 2
+	; ARZ
+	offsetTableEntry.w DynamicWaterNull ; Act 1
+	offsetTableEntry.w DynamicWaterNull ; Act 2
     endif
 ; ===========================================================================
 ; return_45F8:
@@ -5627,23 +5777,23 @@ MoveDemo_On_SkipP2:
 ; ---------------------------------------------------------------------------
 ; off_4948:
 DemoScriptPointers: zoneOrderedTable 4,1
-	zoneTableEntry.l Demo_EHZ	; $00
-	zoneTableEntry.l Demo_EHZ	; $01
-	zoneTableEntry.l Demo_EHZ	; $02
-	zoneTableEntry.l Demo_EHZ	; $03
-	zoneTableEntry.l Demo_EHZ	; $04
-	zoneTableEntry.l Demo_EHZ	; $05
-	zoneTableEntry.l Demo_EHZ	; $06
-	zoneTableEntry.l Demo_EHZ	; $07
-	zoneTableEntry.l Demo_EHZ	; $08
-	zoneTableEntry.l Demo_EHZ	; $09
-	zoneTableEntry.l Demo_EHZ	; $0A
-	zoneTableEntry.l Demo_EHZ	; $0B
-	zoneTableEntry.l Demo_CNZ	; $0C
-	zoneTableEntry.l Demo_CPZ	; $0D
-	zoneTableEntry.l Demo_EHZ	; $0E
-	zoneTableEntry.l Demo_ARZ	; $0F
-	zoneTableEntry.l Demo_EHZ	; $10
+	zoneTableEntry.l Demo_EHZ	; EHZ
+	zoneTableEntry.l Demo_EHZ	; Zone 1
+	zoneTableEntry.l Demo_EHZ	; WZ
+	zoneTableEntry.l Demo_EHZ	; Zone 3
+	zoneTableEntry.l Demo_EHZ	; MTZ1,2
+	zoneTableEntry.l Demo_EHZ	; MTZ3
+	zoneTableEntry.l Demo_EHZ	; WFZ
+	zoneTableEntry.l Demo_EHZ	; HTZ
+	zoneTableEntry.l Demo_EHZ	; HPZ
+	zoneTableEntry.l Demo_EHZ	; Zone 9
+	zoneTableEntry.l Demo_EHZ	; OOZ
+	zoneTableEntry.l Demo_EHZ	; MCZ
+	zoneTableEntry.l Demo_CNZ	; CNZ
+	zoneTableEntry.l Demo_CPZ	; CPZ
+	zoneTableEntry.l Demo_EHZ	; DEZ
+	zoneTableEntry.l Demo_ARZ	; ARZ
+	zoneTableEntry.l Demo_EHZ	; SCZ
     zoneTableEnd
 ; ---------------------------------------------------------------------------
 ; dword_498C:
@@ -5692,23 +5842,23 @@ LoadCollisionIndexes:
 ; level. 1 pointer for each level, pointing the primary collision index.
 ; ---------------------------------------------------------------------------
 Off_ColP: zoneOrderedTable 4,1
-	zoneTableEntry.l ColP_EHZHTZ
-	zoneTableEntry.l ColP_Invalid	; 1
-	zoneTableEntry.l ColP_MTZ	; 2
-	zoneTableEntry.l ColP_Invalid	; 3
-	zoneTableEntry.l ColP_MTZ	; 4
-	zoneTableEntry.l ColP_MTZ	; 5
-	zoneTableEntry.l ColP_WFZSCZ	; 6
-	zoneTableEntry.l ColP_EHZHTZ	; 7
-	zoneTableEntry.l ColP_HPZ	; 8
-	zoneTableEntry.l ColP_Invalid	; 9
-	zoneTableEntry.l ColP_OOZ	; 10
-	zoneTableEntry.l ColP_MCZ	; 11
-	zoneTableEntry.l ColP_CNZ	; 12
-	zoneTableEntry.l ColP_CPZDEZ	; 13
-	zoneTableEntry.l ColP_CPZDEZ	; 14
-	zoneTableEntry.l ColP_ARZ	; 15
-	zoneTableEntry.l ColP_WFZSCZ	; 16
+	zoneTableEntry.l ColP_EHZHTZ	; EHZ
+	zoneTableEntry.l ColP_Invalid	; Zone 1
+	zoneTableEntry.l ColP_WZ	; WZ
+	zoneTableEntry.l ColP_Invalid	; Zone 3
+	zoneTableEntry.l ColP_MTZ	; MTZ1,2
+	zoneTableEntry.l ColP_MTZ	; MTZ3
+	zoneTableEntry.l ColP_WFZSCZ	; WFZ
+	zoneTableEntry.l ColP_EHZHTZ	; HTZ
+	zoneTableEntry.l ColP_HPZ	; HPZ
+	zoneTableEntry.l ColP_Invalid	; Zone 9
+	zoneTableEntry.l ColP_OOZ	; OOZ
+	zoneTableEntry.l ColP_MCZ	; MCZ
+	zoneTableEntry.l ColP_CNZ	; CNZ
+	zoneTableEntry.l ColP_CPZDEZ	; CPZ
+	zoneTableEntry.l ColP_CPZDEZ	; DEZ
+	zoneTableEntry.l ColP_ARZ	; ARZ
+	zoneTableEntry.l ColP_WFZSCZ	; SCZ
     zoneTableEnd
 
 ; ---------------------------------------------------------------------------
@@ -5719,23 +5869,23 @@ Off_ColP: zoneOrderedTable 4,1
 ; index.
 ; ---------------------------------------------------------------------------
 Off_ColS: zoneOrderedTable 4,1
-	zoneTableEntry.l ColS_EHZHTZ
-	zoneTableEntry.l ColP_Invalid	; 1
-	zoneTableEntry.l ColP_MTZ	; 2
-	zoneTableEntry.l ColP_Invalid	; 3
-	zoneTableEntry.l ColP_MTZ	; 4
-	zoneTableEntry.l ColP_MTZ	; 5
-	zoneTableEntry.l ColS_WFZSCZ	; 6
-	zoneTableEntry.l ColS_EHZHTZ	; 7
-	zoneTableEntry.l ColS_HPZ	; 8
-	zoneTableEntry.l ColP_Invalid	; 9
-	zoneTableEntry.l ColP_OOZ	; 10
-	zoneTableEntry.l ColP_MCZ	; 11
-	zoneTableEntry.l ColS_CNZ	; 12
-	zoneTableEntry.l ColS_CPZDEZ	; 13
-	zoneTableEntry.l ColS_CPZDEZ	; 14
-	zoneTableEntry.l ColS_ARZ	; 15
-	zoneTableEntry.l ColS_WFZSCZ	; 16
+	zoneTableEntry.l ColS_EHZHTZ	; EHZ
+	zoneTableEntry.l ColP_Invalid	; Zone 1
+	zoneTableEntry.l ColP_WZ	; WZ
+	zoneTableEntry.l ColP_Invalid	; Zone 3
+	zoneTableEntry.l ColP_MTZ	; MTZ1,2
+	zoneTableEntry.l ColP_MTZ	; MTZ3
+	zoneTableEntry.l ColS_WFZSCZ	; WFZ
+	zoneTableEntry.l ColS_EHZHTZ	; HTZ
+	zoneTableEntry.l ColS_HPZ	; HPZ
+	zoneTableEntry.l ColP_Invalid	; Zone 9
+	zoneTableEntry.l ColP_OOZ	; OOZ
+	zoneTableEntry.l ColP_MCZ	; MCZ
+	zoneTableEntry.l ColS_CNZ	; CNZ
+	zoneTableEntry.l ColS_CPZDEZ	; CPZ
+	zoneTableEntry.l ColS_CPZDEZ	; DEZ
+	zoneTableEntry.l ColS_ARZ	; ARZ
+	zoneTableEntry.l ColS_WFZSCZ	; SCZ
     zoneTableEnd
 
 
@@ -6405,30 +6555,22 @@ SpecialStage:
 ; \------------------------------------------------------------------------/
     if fixBugs
 	clearRAM Sprite_Table,Sprite_Table_End
-	clearRAM SS_Horiz_Scroll_Buf_1,SS_Horiz_Scroll_Buf_1_End
+	clearRAM SS_Horiz_Scroll_Buf_1,SS_Horiz_Scroll_Buf_1+HorizontalScrollBuffer.len
 	clearRAM SS_Shared_RAM,SS_Shared_RAM_End
     else
 	; These '+4's shouldn't be here; 'clearRAM' accidentally clears an additional 4 bytes.
 	clearRAM Sprite_Table,Sprite_Table_End+4
-	clearRAM SS_Horiz_Scroll_Buf_1,SS_Horiz_Scroll_Buf_1_End+4
+	clearRAM SS_Horiz_Scroll_Buf_1,SS_Horiz_Scroll_Buf_1+HorizontalScrollBuffer.len+4
 	clearRAM SS_Shared_RAM,SS_Shared_RAM_End+4
     endif
 	clearRAM Sprite_Table_Input,Sprite_Table_Input_End
 	clearRAM Object_RAM,Object_RAM_End
 
     if fixBugs
-	; However, the '+4' after 'SS_Shared_RAM_End' is very useful, as it resets the
-	; 'VDP_Command_Buffer' queue, avoiding graphical glitches in the Special Stage.
-	; In fact, without resetting the 'VDP_Command_Buffer' queue, Tails sprite DPLCs and other
-	; level DPLCs that are still in the queue erase the Special Stage graphics the next
-	; time 'ProcessDMAQueue' is called.
-	; This '+4' doesn't seem to be intentional, because of the other useless '+4' above,
-	; and because a '+2' is enough to reset the 'VDP_Command_Buffer' queue and fix this bug.
-	; This is a fortunate accident!
-	; Note that this is not a clean way to reset the 'VDP_Command_Buffer' queue because the
-	; 'VDP_Command_Buffer_Slot' address should be updated as well. They tried to do that in a
-	; cleaner way after branching to 'ClearScreen' (see below). But they messed up by doing it
-	; after several 'WaitForVint' calls.
+	; The DMA queue needs to be reset here, to prevent the remaining queued DMA transfers from
+	; overwriting the special stage's graphics.
+	; In a bizarre twice of luck, the above bug actually nullifies this bug: the excessive
+	; SS_Shared_RAM clear sets VDP_Command_Buffer to 0, just like the below code.
 	clr.w	(VDP_Command_Buffer).w
 	move.l	#VDP_Command_Buffer,(VDP_Command_Buffer_Slot).w
     endif
@@ -6579,12 +6721,8 @@ SpecialStage:
 	move.w	#$8C81,(a6)		; H res 40 cells, no interlace, S/H disabled
 	bsr.w	ClearScreen
 	jsrto	Hud_Base, JmpTo_Hud_Base
-    if ~~fixBugs
-	; By fixing the 'clearRAM' earlier in this code, these two instructions are made redundant.
 	clr.w	(VDP_Command_Buffer).w
 	move.l	#VDP_Command_Buffer,(VDP_Command_Buffer_Slot).w
-    endif
-
 	move	#$2300,sr
 	moveq	#PalID_Result,d0
 	bsr.w	PalLoad_Now
@@ -6776,7 +6914,7 @@ SSObjectsManager:
 	add.w	d3,d3
 	movea.l	(SS_CurrentLevelObjectLocations).w,a0
 -
-	bsr.w	SSSingleObjLoad
+	bsr.w	SSAllocateObject
 	bne.s	return_55DC
 	moveq	#0,d0
 	move.b	(a0)+,d0
@@ -8926,7 +9064,7 @@ ssInitTableBuffers:
 	swap	d1
 	swap	d2
 	swap	d3
-	moveq	#$1F,d4
+	moveq	#bytesToXcnt(HorizontalScrollBuffer.len,4*8),d4
 
 -	move.l	d0,(a1)+
 	move.l	d0,(a1)+
@@ -9139,7 +9277,7 @@ off_6E54:	offsetTable
 	lea	(SS_Horiz_Scroll_Buf_2 + 2).w,a1			; Load alternate horizontal scroll buffer for PNT B
 	neg.w	d2							; Change the sign of the background offset
 +
-	move.w	#$FF,d0							; 256 lines
+	move.w	#bytesToLcnt(HorizontalScrollBuffer.len),d0		; 256 lines
 -	sub.w	d2,(a1)+						; Change current line's offset
 	adda_.l	#2,a1							; Skip PNTA entry
 	dbf	d0,-
@@ -9279,8 +9417,8 @@ SSTrack_ApplyVscroll:
 ; ||||||||||||||| S U B R O U T I N E |||||||||||||||||||||||||||||||||||||||
 
 
-; sub_6F8E:
-SSSingleObjLoad:
+; sub_6F8E: SSSingleObjLoad:
+SSAllocateObject:
 	lea	(SS_Dynamic_Object_RAM).w,a1
 	move.w	#(SS_Dynamic_Object_RAM_End-SS_Dynamic_Object_RAM)/object_size-1,d5
 
@@ -9294,14 +9432,14 @@ SSSingleObjLoad:
 
 ; ===========================================================================
 
-;loc_6FA4:
-SSSingleObjLoad2:
+;loc_6FA4: SSSingleObjLoad2:
+SSAllocateObjectAfterCurrent:
 	movea.l	a0,a1
 	move.w	#SS_Dynamic_Object_RAM_End,d5
 	sub.w	a0,d5
 
     if object_size=$40
-	lsr.w	#6,d5
+	lsr.w	#object_size_bits,d5
 	subq.w	#1,d5
 	bcs.s	+	; rts
     else
@@ -9317,21 +9455,14 @@ SSSingleObjLoad2:
 
 +	rts
 
-
     if object_size<>$40
-+	dc.b -1
-.a :=	1		; .a is the object slot we are currently processing
-.b :=	1		; .b is used to calculate when there will be a conversion error due to object_size being > $40
-
-	rept (SS_Dynamic_Object_RAM_End-Object_RAM)/object_size-1
-		if (object_size * (.a-1)) / $40 > .b+1	; this line checks, if there would be a conversion error
-			dc.b .a-1, .a-1			; and if is, it generates 2 entries to correct for the error
-		else
-			dc.b .a-1
-		endif
-
-.b :=		(object_size * (.a-1)) / $40		; this line adjusts .b based on the iteration count to check
-.a :=		.a+1					; run interation counter
++
+.a	set	Object_RAM
+.b	set	SS_Dynamic_Object_RAM_End
+.c	set	.b			; begin from bottom of array and decrease backwards
+	rept	(.b-.a+$40-1)/$40	; repeat for all slots, minus exception
+.c	set	.c-$40			; address for previous $40 (also skip last part)
+	dc.b	(.b-.c-1)/object_size-1	; write possible slots according to object_size division + hack + dbf hack
 	endm
 	even
     endif
@@ -9380,7 +9511,7 @@ Obj5E:
 	moveq	#0,d2
 	moveq	#0,d3
 	lea	(SSHUDLayout).l,a1
-	lea	sub2_x_pos(a0),a2
+	lea	subspr_data(a0),a2
 	adda.w	(a1,d1.w),a1
 	move.b	(a1)+,d3
 	move.b	d3,mainspr_childsprites(a0)
@@ -9541,7 +9672,7 @@ word_728C_user: lea	(Obj5F_MapUnc_7240+$4C).l,a2 ; word_728C
 	move.w	#8,objoff_14(a0)
 	move.b	#6,routine(a0)
 
--	bsr.w	SSSingleObjLoad
+-	bsr.w	SSAllocateObject
 	bne.s	+
 	moveq	#0,d0
 
@@ -9635,27 +9766,27 @@ Obj87_Init:
 	move.b	#2,mainspr_childsprites(a0)
 	move.w	#$20,d0
 	moveq	#0,d1
-	lea	sub2_x_pos(a0),a1
-	move.w	#$48,(a1)			; sub2_x_pos
-	move.w	d0,sub2_y_pos-sub2_x_pos(a1)	; sub2_y_pos
-	move.w	d1,mainspr_height-sub2_x_pos(a1) ; mainspr_height and sub2_mapframe
-	move.w	#$E0,sub3_x_pos-sub2_x_pos(a1)	; sub3_x_pos
-	move.w	d0,sub3_y_pos-sub2_x_pos(a1)	; sub3_y_pos
-	move.w	d1,mapping_frame-sub2_x_pos(a1)	; mapping_frame	and sub3_mapframe
-	move.w	d0,sub4_y_pos-sub2_x_pos(a1)	; sub4_y_pos
-	move.w	d0,sub5_y_pos-sub2_x_pos(a1)	; sub5_y_pos
-	move.w	d0,sub6_y_pos-sub2_x_pos(a1)	; sub6_y_pos
-	move.w	d0,sub7_y_pos-sub2_x_pos(a1)	; sub7_y_pos
+	lea	subspr_data(a0),a1
+	move.w	#$48,sub2_x_pos-subspr_data(a1)	; sub2_x_pos
+	move.w	d0,sub2_y_pos-subspr_data(a1)	; sub2_y_pos
+	move.w	d1,mainspr_height-subspr_data(a1) ; mainspr_height and sub2_mapframe
+	move.w	#$E0,sub3_x_pos-subspr_data(a1)	; sub3_x_pos
+	move.w	d0,sub3_y_pos-subspr_data(a1)	; sub3_y_pos
+	move.w	d1,mapping_frame-subspr_data(a1)	; mapping_frame	and sub3_mapframe
+	move.w	d0,sub4_y_pos-subspr_data(a1)	; sub4_y_pos
+	move.w	d0,sub5_y_pos-subspr_data(a1)	; sub5_y_pos
+	move.w	d0,sub6_y_pos-subspr_data(a1)	; sub6_y_pos
+	move.w	d0,sub7_y_pos-subspr_data(a1)	; sub7_y_pos
 	tst.b	(SS_2p_Flag).w
 	bne.s	+++
 	cmpi.w	#0,(Player_mode).w
 	beq.s	+
 	subi_.b	#1,mainspr_childsprites(a0)
-	move.w	#$94,(a1)			; sub2_x_pos
+	move.w	#$94,sub2_x_pos-subspr_data(a1)	; sub2_x_pos
 	rts
 ; ===========================================================================
 +
-	bsr.w	SSSingleObjLoad
+	bsr.w	SSAllocateObject
 	bne.s	+	; rts
 	move.b	#ObjID_SSNumberOfRings,id(a1) ; load obj87
 	move.b	#4,objoff_A(a1)		; => loc_753E
@@ -9664,16 +9795,16 @@ Obj87_Init:
 	move.b	#4,render_flags(a1)
 	bset	#6,render_flags(a1)
 	move.b	#1,mainspr_childsprites(a1)
-	lea	sub2_x_pos(a1),a2
-	move.w	#$80,(a2)			; sub2_x_pos
-	move.w	d0,sub2_y_pos-sub2_x_pos(a2)	; sub2_y_pos
-	move.w	d1,mainspr_height-sub2_x_pos(a2) ; mainspr_height and sub2_mapframe
-	move.w	d0,sub3_y_pos-sub2_x_pos(a2)	; sub3_y_pos
-	move.w	d0,sub4_y_pos-sub2_x_pos(a2)	; sub4_y_pos
+	lea	subspr_data(a1),a2
+	move.w	#$80,sub2_x_pos-subspr_data(a2)	; sub2_x_pos
+	move.w	d0,sub2_y_pos-subspr_data(a2)	; sub2_y_pos
+	move.w	d1,mainspr_height-subspr_data(a2) ; mainspr_height and sub2_mapframe
+	move.w	d0,sub3_y_pos-subspr_data(a2)	; sub3_y_pos
+	move.w	d0,sub4_y_pos-subspr_data(a2)	; sub4_y_pos
 /	rts
 ; ===========================================================================
 +
-	bsr.w	SSSingleObjLoad
+	bsr.w	SSAllocateObject
 	bne.s	-	; rts
 	move.b	#ObjID_SSNumberOfRings,id(a1) ; load obj87
 	move.b	#6,objoff_A(a1)		; => loc_75DE
@@ -9682,15 +9813,15 @@ Obj87_Init:
 	move.b	#4,render_flags(a1)
 	bset	#6,render_flags(a1)
 	move.b	#0,mainspr_childsprites(a1)
-	lea	sub2_x_pos(a1),a2
+	lea	subspr_data(a1),a2
 	move.w	#$2C,d0
 	move.w	#$A,d1
-	move.w	d0,sub2_y_pos-sub2_x_pos(a2)	; sub2_y_pos
-	move.w	d1,mainspr_height-sub2_x_pos(a2) ; mainspr_height and sub2_mapframe
-	move.w	d0,sub3_y_pos-sub2_x_pos(a2)	; sub3_y_pos
-	move.w	d1,mapping_frame-sub2_x_pos(a2)	; mapping_frame	and sub3_mapframe
-	move.w	d0,sub4_y_pos-sub2_x_pos(a2)	; sub4_y_pos
-	move.w	d1,sub4_mapframe-1-sub2_x_pos(a2) ; something and sub4_mapframe
+	move.w	d0,sub2_y_pos-subspr_data(a2)	; sub2_y_pos
+	move.w	d1,mainspr_height-subspr_data(a2) ; mainspr_height and sub2_mapframe
+	move.w	d0,sub3_y_pos-subspr_data(a2)	; sub3_y_pos
+	move.w	d1,mapping_frame-subspr_data(a2)	; mapping_frame	and sub3_mapframe
+	move.w	d0,sub4_y_pos-subspr_data(a2)	; sub4_y_pos
+	move.w	d1,sub4_mapframe-1-subspr_data(a2) ; something and sub4_mapframe
 	rts
 ; ===========================================================================
 
@@ -9700,7 +9831,7 @@ loc_7480:
 	moveq	#0,d5
 	lea	sub2_x_pos(a0),a1
 	movea.l	a1,a2
-	addq.w	#5,a2	; a2 = sub2_mapframe(a0)
+	addq.w	#sub2_mapframe-sub2_x_pos,a2	; a2 = sub2_mapframe(a0)
 	cmpi.w	#2,(Player_mode).w
 	beq.s	loc_74EA
 	move.b	(MainCharacter+ss_rings_hundreds).w,d0
@@ -9810,17 +9941,17 @@ loc_753E:
 	beq.s	+
 	addq.w	#2,d3
 +
-	lea	sub2_x_pos(a0),a1
+	lea	subspr_data(a0),a1
 	move.b	d3,mainspr_childsprites(a0)
 	cmpi.b	#2,d3
 	blt.s	+
 	beq.s	++
-	move.w	#$78,(a1)			; sub2_x_pos
-	move.b	d2,sub2_mapframe-sub2_x_pos(a1)	; sub2_mapframe
-	move.w	#$80,sub3_x_pos-sub2_x_pos(a1)	; sub3_x_pos
-	move.b	d1,sub3_mapframe-sub2_x_pos(a1)	; sub3_mapframe
-	move.w	#$88,sub4_x_pos-sub2_x_pos(a1)	; sub4_x_pos
-	move.b	d0,sub4_mapframe-sub2_x_pos(a1)	; sub4_mapframe
+	move.w	#$78,sub2_x_pos-subspr_data(a1)		; sub2_x_pos
+	move.b	d2,sub2_mapframe-subspr_data(a1)	; sub2_mapframe
+	move.w	#$80,sub3_x_pos-subspr_data(a1)		; sub3_x_pos
+	move.b	d1,sub3_mapframe-subspr_data(a1)	; sub3_mapframe
+	move.w	#$88,sub4_x_pos-subspr_data(a1)		; sub4_x_pos
+	move.b	d0,sub4_mapframe-subspr_data(a1)	; sub4_mapframe
     if fixBugs
 	; Multi-sprite objects cannot use the 'priority' SST value, so they
 	; must use 'DisplaySprite3' instead of 'DisplaySprite'.
@@ -9833,8 +9964,8 @@ loc_753E:
     endif
 ; ===========================================================================
 +
-	move.w	#$80,(a1)			; sub2_x_pos
-	move.b	d0,sub2_mapframe-sub2_x_pos(a1)	; sub2_mapframe
+	move.w	#$80,sub2_x_pos-subspr_data(a1)	; sub2_x_pos
+	move.b	d0,sub2_mapframe-subspr_data(a1)	; sub2_mapframe
     if fixBugs
 	; Multi-sprite objects cannot use the 'priority' SST value, so they
 	; must use 'DisplaySprite3' instead of 'DisplaySprite'.
@@ -9847,10 +9978,10 @@ loc_753E:
     endif
 ; ===========================================================================
 +
-	move.w	#$7C,(a1)			; sub2_x_pos
-	move.b	d1,sub2_mapframe-sub2_x_pos(a1)	; sub2_mapframe
-	move.w	#$84,sub3_x_pos-sub2_x_pos(a1)	; sub3_x_pos
-	move.b	d0,sub3_mapframe-sub2_x_pos(a1)	; sub3_mapframe
+	move.w	#$7C,sub2_x_pos-subspr_data(a1)		; sub2_x_pos
+	move.b	d1,sub2_mapframe-subspr_data(a1)	; sub2_mapframe
+	move.w	#$84,sub3_x_pos-subspr_data(a1)		; sub3_x_pos
+	move.b	d0,sub3_mapframe-subspr_data(a1)	; sub3_mapframe
     if fixBugs
 	; Multi-sprite objects cannot use the 'priority' SST value, so they
 	; must use 'DisplaySprite3' instead of 'DisplaySprite'.
@@ -10704,7 +10835,7 @@ TwoPlayerResults:
 	addq.b	#1,d0
 	move.b	d0,(Current_Special_Stage).w
 	move.w	#VsRSID_SS,(Results_Screen_2P).w
-	move.b	#1,(SpecialStage_flag_2P).w
+	move.b	#1,(f_bigring).w
 	move.b	#GameModeID_SpecialStage,(Game_Mode).w ; => SpecialStage
 	moveq	#1,d0
 	move.w	d0,(Two_player_mode).w
@@ -10811,7 +10942,7 @@ TwoPlayerResultsDone_SpecialStage:
 	addq.b	#1,(Current_Act_2P).w
 	addq.b	#1,(Current_Special_Stage).w
 	move.w	#VsRSID_SS,(Results_Screen_2P).w
-	move.b	#1,(SpecialStage_flag_2P).w
+	move.b	#1,(f_bigring).w
 	move.b	#GameModeID_SpecialStage,(Game_Mode).w ; => SpecialStage
 	move.w	#1,(Two_player_mode).w
 	move.w	#0,(Level_Music).w
@@ -11650,8 +11781,8 @@ MenuScreen:
 	bsr.w	EniDec
 	lea	(Chunk_Table+$498).l,a2
 
-	moveq	#$F,d1
--	move.w	#$207B,(a2)+
+	moveq	#bytesToWcnt($20),d1
+-	move.w	#make_art_tile(ArtTile_ArtNem_MenuBox+11,1,0),(a2)+
 	dbf	d1,-
 
 	bsr.w	Update2PLevSelSelection
@@ -11789,7 +11920,7 @@ Update2PLevSelSelection:
 	lsl.w	#4,d0	; 16 bytes per entry
 	lea	(LevSel2PIconData).l,a3
 	lea	(a3,d0.w),a3
-	move.w	#$6000,d0	; highlight text
+	move.w	#palette_line_3,d0	; highlight text
 	lea	(Chunk_Table+$48).l,a2
 	movea.l	(a3)+,a1
 	bsr.w	MenuScreenTextToRAM
@@ -11862,7 +11993,7 @@ ClearOld2PLevSelSelection:
 	lsl.w	#4,d0
 	lea	(LevSel2PIconData).l,a3
 	lea	(a3,d0.w),a3
-	moveq	#0,d0
+	moveq	#palette_line_0,d0
 	lea	(Chunk_Table+$1E0).l,a2
 	movea.l	(a3)+,a1
 	bsr.w	MenuScreenTextToRAM
@@ -11896,13 +12027,13 @@ LevSel2PIconData:
 iconData macro txtlabel,txtlabel2,vramAddr,iconPal,iconAddr
 	dc.l txtlabel, txtlabel2	; text locations
 	dc.l vdpComm(vramAddr,VRAM,WRITE)	; VRAM location to place data
-	dc.l iconPal<<24|iconAddr	; icon palette and plane data location
+	dc.l iconPal<<24|((iconAddr)&$FFFFFF)	; icon palette and plane data location
     endm
 
-	iconData	Text2P_EmeraldHill,Text2P_Zone,VRAM_Plane_A_Name_Table+planeLocH40(2,2),0,$FF0330
-	iconData	Text2P_MysticCave,Text2P_Zone,VRAM_Plane_A_Name_Table+planeLocH40(22,2),5,$FF03A8
-	iconData	Text2P_CasinoNight,Text2P_Zone,VRAM_Plane_A_Name_Table+planeLocH40(2,15),6,$FF03C0
-	iconData	Text2P_Special,Text2P_Stage,VRAM_Plane_A_Name_Table+planeLocH40(22,15),$C,$FF0450
+	iconData	Text2P_EmeraldHill,Text2P_Zone, VRAM_Plane_A_Name_Table+planeLocH40(2,2),   0,Chunk_Table+$330
+	iconData	Text2P_MysticCave, Text2P_Zone, VRAM_Plane_A_Name_Table+planeLocH40(22,2),  5,Chunk_Table+$3A8
+	iconData	Text2P_CasinoNight,Text2P_Zone, VRAM_Plane_A_Name_Table+planeLocH40(2,15),  6,Chunk_Table+$3C0
+	iconData	Text2P_Special,    Text2P_Stage,VRAM_Plane_A_Name_Table+planeLocH40(22,15),$C,Chunk_Table+$450
 
 ; ---------------------------------------------------------------------------
 ; Common menu screen subroutine for transferring text to RAM
@@ -12330,10 +12461,10 @@ LevelSelect_Main:	; routine running during level select
 
 	move	#$2700,sr
 
-	moveq	#palette_line_0-palette_line_0,d3	; palette line << 13
+	moveq	#palette_line_0,d3
 	bsr.w	LevelSelect_MarkFields	; unmark fields
-	bsr.w	LevSelControls	; possible change selected fields
-	move.w	#palette_line_3-palette_line_0,d3	; palette line << 13
+	bsr.w	LevSelControls		; possible change selected fields
+	move.w	#palette_line_3,d3
 	bsr.w	LevelSelect_MarkFields	; mark fields
 
 	bsr.w	LevelSelect_DrawIcon
@@ -12361,7 +12492,11 @@ LevelSelect_PressStart:
 
 ;LevelSelect_SpecialStage:
 	move.b	#GameModeID_SpecialStage,(Game_Mode).w ; => SpecialStage
-	clr.w	(Current_ZoneAndAct).w
+    if emerald_hill_zone_act_1=0
+	clr.w	(Current_ZoneAndAct).w ; emerald_hill_zone_act_1
+    else
+	move.w	#emerald_hill_zone_act_1,(Current_ZoneAndAct).w
+    endif
 	move.b	#3,(Life_count).w
 	move.b	#3,(Life_count_2P).w
 	moveq	#0,d0
@@ -12969,10 +13104,10 @@ EndingSequence:
 	move.w	d0,(Credits_Trigger).w
 
     if fixBugs
-	clearRAM Horiz_Scroll_Buf,Horiz_Scroll_Buf_End
+	clearRAM Horiz_Scroll_Buf,Horiz_Scroll_Buf+HorizontalScrollBuffer.len
     else
 	; The '+4' shouldn't be here; clearRAM accidentally clears an additional 4 bytes
-	clearRAM Horiz_Scroll_Buf,Horiz_Scroll_Buf_End+4
+	clearRAM Horiz_Scroll_Buf,Horiz_Scroll_Buf+HorizontalScrollBuffer.len+4
     endif
 
 	move.w	#$7FFF,(PalCycle_Timer).w
@@ -13049,10 +13184,10 @@ EndgameCredits:
 	move.w	d0,(Credits_Trigger).w
 
     if fixBugs
-	clearRAM Horiz_Scroll_Buf,Horiz_Scroll_Buf_End
+	clearRAM Horiz_Scroll_Buf,Horiz_Scroll_Buf+HorizontalScrollBuffer.len
     else
 	; The '+4' shouldn't be here; clearRAM accidentally clears an additional 4 bytes
-	clearRAM Horiz_Scroll_Buf,Horiz_Scroll_Buf_End+4
+	clearRAM Horiz_Scroll_Buf,Horiz_Scroll_Buf+HorizontalScrollBuffer.len+4
     endif
 
 	moveq	#signextendB(MusID_Credits),d0
@@ -13193,8 +13328,11 @@ pal_A0FE:	BINCLUDE	"art/palettes/Ending Cycle.bin"
 ; Sprite_A1D6:
 ObjCA:
 	addq.w	#1,objoff_32(a0)
+	; Branch if Tails...
 	cmpi.w	#4,(Ending_Routine).w
 	beq.s	+
+	; ...and branch if not Super Sonic, making the first check redundant.
+	; Was Sonic's ending originally *always* going to feature Super Sonic?
 	cmpi.w	#2,(Ending_Routine).w
 	bne.s	+
 	st.b	(Super_Sonic_flag).w
@@ -13380,7 +13518,7 @@ loc_A38E:
 +
 	subq.w	#1,objoff_3C(a0)
 	bne.s	+
-	lea	(word_AD62).l,a2
+	lea	(ChildObject_AD62).l,a2
 	jsrto	LoadChildObject, JmpTo_LoadChildObject
 +
 	bra.w	loc_AB9C
@@ -13527,7 +13665,7 @@ loc_A53A:
 -
 	move.w	d0,y_pos(a1)
 	move.w	x_pos(a0),x_pos(a1)
-	move.l	#(1<<24)|(0<<16)|(AniIDSonAni_Wait<<8)|AniIDSonAni_Wait,mapping_frame(a1)
+	move.l	#(1<<24)|(0<<16)|(AniIDSonAni_Wait<<8)|(AniIDSonAni_Wait<<0),mapping_frame(a1)
 	move.w	#$100,anim_frame_duration(a1)
 	rts
 ; ===========================================================================
@@ -13657,11 +13795,11 @@ loc_A720:
 	addq.b	#2,routine_secondary(a0)
 	clr.w	objoff_3C(a0)
 	clr.w	objoff_32(a0)
-	lea	(word_AD6E).l,a2
+	lea	(ChildObject_AD6E).l,a2
 	jsrto	LoadChildObject, JmpTo_LoadChildObject
 	tst.b	(Super_Sonic_flag).w
 	bne.w	return_A38C
-	lea	(word_AD6A).l,a2
+	lea	(ChildObject_AD6A).l,a2
 	jmpto	LoadChildObject, JmpTo_LoadChildObject
 ; ===========================================================================
 byte_A748:
@@ -14102,7 +14240,7 @@ loc_AB9C:
 	move.l	(RNG_seed).w,d0
 	andi.w	#$1F,d0
 	move.w	d0,objoff_30(a0)
-	lea	(word_AD5E).l,a2
+	lea	(ChildObject_AD5E).l,a2
 	jsrto	LoadChildObject, JmpTo_LoadChildObject
 +
 	rts
@@ -14119,7 +14257,7 @@ sub_ABBA:
 	move.l	(RNG_seed).w,d0
 	andi.w	#$F,d0
 	move.w	d0,objoff_30(a0)
-	lea	(word_AD66).l,a2
+	lea	(ChildObject_AD66).l,a2
 	jsrto	LoadChildObject, JmpTo_LoadChildObject
 +	rts
 ; End of function sub_ABBA
@@ -14171,14 +14309,14 @@ EndingSequence_LoadFlickyArt:
 
 ; ===========================================================================
 EndingSequence_LoadFlickyArt_Flickies: offsetTable
-	offsetTableEntry.w EndingSequence_LoadFlickyArt_Bird	; 0
+	offsetTableEntry.w EndingSequence_LoadFlickyArt_Flicky	; 0
 	offsetTableEntry.w EndingSequence_LoadFlickyArt_Eagle	; 2
 	offsetTableEntry.w EndingSequence_LoadFlickyArt_Chicken	; 4
 ; ===========================================================================
 ; loc_AC42:
-EndingSequence_LoadFlickyArt_Bird:
+EndingSequence_LoadFlickyArt_Flicky:
 	move.l	#vdpComm(tiles_to_bytes(ArtTile_ArtNem_Animal_2),VRAM,WRITE),(VDP_control_port).l
-	lea	(ArtNem_Bird).l,a0
+	lea	(ArtNem_Flicky).l,a0
 	jmpto	NemDec, JmpTo_NemDec
 ; ===========================================================================
 ; loc_AC56:
@@ -14194,31 +14332,16 @@ EndingSequence_LoadFlickyArt_Chicken:
 	jmpto	NemDec, JmpTo_NemDec
 ; ===========================================================================
 Pal_AC7E:	BINCLUDE	"art/palettes/Ending Sonic.bin"
-Pal_AC9E:	BINCLUDE	"art/palettes/Ending Sonic Far.bin"
+Pal_AC9E:	BINCLUDE	"art/palettes/Ending Tails.bin"
 Pal_ACDE:	BINCLUDE	"art/palettes/Ending Background.bin"
 Pal_AD1E:	BINCLUDE	"art/palettes/Ending Photos.bin"
 Pal_AD3E:	BINCLUDE	"art/palettes/Ending Super Sonic.bin"
 
-word_AD5E:
-	dc.w objoff_3E
-	dc.b ObjID_EndingSeqClouds
-	dc.b $00
-word_AD62:
-	dc.w objoff_3E
-	dc.b ObjID_EndingSeqTrigger
-	dc.b $00
-word_AD66:
-	dc.w objoff_3E
-	dc.b ObjID_EndingSeqBird
-	dc.b $00
-word_AD6A:
-	dc.w objoff_3E
-	dc.b ObjID_EndingSeqSonic
-	dc.b $00
-word_AD6E:
-	dc.w objoff_3E
-	dc.b ObjID_TornadoHelixes
-	dc.b $00
+ChildObject_AD5E:	childObjectData objoff_3E, ObjID_EndingSeqClouds, $00
+ChildObject_AD62:	childObjectData objoff_3E, ObjID_EndingSeqTrigger, $00
+ChildObject_AD66:	childObjectData objoff_3E, ObjID_EndingSeqBird, $00
+ChildObject_AD6A:	childObjectData objoff_3E, ObjID_EndingSeqSonic, $00
+ChildObject_AD6E:	childObjectData objoff_3E, ObjID_TornadoHelixes, $00
 
 ; off_AD72:
 Obj28_SubObjData:
@@ -14603,10 +14726,11 @@ LevelSizeLoad:
 	lea	LevelSize(pc,d0.w),a0
 	move.l	(a0)+,d0
 	move.l	d0,(Camera_Min_X_pos).w
+	move.l	d0,(Camera_Min_X_pos_target).w
 	move.l	d0,(Tails_Min_X_pos).w
 	move.l	(a0)+,d0
 	move.l	d0,(Camera_Min_Y_pos).w
-	move.w	d0,(Camera_Max_Y_pos).w
+	move.l	d0,(Camera_Min_Y_pos_target).w
 	move.l	d0,(Tails_Min_Y_pos).w
 	move.w	#$1010,(Horiz_block_crossed_flag).w
 	move.w	#(224/2)-16,(Camera_Y_pos_bias).w
@@ -14620,40 +14744,57 @@ LevelSizeLoad:
 ; ----------------------------------------------------------------------------
 ;				xstart	xend	ystart	yend	; ZID ; Zone
 LevelSize: zoneOrderedTable 2,8	; WrdArr_LvlSize
-	zoneTableEntry.w	$0,	$29A0,	$0,	$320	; EHZ act 1
-	zoneTableEntry.w	$0,	$2940,	$0,	$420	; EHZ act 2
-	zoneTableEntry.w	$0,	$3FFF,	$0,	$720	; $01
-	zoneTableEntry.w	$0,	$3FFF,	$0,	$720
-	zoneTableEntry.w	$0,	$3FFF,	$0,	$720	; $02
-	zoneTableEntry.w	$0,	$3FFF,	$0,	$720
-	zoneTableEntry.w	$0,	$3FFF,	$0,	$720	; $03
-	zoneTableEntry.w	$0,	$3FFF,	$0,	$720
-	zoneTableEntry.w	$0,	$2280,	-$100,	$800	; MTZ act 1
-	zoneTableEntry.w	$0,	$1E80,	-$100,	$800	; MTZ act 2
-	zoneTableEntry.w	$0,	$2A80,	-$100,	$800	; MTZ act 3
-	zoneTableEntry.w	$0,	$3FFF,	-$100,	$800
-	zoneTableEntry.w	$0,	$3FFF,	$0,	$720	; WFZ
-	zoneTableEntry.w	$0,	$3FFF,	$0,	$720
-	zoneTableEntry.w	$0,	$2800,	$0,	$720	; HTZ act 1
-	zoneTableEntry.w	$0,	$3280,	$0,	$720	; HTZ act 2
-	zoneTableEntry.w	$0,	$3FFF,	$0,	$720	; $08
-	zoneTableEntry.w	$0,	$3FFF,	$0,	$720
-	zoneTableEntry.w	$0,	$3FFF,	$0,	$720	; $09
-	zoneTableEntry.w	$0,	$3FFF,	$0,	$720
-	zoneTableEntry.w	$0,	$2F80,	$0,	$680	; OOZ act 1
-	zoneTableEntry.w	$0,	$2D00,	$0,	$680	; OOZ act 2
-	zoneTableEntry.w	$0,	$2380,	$3C0,	$720	; MCZ act 1
-	zoneTableEntry.w	$0,	$3FFF,	$60,	$720	; MCZ act 2
-	zoneTableEntry.w	$0,	$27A0,	$0,	$720	; CNZ act 1
-	zoneTableEntry.w	$0,	$2A80,	$0,	$720	; CNZ act 2
-	zoneTableEntry.w	$0,	$2780,	$0,	$720	; CPZ act 1
-	zoneTableEntry.w	$0,	$2A80,	$0,	$720	; CPZ act 2
-	zoneTableEntry.w	$0,	$1000,	$C8,	 $C8	; DEZ
-	zoneTableEntry.w	$0,	$1000,  $C8,	 $C8
-	zoneTableEntry.w	$0,	$28C0,	$200,	$600	; ARZ act 1
-	zoneTableEntry.w	$0,	$3FFF,	$180,	$710	; ARZ act 2
-	zoneTableEntry.w	$0,	$3FFF,	$0,	$000	; SCZ
-	zoneTableEntry.w	$0,	$3FFF,	$0,	$720
+	; EHZ
+	zoneTableEntry.w	$0,	$29A0,	$0,	$320	; Act 1
+	zoneTableEntry.w	$0,	$2940,	$0,	$420	; Act 2
+	; Zone 1
+	zoneTableEntry.w	$0,	$3FFF,	$0,	$720	; Act 1
+	zoneTableEntry.w	$0,	$3FFF,	$0,	$720	; Act 2
+	; WZ
+	zoneTableEntry.w	$0,	$3FFF,	$0,	$720	; Act 1
+	zoneTableEntry.w	$0,	$3FFF,	$0,	$720	; Act 2
+	; Zone 3
+	zoneTableEntry.w	$0,	$3FFF,	$0,	$720	; Act 1
+	zoneTableEntry.w	$0,	$3FFF,	$0,	$720	; Act 2
+	; MTZ
+	zoneTableEntry.w	$0,	$2280,	-$100,	$800	; Act 1
+	zoneTableEntry.w	$0,	$1E80,	-$100,	$800	; Act 2
+	; MTZ
+	zoneTableEntry.w	$0,	$2A80,	-$100,	$800	; Act 3
+	zoneTableEntry.w	$0,	$3FFF,	-$100,	$800	; Act 4
+	; WFZ
+	zoneTableEntry.w	$0,	$3FFF,	$0,	$720	; Act 1
+	zoneTableEntry.w	$0,	$3FFF,	$0,	$720	; Act 2
+	; HTZ
+	zoneTableEntry.w	$0,	$2800,	$0,	$720	; Act 1
+	zoneTableEntry.w	$0,	$3280,	$0,	$720	; Act 2
+	; HPZ
+	zoneTableEntry.w	$0,	$3FFF,	$0,	$720	; Act 1
+	zoneTableEntry.w	$0,	$3FFF,	$0,	$720	; Act 2
+	; Zone 9
+	zoneTableEntry.w	$0,	$3FFF,	$0,	$720	; Act 1
+	zoneTableEntry.w	$0,	$3FFF,	$0,	$720	; Act 2
+	; OOZ
+	zoneTableEntry.w	$0,	$2F80,	$0,	$680	; Act 1
+	zoneTableEntry.w	$0,	$2D00,	$0,	$680	; Act 2
+	; MCZ
+	zoneTableEntry.w	$0,	$2380,	$3C0,	$720	; Act 1
+	zoneTableEntry.w	$0,	$3FFF,	$60,	$720	; Act 2
+	; CNZ
+	zoneTableEntry.w	$0,	$27A0,	$0,	$720	; Act 1
+	zoneTableEntry.w	$0,	$2A80,	$0,	$720	; Act 2
+	; CPZ
+	zoneTableEntry.w	$0,	$2780,	$0,	$720	; Act 1
+	zoneTableEntry.w	$0,	$2A80,	$0,	$720	; Act 2
+	; DEZ
+	zoneTableEntry.w	$0,	$1000,	$C8,	 $C8	; Act 1
+	zoneTableEntry.w	$0,	$1000,  $C8,	 $C8	; Act 2
+	; ARZ
+	zoneTableEntry.w	$0,	$28C0,	$200,	$600	; Act 1
+	zoneTableEntry.w	$0,	$3FFF,	$180,	$710	; Act 2
+	; SCZ
+	zoneTableEntry.w	$0,	$3FFF,	$0,	$000	; Act 1
+	zoneTableEntry.w	$0,	$3FFF,	$0,	$720	; Act 2
     zoneTableEnd
 
 ; ===========================================================================
@@ -14692,9 +14833,9 @@ LevelSize: zoneOrderedTable 2,8	; WrdArr_LvlSize
 	bcc.s	+
 	moveq	#0,d0
 +
-	cmp.w	(Camera_Max_Y_pos_now).w,d0
+	cmp.w	(Camera_Max_Y_pos).w,d0
 	blt.s	+
-	move.w	(Camera_Max_Y_pos_now).w,d0
+	move.w	(Camera_Max_Y_pos).w,d0
 +
 	move.w	d0,(Camera_Y_pos).w
 	move.w	d0,(Camera_Y_pos_P2).w
@@ -14710,40 +14851,57 @@ LevelSize: zoneOrderedTable 2,8	; WrdArr_LvlSize
 ; appear at when the level starts.
 ; --------------------------------------------------------------------------------------
 StartLocations: zoneOrderedTable 2,4	; WrdArr_StartLoc
-	zoneTableBinEntry	2, "startpos/EHZ_1.bin"	; $00
-	zoneTableBinEntry	2, "startpos/EHZ_2.bin"
-	zoneTableEntry.w	$60,	$28F		; $01
-	zoneTableEntry.w	$60,	$2AF
-	zoneTableEntry.w	$60,	$1AC		; $02
-	zoneTableEntry.w	$60,	$1AC
-	zoneTableEntry.w	$60,	$28F		; $03
-	zoneTableEntry.w	$60,	$2AF
-	zoneTableBinEntry	2, "startpos/MTZ_1.bin"	; $04
-	zoneTableBinEntry	2, "startpos/MTZ_2.bin"
-	zoneTableBinEntry	2, "startpos/MTZ_3.bin"	; $05
-	zoneTableEntry.w	$60,	$2AF
-	zoneTableBinEntry	2, "startpos/WFZ.bin"	; $06
-	zoneTableEntry.w	$1E0,	$4CC
-	zoneTableBinEntry	2, "startpos/HTZ_1.bin"	; $07
-	zoneTableBinEntry	2, "startpos/HTZ_2.bin"
-	zoneTableBinEntry	2, "startpos/HPZ_1.bin"	; $08
-	zoneTableBinEntry	2, "startpos/HPZ_2.bin"
-	zoneTableEntry.w	$60,	$28F		; $09
-	zoneTableEntry.w	$60,	$2AF
-	zoneTableBinEntry	2, "startpos/OOZ_1.bin"	; $0A
-	zoneTableBinEntry	2, "startpos/OOZ_2.bin"
-	zoneTableBinEntry	2, "startpos/MCZ_1.bin"	; $0B
-	zoneTableBinEntry	2, "startpos/MCZ_2.bin"
-	zoneTableBinEntry	2, "startpos/CNZ_1.bin"	; $0C
-	zoneTableBinEntry	2, "startpos/CNZ_2.bin"
-	zoneTableBinEntry	2, "startpos/CPZ_1.bin"	; $0D
-	zoneTableBinEntry	2, "startpos/CPZ_2.bin"
-	zoneTableBinEntry	2, "startpos/DEZ.bin"	; $0E
-	zoneTableEntry.w	$60,	$12D
-	zoneTableBinEntry	2, "startpos/ARZ_1.bin"	; $0F
-	zoneTableBinEntry	2, "startpos/ARZ_2.bin"
-	zoneTableBinEntry	2, "startpos/SCZ.bin"	; $10
-	zoneTableEntry.w	$140,	$70
+	; EHZ
+	zoneTableBinEntry	2, "startpos/EHZ_1.bin"	; Act 1
+	zoneTableBinEntry	2, "startpos/EHZ_2.bin"	; Act 2
+	; Zone 1
+	zoneTableBinEntry	2, "startpos/01_1.bin"	; Act 1
+	zoneTableBinEntry	2, "startpos/01_2.bin"	; Act 2
+	; WZ
+	zoneTableBinEntry	2, "startpos/WZ_1.bin"	; Act 1
+	zoneTableBinEntry	2, "startpos/WZ_2.bin"	; Act 2
+	; Zone 3
+	zoneTableBinEntry	2, "startpos/03_1.bin"	; Act 1
+	zoneTableBinEntry	2, "startpos/03_2.bin"	; Act 2
+	; MTZ
+	zoneTableBinEntry	2, "startpos/MTZ_1.bin"	; Act 1
+	zoneTableBinEntry	2, "startpos/MTZ_2.bin"	; Act 2
+	; MTZ
+	zoneTableBinEntry	2, "startpos/MTZ_3.bin"	; Act 3
+	zoneTableBinEntry	2, "startpos/MTZ_4.bin"	; Act 4
+	; WFZ
+	zoneTableBinEntry	2, "startpos/WFZ_1.bin"	; Act 1
+	zoneTableBinEntry	2, "startpos/WFZ_2.bin"	; Act 2
+	; HTZ
+	zoneTableBinEntry	2, "startpos/HTZ_1.bin"	; Act 1
+	zoneTableBinEntry	2, "startpos/HTZ_2.bin"	; Act 2
+	; HPZ
+	zoneTableBinEntry	2, "startpos/HPZ_1.bin"	; Act 1
+	zoneTableBinEntry	2, "startpos/HPZ_2.bin"	; Act 2
+	; Zone 9
+	zoneTableBinEntry	2, "startpos/09_1.bin"	; Act 1
+	zoneTableBinEntry	2, "startpos/09_2.bin"	; Act 2
+	; OOZ
+	zoneTableBinEntry	2, "startpos/OOZ_1.bin"	; Act 1
+	zoneTableBinEntry	2, "startpos/OOZ_2.bin"	; Act 2
+	; MCZ
+	zoneTableBinEntry	2, "startpos/MCZ_1.bin"	; Act 1
+	zoneTableBinEntry	2, "startpos/MCZ_2.bin"	; Act 2
+	; CNZ
+	zoneTableBinEntry	2, "startpos/CNZ_1.bin"	; Act 1
+	zoneTableBinEntry	2, "startpos/CNZ_2.bin"	; Act 2
+	; CPZ
+	zoneTableBinEntry	2, "startpos/CPZ_1.bin"	; Act 1
+	zoneTableBinEntry	2, "startpos/CPZ_2.bin"	; Act 2
+	; DEZ
+	zoneTableBinEntry	2, "startpos/DEZ_1.bin"	; Act 1
+	zoneTableBinEntry	2, "startpos/DEZ_2.bin"	; Act 2
+	; ARZ
+	zoneTableBinEntry	2, "startpos/ARZ_1.bin"	; Act 1
+	zoneTableBinEntry	2, "startpos/ARZ_2.bin"	; Act 2
+	; SCZ
+	zoneTableBinEntry	2, "startpos/SCZ_1.bin"	; Act 1
+	zoneTableBinEntry	2, "startpos/SCZ_2.bin"	; Act 2
     zoneTableEnd
 
 ; ||||||||||||||| S U B R O U T I N E |||||||||||||||||||||||||||||||||||||||
@@ -14773,23 +14931,23 @@ InitCameraValues:
 ; ===========================================================================
 ; off_C296:
 InitCam_Index: zoneOrderedOffsetTable 2,1
-	zoneOffsetTableEntry.w InitCam_EHZ
-	zoneOffsetTableEntry.w InitCam_Null0	; 1
-	zoneOffsetTableEntry.w InitCam_WZ	; 2
-	zoneOffsetTableEntry.w InitCam_Null0	; 3
-	zoneOffsetTableEntry.w InitCam_Std	; 4 MTZ
-	zoneOffsetTableEntry.w InitCam_Std	; 5 MTZ3
-	zoneOffsetTableEntry.w InitCam_Null1	; 6
-	zoneOffsetTableEntry.w InitCam_HTZ	; 7
-	zoneOffsetTableEntry.w InitCam_HPZ	; 8
-	zoneOffsetTableEntry.w InitCam_Null2	; 9
-	zoneOffsetTableEntry.w InitCam_OOZ	; 10
-	zoneOffsetTableEntry.w InitCam_MCZ	; 11
-	zoneOffsetTableEntry.w InitCam_CNZ	; 12
-	zoneOffsetTableEntry.w InitCam_CPZ	; 13
-	zoneOffsetTableEntry.w InitCam_Null3	; 14
-	zoneOffsetTableEntry.w InitCam_ARZ	; 15
-	zoneOffsetTableEntry.w InitCam_SCZ	; 16
+	zoneOffsetTableEntry.w InitCam_EHZ	; EHZ
+	zoneOffsetTableEntry.w InitCam_Null0	; Zone 1
+	zoneOffsetTableEntry.w InitCam_WZ	; WZ
+	zoneOffsetTableEntry.w InitCam_Null0	; Zone 3
+	zoneOffsetTableEntry.w InitCam_Std	; MTZ1,2
+	zoneOffsetTableEntry.w InitCam_Std	; MTZ3
+	zoneOffsetTableEntry.w InitCam_Null1	; WFZ
+	zoneOffsetTableEntry.w InitCam_HTZ	; HTZ
+	zoneOffsetTableEntry.w InitCam_HPZ	; HPZ
+	zoneOffsetTableEntry.w InitCam_Null2	; Zone 9
+	zoneOffsetTableEntry.w InitCam_OOZ	; OOZ
+	zoneOffsetTableEntry.w InitCam_MCZ	; MCZ
+	zoneOffsetTableEntry.w InitCam_CNZ	; CNZ
+	zoneOffsetTableEntry.w InitCam_CPZ	; CPZ
+	zoneOffsetTableEntry.w InitCam_Null3	; DEZ
+	zoneOffsetTableEntry.w InitCam_ARZ	; ARZ
+	zoneOffsetTableEntry.w InitCam_SCZ	; SCZ
     zoneTableEnd
 ; ===========================================================================
 ;loc_C2B8:
@@ -15068,23 +15226,23 @@ loc_C4D0:
 ; water ripple effects in EHZ, and moving the clouds in HTZ and the stars in DEZ.
 ; ---------------------------------------------------------------------------
 SwScrl_Index: zoneOrderedOffsetTable 2,1	; JmpTbl_SwScrlMgr
-	zoneOffsetTableEntry.w SwScrl_EHZ	; $00
-	zoneOffsetTableEntry.w SwScrl_Minimal	; $01
-	zoneOffsetTableEntry.w SwScrl_Lev2	; $02
-	zoneOffsetTableEntry.w SwScrl_Minimal	; $03
-	zoneOffsetTableEntry.w SwScrl_MTZ	; $04
-	zoneOffsetTableEntry.w SwScrl_MTZ	; $05
-	zoneOffsetTableEntry.w SwScrl_WFZ	; $06
-	zoneOffsetTableEntry.w SwScrl_HTZ	; $07
-	zoneOffsetTableEntry.w SwScrl_HPZ	; $08
-	zoneOffsetTableEntry.w SwScrl_Minimal	; $09
-	zoneOffsetTableEntry.w SwScrl_OOZ	; $0A
-	zoneOffsetTableEntry.w SwScrl_MCZ	; $0B
-	zoneOffsetTableEntry.w SwScrl_CNZ	; $0C
-	zoneOffsetTableEntry.w SwScrl_CPZ	; $0D
-	zoneOffsetTableEntry.w SwScrl_DEZ	; $0E
-	zoneOffsetTableEntry.w SwScrl_ARZ	; $0F
-	zoneOffsetTableEntry.w SwScrl_SCZ	; $10
+	zoneOffsetTableEntry.w SwScrl_EHZ	; EHZ
+	zoneOffsetTableEntry.w SwScrl_Minimal	; Zone 1
+	zoneOffsetTableEntry.w SwScrl_WZ	; WZ
+	zoneOffsetTableEntry.w SwScrl_Minimal	; Zone 3
+	zoneOffsetTableEntry.w SwScrl_MTZ	; MTZ1,2
+	zoneOffsetTableEntry.w SwScrl_MTZ	; MTZ3
+	zoneOffsetTableEntry.w SwScrl_WFZ	; WFZ
+	zoneOffsetTableEntry.w SwScrl_HTZ	; HTZ
+	zoneOffsetTableEntry.w SwScrl_HPZ	; HPZ
+	zoneOffsetTableEntry.w SwScrl_Minimal	; Zone 9
+	zoneOffsetTableEntry.w SwScrl_OOZ	; OOZ
+	zoneOffsetTableEntry.w SwScrl_MCZ	; MCZ
+	zoneOffsetTableEntry.w SwScrl_CNZ	; CNZ
+	zoneOffsetTableEntry.w SwScrl_CPZ	; CPZ
+	zoneOffsetTableEntry.w SwScrl_DEZ	; DEZ
+	zoneOffsetTableEntry.w SwScrl_ARZ	; ARZ
+	zoneOffsetTableEntry.w SwScrl_SCZ	; SCZ
     zoneTableEnd
 ; ===========================================================================
 ; loc_C51E:
@@ -15322,11 +15480,11 @@ SwScrl_EHZ_2P:
 	; Update the background's vertical scrolling.
 	moveq	#0,d0
 	move.w	d0,(Vscroll_Factor_P2_BG).w
-	subi.w	#$E0,(Vscroll_Factor_P2_BG).w
+	subi.w	#224,(Vscroll_Factor_P2_BG).w
 
 	; Update the foregrounds's vertical scrolling.
 	move.w	(Camera_Y_pos_P2).w,(Vscroll_Factor_P2_FG).w
-	subi.w	#$E0,(Vscroll_Factor_P2_FG).w
+	subi.w	#224,(Vscroll_Factor_P2_FG).w
 
 	; Only allow the screen to vertically scroll two pixels at a time.
 	andi.l	#$FFFEFFFE,(Vscroll_Factor_P2).w
@@ -15431,8 +15589,8 @@ SwScrl_EHZ_2P:
 
 ; ===========================================================================
 ; unused...
-; loc_C7BA:
-SwScrl_Lev2:
+; loc_C7BA: SwScrl_Lev2:
+SwScrl_WZ:
     if gameRevision<2
 	; Just a duplicate of 'SwScrl_Minimal'.
 
@@ -15933,11 +16091,11 @@ SwScrl_HTZ_2P:
 	; Update the background's vertical scrolling.
 	moveq	#0,d0
 	move.w	d0,(Vscroll_Factor_P2_BG).w
-	subi.w	#$E0,(Vscroll_Factor_P2_BG).w
+	subi.w	#224,(Vscroll_Factor_P2_BG).w
 
 	; Update the foreground's vertical scrolling.
 	move.w	(Camera_Y_pos_P2).w,(Vscroll_Factor_P2_FG).w
-	subi.w	#$E0,(Vscroll_Factor_P2_FG).w
+	subi.w	#224,(Vscroll_Factor_P2_FG).w
 
 	; Only allow the screen to vertically scroll two pixels at a time.
 	andi.l	#$FFFEFFFE,(Vscroll_Factor_P2).w
@@ -16662,11 +16820,11 @@ SwScrl_MCZ2P_RowHeights:
 
 	; Update the background's vertical scrolling.
 	move.w	d0,(Vscroll_Factor_P2_BG).w
-	subi.w	#$E0,(Vscroll_Factor_P2_BG).w
+	subi.w	#224,(Vscroll_Factor_P2_BG).w
 
 	; Update the foreground's vertical scrolling.
 	move.w	(Camera_Y_pos_P2).w,(Vscroll_Factor_P2_FG).w
-	subi.w	#$E0,(Vscroll_Factor_P2_FG).w
+	subi.w	#224,(Vscroll_Factor_P2_FG).w
 
 	; Only allow the screen to vertically scroll two pixels at a time.
 	andi.l	#$FFFEFFFE,(Vscroll_Factor_P2).w
@@ -16968,11 +17126,11 @@ SwScrl_CNZ_2P:
 
 	; Update the background's vertical scrolling.
 	move.w	d0,(Vscroll_Factor_P2_BG).w
-	subi.w	#$E0,(Vscroll_Factor_P2_BG).w
+	subi.w	#224,(Vscroll_Factor_P2_BG).w
 
 	; Update the foreground's vertical scrolling.
 	move.w	(Camera_Y_pos_P2).w,(Vscroll_Factor_P2_FG).w
-	subi.w	#$E0,(Vscroll_Factor_P2_FG).w
+	subi.w	#224,(Vscroll_Factor_P2_FG).w
 
 	; Only allow the screen to vertically scroll two pixels at a time.
 	andi.l	#$FFFEFFFE,(Vscroll_Factor_P2).w
@@ -18094,7 +18252,7 @@ ScrollVerti:
 	swap	d1		; actual Y-coordinate is now the low word
 ; loc_D852:
 .scrollDown:
-	cmp.w	Camera_Max_Y_pos_now-Camera_Boundaries(a2),d1	; is the new position greater than the maximum Y pos?
+	cmp.w	Camera_Max_Y_pos-Camera_Boundaries(a2),d1	; is the new position greater than the maximum Y pos?
 	blt.s	.doScroll	; if not, branch
 	subi.w	#$800,d1
 	bcs.s	.maxYPosReached
@@ -18103,7 +18261,7 @@ ScrollVerti:
 ; ===========================================================================
 ; loc_D864:
 .maxYPosReached:
-	move.w	Camera_Max_Y_pos_now-Camera_Boundaries(a2),d1	; prevent camera from going any further down
+	move.w	Camera_Max_Y_pos-Camera_Boundaries(a2),d1	; prevent camera from going any further down
 ; loc_D868:
 .doScroll:
 	move.w	(a1),d4		; get old pos (used by SetVertiScrollFlags)
@@ -18644,46 +18802,53 @@ Draw_BG2:
 ; Each entry is an index into BGCameraLookup; used to decide the camera to use
 ; for given block for reloading BG. A entry of 0 means assume X = 0 for section,
 ; but otherwise loads camera Y for selected camera.
+; Note that this list is 32 blocks long, which is enough to span the entire
+; two-chunk-tall background.
 ;byte_DCD6
 SBZ_CameraSections:
 	; BG1 (draw whole row)
-	dc.b   0
-	dc.b   0	; 1
-	dc.b   0	; 2
-	dc.b   0	; 3
-	dc.b   0	; 4
+	dc.b 0	; 0
+	dc.b 0	; 1
+	dc.b 0	; 2
+	dc.b 0	; 3
+	dc.b 0	; 4
 	; BG3
-	dc.b   6	; 5
-	dc.b   6	; 6
-	dc.b   6	; 7
-	dc.b   6	; 8
-	dc.b   6	; 9
-	dc.b   6	; 10
-	dc.b   6	; 11
-	dc.b   6	; 12
-	dc.b   6	; 13
-	dc.b   6	; 14
+	dc.b 6	; 5
+	dc.b 6	; 6
+	dc.b 6	; 7
+	dc.b 6	; 8
+	dc.b 6	; 9
+	dc.b 6	; 10
+	dc.b 6	; 11
+	dc.b 6	; 12
+	dc.b 6	; 13
+	dc.b 6	; 14
 	; BG2
-	dc.b   4	; 15
-	dc.b   4	; 16
-	dc.b   4	; 17
-	dc.b   4	; 18
-	dc.b   4	; 19
-	dc.b   4	; 20
-	dc.b   4	; 21
+	dc.b 4	; 15
+	dc.b 4	; 16
+	dc.b 4	; 17
+	dc.b 4	; 18
+	dc.b 4	; 19
+	dc.b 4	; 20
+	dc.b 4	; 21
 	; BG1
-	dc.b   2	; 22
-	dc.b   2	; 23
-	dc.b   2	; 24
-	dc.b   2	; 25
-	dc.b   2	; 26
-	dc.b   2	; 27
-	dc.b   2	; 28
-	dc.b   2	; 29
-	dc.b   2	; 30
-	dc.b   2	; 31
-	dc.b   2	; 32
+	dc.b 2	; 22
+	dc.b 2	; 23
+	dc.b 2	; 24
+	dc.b 2	; 25
+	dc.b 2	; 26
+	dc.b 2	; 27
+	dc.b 2	; 28
+	dc.b 2	; 29
+	dc.b 2	; 30
+	dc.b 2	; 31
+	dc.b 2	; 32
+
+	; Total height: 2 256x256 chunks.
+	; This matches the height of the background.
+
 	even
+
 ; ===========================================================================
 	; Scrap Brain Zone 1 drawing code -- Sonic 1 left-over.
 
@@ -18700,7 +18865,7 @@ SBZ_CameraSections:
 	; clouds disappear. Using this would have avoided that.
 
 	; Handle loading the rows as the camera moves up and down.
-	moveq	#-16,d4	; X offset (relative to camera)
+	moveq	#-16,d4	; Y offset (relative to camera)
 	bclr	#scroll_flag_advanced_bg_up,(a2)
 	bne.s	.doUpOrDown
 	bclr	#scroll_flag_advanced_bg_down,(a2)
@@ -18711,7 +18876,7 @@ SBZ_CameraSections:
 	lea_	SBZ_CameraSections+1,a0
 	move.w	(Camera_BG_Y_pos).w,d0
 	add.w	d4,d0
-	andi.w	#$1F0,d0
+	andi.w	#$1F0,d0	; After right-shifting, the is a mask of $1F. Since SBZ_CameraSections is $20 items long, this is correct.
 	lsr.w	#4,d0
 	move.b	(a0,d0.w),d0
 	lea	(BGCameraLookup).l,a3
@@ -18757,7 +18922,7 @@ SBZ_CameraSections:
 	; drawing the column.
 	lea_	SBZ_CameraSections,a0
 	move.w	(Camera_BG_Y_pos).w,d0
-	andi.w	#$1F0,d0
+	andi.w	#$1F0,d0	; After right-shifting, the is a mask of $1F. Since SBZ_CameraSections is $20 items long, this is correct.
 	lsr.w	#4,d0
 	lea	(a0,d0.w),a0
 	bra.w	DrawBlockColumn_Advanced
@@ -18807,73 +18972,79 @@ Draw_BG3:
 ;byte_DDD0
 CPZ_CameraSections:
 	; BG1
-	dc.b   2
-	dc.b   2	; 1
-	dc.b   2	; 2
-	dc.b   2	; 3
-	dc.b   2	; 4
-	dc.b   2	; 5
-	dc.b   2	; 6
-	dc.b   2	; 7
-	dc.b   2	; 8
-	dc.b   2	; 9
-	dc.b   2	; 10
-	dc.b   2	; 11
-	dc.b   2	; 12
-	dc.b   2	; 13
-	dc.b   2	; 14
-	dc.b   2	; 15
-	dc.b   2	; 16
-	dc.b   2	; 17
-	dc.b   2	; 18
-	dc.b   2	; 19
+	dc.b 2	; 0
+	dc.b 2	; 1
+	dc.b 2	; 2
+	dc.b 2	; 3
+	dc.b 2	; 4
+	dc.b 2	; 5
+	dc.b 2	; 6
+	dc.b 2	; 7
+	dc.b 2	; 8
+	dc.b 2	; 9
+	dc.b 2	; 10
+	dc.b 2	; 11
+	dc.b 2	; 12
+	dc.b 2	; 13
+	dc.b 2	; 14
+	dc.b 2	; 15
+	dc.b 2	; 16
+	dc.b 2	; 17
+	dc.b 2	; 18
+	dc.b 2	; 19
 	; BG2
-	dc.b   4	; 20
-	dc.b   4	; 21
-	dc.b   4	; 22
-	dc.b   4	; 23
-	dc.b   4	; 24
-	dc.b   4	; 25
-	dc.b   4	; 26
-	dc.b   4	; 27
-	dc.b   4	; 28
-	dc.b   4	; 29
-	dc.b   4	; 30
-	dc.b   4	; 31
-	dc.b   4	; 32
-	dc.b   4	; 33
-	dc.b   4	; 34
-	dc.b   4	; 35
-	dc.b   4	; 36
-	dc.b   4	; 37
-	dc.b   4	; 38
-	dc.b   4	; 39
-	dc.b   4	; 40
-	dc.b   4	; 41
-	dc.b   4	; 42
-	dc.b   4	; 43
-	dc.b   4	; 44
-	dc.b   4	; 45
-	dc.b   4	; 46
-	dc.b   4	; 47
-	dc.b   4	; 48
-	dc.b   4	; 49
-	dc.b   4	; 50
-	dc.b   4	; 51
-	dc.b   4	; 52
-	dc.b   4	; 53
-	dc.b   4	; 54
-	dc.b   4	; 55
-	dc.b   4	; 56
-	dc.b   4	; 57
-	dc.b   4	; 58
-	dc.b   4	; 59
-	dc.b   4	; 60
-	dc.b   4	; 61
-	dc.b   4	; 62
-	dc.b   4	; 63
-	dc.b   4	; 64
+	dc.b 4	; 20
+	dc.b 4	; 21
+	dc.b 4	; 22
+	dc.b 4	; 23
+	dc.b 4	; 24
+	dc.b 4	; 25
+	dc.b 4	; 26
+	dc.b 4	; 27
+	dc.b 4	; 28
+	dc.b 4	; 29
+	dc.b 4	; 30
+	dc.b 4	; 31
+	dc.b 4	; 32
+	dc.b 4	; 33
+	dc.b 4	; 34
+	dc.b 4	; 35
+	dc.b 4	; 36
+	dc.b 4	; 37
+	dc.b 4	; 38
+	dc.b 4	; 39
+	dc.b 4	; 40
+	dc.b 4	; 41
+	dc.b 4	; 42
+	dc.b 4	; 43
+	dc.b 4	; 44
+	dc.b 4	; 45
+	dc.b 4	; 46
+	dc.b 4	; 47
+	dc.b 4	; 48
+	dc.b 4	; 49
+	dc.b 4	; 50
+	dc.b 4	; 51
+	dc.b 4	; 52
+	dc.b 4	; 53
+	dc.b 4	; 54
+	dc.b 4	; 55
+	dc.b 4	; 56
+	dc.b 4	; 57
+	dc.b 4	; 58
+	dc.b 4	; 59
+	dc.b 4	; 60
+	dc.b 4	; 61
+	dc.b 4	; 62
+	dc.b 4	; 63
+	dc.b 4	; 64
+
+	; Total height: 8 128x128 chunks.
+	; CPZ's background is only 7 chunks tall, but extending to
+	; 8 is necessary for wrapping to be achieved using bitmasks.
+
 	even
+
 ; ===========================================================================
 ; loc_DE12:
 Draw_BG3_CPZ:
@@ -18907,7 +19078,7 @@ Draw_BG3_CPZ:
 	lea_	CPZ_CameraSections+1,a0
 	move.w	(Camera_BG_Y_pos).w,d0
 	add.w	d4,d0
-	andi.w	#$3F0,d0
+	andi.w	#$3F0,d0	; After right-shifting, the is a mask of $3F. Since CPZ_CameraSections is $40 items long, this is correct.
 	lsr.w	#4,d0
 	move.b	(a0,d0.w),d0
 	movea.w	BGCameraLookup(pc,d0.w),a3	; Camera, either BG, BG2 or BG3 depending on Y
@@ -18941,7 +19112,14 @@ Draw_BG3_CPZ:
 	; drawing the column.
 	lea_	CPZ_CameraSections,a0
 	move.w	(Camera_BG_Y_pos).w,d0
-	andi.w	#$7F0,d0	; Curiously, this bitmask differs from the one used earlier. Perhaps this is a bug?
+    if fixBugs
+	andi.w	#$3F0,d0	; After right-shifting, the is a mask of $3F. Since CPZ_CameraSections is $40 items long, this is correct.
+    endif
+	; After right-shifting, the is a mask of $7F. Since CPZ_CameraSections
+	; is $40 items long, this is incorrect, and will cause accesses to
+	; exceed the bounds of CPZ_CameraSections and read invalid data. This
+	; is most notably a problem in Marble Zone's version of this code.
+	andi.w	#$7F0,d0
 	lsr.w	#4,d0
 	lea	(a0,d0.w),a0
 	bra.w	DrawBlockColumn_Advanced
@@ -19036,41 +19214,47 @@ DrawBlockColumn_Advanced:
 
 OOZ_CameraSections:
 	; BG1 (draw whole row) for the sky.
-	dc.b   0
-	dc.b   0
-	dc.b   0
-	dc.b   0
-	dc.b   0
-	dc.b   0
-	dc.b   0
-	dc.b   0
-	dc.b   0
-	dc.b   0
-	dc.b   0
-	dc.b   0
-	dc.b   0
-	dc.b   0
-	dc.b   0
-	dc.b   0
-	dc.b   0
+	dc.b 0	; 0
+	dc.b 0	; 1
+	dc.b 0	; 2
+	dc.b 0	; 3
+	dc.b 0	; 4
+	dc.b 0	; 5
+	dc.b 0	; 6
+	dc.b 0	; 7
+	dc.b 0	; 8
+	dc.b 0	; 9
+	dc.b 0	; 10
+	dc.b 0	; 11
+	dc.b 0	; 12
+	dc.b 0	; 13
+	dc.b 0	; 14
+	dc.b 0	; 15
+	dc.b 0	; 16
 	; BG1 for the factory.
-	dc.b   2
-	dc.b   2
-	dc.b   2
-	dc.b   2
-	dc.b   2
-	dc.b   2
-	dc.b   2
-	dc.b   2
-	dc.b   2
-	dc.b   2
-	dc.b   2
-	dc.b   2
-	dc.b   2
-	dc.b   2
-	dc.b   2
-	dc.b   2
+	dc.b 2	; 17
+	dc.b 2	; 18
+	dc.b 2	; 19
+	dc.b 2	; 20
+	dc.b 2	; 21
+	dc.b 2	; 22
+	dc.b 2	; 23
+	dc.b 2	; 24
+	dc.b 2	; 25
+	dc.b 2	; 26
+	dc.b 2	; 27
+	dc.b 2	; 28
+	dc.b 2	; 29
+	dc.b 2	; 30
+	dc.b 2	; 31
+	dc.b 2	; 32
+
+	; Total height: 4 128x128 chunks.
+	; This matches the height of the background.
+
 	even
+
+; ===========================================================================
 
 Draw_BG3_OOZ:
 	; This is a lighty-modified duplicate of Scrap Brain Zone's drawing
@@ -19080,14 +19264,6 @@ Draw_BG3_OOZ:
 	; kind of. There are only three possible 'cameras' that each row can
 	; align itself with. Still, each row is free to decide which camera
 	; it aligns with.
-	; This could have really benefitted Oil Ocean Zone's background,
-	; which has a section that goes unseen because the regular background
-	; drawer is too primitive to display it without making the sun and
-	; clouds disappear. Using this would have avoided that.
-	; This code differs from the Scrap Brain Zone version by being
-	; hardcoded to a different table ('CPZ_CameraSections' instead of
-	; 'SBZ_CameraSections'), and lacking support for redrawing the whole
-	; row when it uses "camera 0".
 
 	; Handle loading the rows as the camera moves up and down.
 	moveq	#-16,d4	; Y offset
@@ -19103,7 +19279,7 @@ Draw_BG3_OOZ:
 	lea_	OOZ_CameraSections+1,a0
 	move.w	(Camera_BG_Y_pos).w,d0
 	add.w	d4,d0
-	andi.w	#$3F0,d0
+	andi.w	#$1F0,d0	; After right-shifting, the is a mask of $1F. Since OOZ_CameraSections is $20 items long, this is correct.
 	lsr.w	#4,d0
 	move.b	(a0,d0.w),d0
 	lea	BGCameraLookup(pc),a3
@@ -19149,7 +19325,7 @@ Draw_BG3_OOZ:
 	; drawing the column.
 	lea_	OOZ_CameraSections,a0
 	move.w	(Camera_BG_Y_pos).w,d0
-	andi.w	#$7F0,d0	; Curiously, this bitmask differs from the one used earlier. Perhaps this is a bug?
+	andi.w	#$1F0,d0	; After right-shifting, the is a mask of $1F. Since OOZ_CameraSections is $20 items long, this is correct.
 	lsr.w	#4,d0
 	lea	(a0,d0.w),a0
 	bra.w	DrawBlockColumn_Advanced
@@ -20133,18 +20309,18 @@ RunDynamicLevelEvents:
 	move.w	DynamicLevelEventIndex(pc,d0.w),d0
 	jsr	DynamicLevelEventIndex(pc,d0.w)
 	moveq	#2,d1
-	move.w	(Camera_Max_Y_pos).w,d0
-	sub.w	(Camera_Max_Y_pos_now).w,d0
+	move.w	(Camera_Max_Y_pos_target).w,d0
+	sub.w	(Camera_Max_Y_pos).w,d0
 	beq.s	++	; rts
 	bcc.s	+++
 	neg.w	d1
 	move.w	(Camera_Y_pos).w,d0
-	cmp.w	(Camera_Max_Y_pos).w,d0
+	cmp.w	(Camera_Max_Y_pos_target).w,d0
 	bls.s	+
-	move.w	d0,(Camera_Max_Y_pos_now).w
-	andi.w	#$FFFE,(Camera_Max_Y_pos_now).w
+	move.w	d0,(Camera_Max_Y_pos).w
+	andi.w	#$FFFE,(Camera_Max_Y_pos).w
 +
-	add.w	d1,(Camera_Max_Y_pos_now).w
+	add.w	d1,(Camera_Max_Y_pos).w
 	move.b	#1,(Camera_Max_Y_Pos_Changing).w
 +
 	rts
@@ -20152,14 +20328,14 @@ RunDynamicLevelEvents:
 +
 	move.w	(Camera_Y_pos).w,d0
 	addi_.w	#8,d0
-	cmp.w	(Camera_Max_Y_pos_now).w,d0
+	cmp.w	(Camera_Max_Y_pos).w,d0
 	blo.s	+
 	btst	#1,(MainCharacter+status).w
 	beq.s	+
 	add.w	d1,d1
 	add.w	d1,d1
 +
-	add.w	d1,(Camera_Max_Y_pos_now).w
+	add.w	d1,(Camera_Max_Y_pos).w
 	move.b	#1,(Camera_Max_Y_Pos_Changing).w
 	rts
 ; End of function RunDynamicLevelEvents
@@ -20167,23 +20343,23 @@ RunDynamicLevelEvents:
 ; ===========================================================================
 ; off_E636:
 DynamicLevelEventIndex: zoneOrderedOffsetTable 2,1
-	zoneOffsetTableEntry.w LevEvents_EHZ	;   0 ; EHZ
-	zoneOffsetTableEntry.w LevEvents_001	;   1 ; LEV1
-	zoneOffsetTableEntry.w LevEvents_002	;   2 ; LEV2
-	zoneOffsetTableEntry.w LevEvents_003	;   3 ; LEV3
-	zoneOffsetTableEntry.w LevEvents_MTZ	;   4 ; MTZ
-	zoneOffsetTableEntry.w LevEvents_MTZ3	;   5 ; MTZ3
-	zoneOffsetTableEntry.w LevEvents_WFZ	;   6 ; WFZ
-	zoneOffsetTableEntry.w LevEvents_HTZ	;   7 ; HTZ
-	zoneOffsetTableEntry.w LevEvents_HPZ	;   8 ; HPZ
-	zoneOffsetTableEntry.w LevEvents_009	;   9 ; LEV9
-	zoneOffsetTableEntry.w LevEvents_OOZ	;  $A ; OOZ
-	zoneOffsetTableEntry.w LevEvents_MCZ	;  $B ; MCZ
-	zoneOffsetTableEntry.w LevEvents_CNZ	;  $C ; CNZ
-	zoneOffsetTableEntry.w LevEvents_CPZ	;  $D ; CPZ
-	zoneOffsetTableEntry.w LevEvents_DEZ	;  $E ; DEZ
-	zoneOffsetTableEntry.w LevEvents_ARZ	;  $F ; ARZ
-	zoneOffsetTableEntry.w LevEvents_SCZ	; $10 ; SCZ
+	zoneOffsetTableEntry.w LevEvents_EHZ	; EHZ
+	zoneOffsetTableEntry.w LevEvents_001	; Zone 1
+	zoneOffsetTableEntry.w LevEvents_WZ	; WZ
+	zoneOffsetTableEntry.w LevEvents_003	; Zone 3
+	zoneOffsetTableEntry.w LevEvents_MTZ	; MTZ1,2
+	zoneOffsetTableEntry.w LevEvents_MTZ3	; MTZ3
+	zoneOffsetTableEntry.w LevEvents_WFZ	; WFZ
+	zoneOffsetTableEntry.w LevEvents_HTZ	; HTZ
+	zoneOffsetTableEntry.w LevEvents_HPZ	; HPZ
+	zoneOffsetTableEntry.w LevEvents_009	; Zone 9
+	zoneOffsetTableEntry.w LevEvents_OOZ	; OOZ
+	zoneOffsetTableEntry.w LevEvents_MCZ	; MCZ
+	zoneOffsetTableEntry.w LevEvents_CNZ	; CNZ
+	zoneOffsetTableEntry.w LevEvents_CPZ	; CPZ
+	zoneOffsetTableEntry.w LevEvents_DEZ	; DEZ
+	zoneOffsetTableEntry.w LevEvents_ARZ	; ARZ
+	zoneOffsetTableEntry.w LevEvents_SCZ	; SCZ
     zoneTableEnd
 ; ===========================================================================
 ; loc_E658:
@@ -20213,7 +20389,7 @@ LevEvents_EHZ2_Routine1:
 	blo.s	+	; rts
 	move.w	(Camera_X_pos).w,(Camera_Min_X_pos).w
 	move.w	(Camera_X_pos).w,(Tails_Min_X_pos).w
-	move.w	#$390,(Camera_Max_Y_pos).w
+	move.w	#$390,(Camera_Max_Y_pos_target).w
 	move.w	#$390,(Tails_Max_Y_pos).w
 	addq.b	#2,(Dynamic_Resize_Routine).w ; => LevEvents_EHZ2_Routine2
 +
@@ -20252,7 +20428,7 @@ LevEvents_EHZ2_Routine3:
 	addq.b	#1,(Boss_spawn_delay).w
 	cmpi.b	#$5A,(Boss_spawn_delay).w
 	blo.s	++
-	jsrto	SingleObjLoad, JmpTo_SingleObjLoad
+	jsrto	AllocateObject, JmpTo_AllocateObject
 	bne.s	+
 
 	move.b	#ObjID_EHZBoss,id(a1) ; load obj56 (EHZ boss)
@@ -20281,8 +20457,8 @@ LevEvents_EHZ2_Routine4:
 LevEvents_001:
 	rts
 ; ===========================================================================
-; return_E754:
-LevEvents_002:
+; return_E754: LevEvents_002:
+LevEvents_WZ:
 	rts
 ; ===========================================================================
 ; return_E756:
@@ -20313,8 +20489,8 @@ LevEvents_MTZ3_Index: offsetTable
 LevEvents_MTZ3_Routine1:
 	cmpi.w	#$2530,(Camera_X_pos).w
 	blo.s	+
-	move.w	#$500,(Camera_Max_Y_pos_now).w
-	move.w	#$450,(Camera_Max_Y_pos).w
+	move.w	#$500,(Camera_Max_Y_pos).w
+	move.w	#$450,(Camera_Max_Y_pos_target).w
 	move.w	#$450,(Tails_Max_Y_pos).w
 	addq.b	#2,(Dynamic_Resize_Routine).w ; => LevEvents_MTZ3_Routine2
 +
@@ -20326,7 +20502,7 @@ LevEvents_MTZ3_Routine2:
 	blo.s	+
 	move.w	(Camera_X_pos).w,(Camera_Min_X_pos).w
 	move.w	(Camera_X_pos).w,(Tails_Min_X_pos).w
-	move.w	#$400,(Camera_Max_Y_pos).w
+	move.w	#$400,(Camera_Max_Y_pos_target).w
 	move.w	#$400,(Tails_Max_Y_pos).w
 	addq.b	#2,(Dynamic_Resize_Routine).w ; => LevEvents_MTZ3_Routine3
 +
@@ -20360,7 +20536,7 @@ LevEvents_MTZ3_Routine4:
 	addq.b	#1,(Boss_spawn_delay).w
 	cmpi.b	#$5A,(Boss_spawn_delay).w
 	blo.s	++
-	jsrto	SingleObjLoad, JmpTo_SingleObjLoad
+	jsrto	AllocateObject, JmpTo_AllocateObject
 	bne.s	+
 	move.b	#ObjID_MTZBoss,id(a1) ; load obj54 (MTZ boss)
 +
@@ -21044,7 +21220,7 @@ LevEvents_HTZ2_Routine6:
 	blo.s	+	; rts
 	move.w	(Camera_X_pos).w,(Camera_Min_X_pos).w
 	move.w	(Camera_X_pos).w,(Tails_Min_X_pos).w
-	move.w	#$480,(Camera_Max_Y_pos).w
+	move.w	#$480,(Camera_Max_Y_pos_target).w
 	move.w	#$480,(Tails_Max_Y_pos).w
 	addq.b	#2,(Dynamic_Resize_Routine).w ; => LevEvents_HTZ2_Routine7
 +
@@ -21079,7 +21255,7 @@ LevEvents_HTZ2_Routine8:
 	addq.b	#1,(Boss_spawn_delay).w
 	cmpi.b	#$5A,(Boss_spawn_delay).w
 	blo.s	++	; rts
-	jsrto	SingleObjLoad, JmpTo_SingleObjLoad
+	jsrto	AllocateObject, JmpTo_AllocateObject
 	bne.s	+
 	move.b	#ObjID_HTZBoss,id(a1) ; load obj52 (HTZ boss)
 +
@@ -21102,9 +21278,9 @@ LevEvents_HTZ2_Routine9:
 	blo.s	+
 	subq.w	#2,(Camera_Min_Y_pos).w
 +
-	cmpi.w	#$430,(Camera_Max_Y_pos).w
+	cmpi.w	#$430,(Camera_Max_Y_pos_target).w
 	blo.s	+
-	subq.w	#2,(Camera_Max_Y_pos).w
+	subq.w	#2,(Camera_Max_Y_pos_target).w
 +
 	rts
 
@@ -21146,7 +21322,7 @@ LevEvents_OOZ2_Routine1:
 	move.w	(Camera_X_pos).w,(Camera_Min_X_pos).w
 	move.w	(Camera_X_pos).w,(Tails_Min_X_pos).w
 	move.w	#$2D8,(Oil+y_pos).w
-	move.w	#$1E0,(Camera_Max_Y_pos).w
+	move.w	#$1E0,(Camera_Max_Y_pos_target).w
 	move.w	#$1E0,(Tails_Max_Y_pos).w
 	addq.b	#2,(Dynamic_Resize_Routine).w
 +
@@ -21182,7 +21358,7 @@ LevEvents_OOZ2_Routine3:
 	addq.b	#1,(Boss_spawn_delay).w
 	cmpi.b	#$5A,(Boss_spawn_delay).w
 	blo.s	++	; rts
-	jsrto	SingleObjLoad, JmpTo_SingleObjLoad
+	jsrto	AllocateObject, JmpTo_AllocateObject
 	bne.s	+
 	move.b	#ObjID_OOZBoss,id(a1) ; load obj55 (OOZ boss)
 +
@@ -21230,7 +21406,7 @@ LevEvents_MCZ2_Routine1:
 	blo.s	+	; rts
 	move.w	(Camera_X_pos).w,(Camera_Min_X_pos).w
 	move.w	(Camera_X_pos).w,(Tails_Min_X_pos).w
-	move.w	#$5D0,(Camera_Max_Y_pos).w
+	move.w	#$5D0,(Camera_Max_Y_pos_target).w
 	move.w	#$5D0,(Tails_Max_Y_pos).w
 	addq.b	#2,(Dynamic_Resize_Routine).w
 +
@@ -21281,7 +21457,7 @@ LevEvents_MCZ2_Routine3:
 	addq.b	#1,(Boss_spawn_delay).w
 	cmpi.b	#$5A,(Boss_spawn_delay).w
 	blo.s	++	; rts
-	jsrto	SingleObjLoad, JmpTo_SingleObjLoad
+	jsrto	AllocateObject, JmpTo_AllocateObject
 	bne.s	+
 	move.b	#ObjID_MCZBoss,id(a1) ; load obj57 (MCZ boss)
 +
@@ -21336,7 +21512,7 @@ LevEvents_CNZ2_Routine1:
 	blo.s	+	; rts
 	move.w	(Camera_X_pos).w,(Camera_Min_X_pos).w
 	move.w	(Camera_X_pos).w,(Tails_Min_X_pos).w
-	move.w	#$62E,(Camera_Max_Y_pos).w
+	move.w	#$62E,(Camera_Max_Y_pos_target).w
 	move.w	#$62E,(Tails_Max_Y_pos).w
 	move.b	#$F9,(Level_Layout+$C54).w
 	addq.b	#2,(Dynamic_Resize_Routine).w
@@ -21379,7 +21555,7 @@ LevEvents_CNZ2_Routine3:
 	addq.b	#1,(Boss_spawn_delay).w
 	cmpi.b	#$5A,(Boss_spawn_delay).w
 	blo.s	++	; rts
-	jsrto	SingleObjLoad, JmpTo_SingleObjLoad
+	jsrto	AllocateObject, JmpTo_AllocateObject
 	bne.s	+
 	move.b	#ObjID_CNZBoss,id(a1) ; load obj51
 +
@@ -21393,7 +21569,7 @@ LevEvents_CNZ2_Routine3:
 LevEvents_CNZ2_Routine4:
 	cmpi.w	#$2A00,(Camera_X_pos).w
 	blo.s	+	; rts
-	move.w	#$5D0,(Camera_Max_Y_pos).w
+	move.w	#$5D0,(Camera_Max_Y_pos_target).w
 	move.w	#$5D0,(Tails_Max_Y_pos).w
 	move.w	(Camera_X_pos).w,(Camera_Min_X_pos).w
 	move.w	(Camera_Max_X_pos).w,(Tails_Max_X_pos).w
@@ -21427,7 +21603,7 @@ LevEvents_CPZ2_Routine1:
 	blo.s	+	; rts
 	move.w	(Camera_X_pos).w,(Camera_Min_X_pos).w
 	move.w	(Camera_X_pos).w,(Tails_Min_X_pos).w
-	move.w	#$450,(Camera_Max_Y_pos).w
+	move.w	#$450,(Camera_Max_Y_pos_target).w
 	move.w	#$450,(Tails_Max_Y_pos).w
 	addq.b	#2,(Dynamic_Resize_Routine).w
 +
@@ -21462,7 +21638,7 @@ LevEvents_CPZ2_Routine3:
 	addq.b	#1,(Boss_spawn_delay).w
 	cmpi.b	#$5A,(Boss_spawn_delay).w
 	blo.s	++
-	jsrto	SingleObjLoad, JmpTo_SingleObjLoad
+	jsrto	AllocateObject, JmpTo_AllocateObject
 	bne.s	+
 	move.b	#ObjID_CPZBoss,id(a1) ; load obj5D
 +
@@ -21500,7 +21676,7 @@ LevEvents_DEZ_Routine1:
 	cmp.w	(Camera_X_pos).w,d0
 	bhi.s	+	; rts
 	addq.b	#2,(Dynamic_Resize_Routine).w
-	jsrto	SingleObjLoad, JmpTo_SingleObjLoad
+	jsrto	AllocateObject, JmpTo_AllocateObject
 	bne.s	+	; rts
 	move.b	#ObjID_MechaSonic,id(a1) ; load objAF (Silver Sonic)
 	move.b	#$48,subtype(a1)
@@ -21571,7 +21747,7 @@ LevEvents_ARZ2_Routine1:
 	blo.s	+	; rts
 	move.w	(Camera_X_pos).w,(Camera_Min_X_pos).w
 	move.w	(Camera_X_pos).w,(Tails_Min_X_pos).w
-	move.w	#$400,(Camera_Max_Y_pos).w
+	move.w	#$400,(Camera_Max_Y_pos_target).w
 	move.w	#$400,(Tails_Max_Y_pos).w
 	addq.b	#2,(Dynamic_Resize_Routine).w
 	move.b	#4,(Current_Boss_ID).w
@@ -21592,7 +21768,7 @@ LevEvents_ARZ2_Routine2:
 	move.w	#MusID_FadeOut,d0
 	jsrto	PlayMusic, JmpTo3_PlayMusic
 	clr.b	(Boss_spawn_delay).w
-	jsrto	SingleObjLoad, JmpTo_SingleObjLoad
+	jsrto	AllocateObject, JmpTo_AllocateObject
 	bne.s	+	; rts
 	move.b	#ObjID_ARZBoss,id(a1) ; load obj89
 +
@@ -21651,7 +21827,7 @@ LevEvents_SCZ_Routine2:
 	blo.s	+
 	move.w	#-1,(Tornado_Velocity_X).w
 	move.w	#1,(Tornado_Velocity_Y).w
-	move.w	#$500,(Camera_Max_Y_pos).w
+	move.w	#$500,(Camera_Max_Y_pos_target).w
 	addq.b	#2,(Dynamic_Resize_Routine).w
 +
 	rts
@@ -21706,8 +21882,8 @@ LoadPLC_AnimalExplosion:
     endif
 
     if ~~removeJmpTos
-JmpTo_SingleObjLoad ; JmpTo
-	jmp	(SingleObjLoad).l
+JmpTo_AllocateObject ; JmpTo
+	jmp	(AllocateObject).l
 JmpTo3_PlaySound ; JmpTo
 	jmp	(PlaySound).l
 ; JmpTo2_PalLoad2
@@ -21803,7 +21979,7 @@ Obj11_Init:
 ; ||||||||||||||| S U B R O U T I N E |||||||||||||||||||||||||||||||||||||||
 ; sub_F728:
 Obj11_MakeBdgSegment:
-	jsrto	SingleObjLoad2, JmpTo_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo_AllocateObjectAfterCurrent
 	bne.s	+	; rts
 	_move.b	id(a0),id(a1) ; load obj11
 	move.w	x_pos(a0),x_pos(a1)
@@ -21815,7 +21991,7 @@ Obj11_MakeBdgSegment:
 	move.b	#$40,mainspr_width(a1)
 	move.b	d1,mainspr_childsprites(a1)
 	subq.b	#1,d1
-	lea	sub2_x_pos(a1),a2 ; starting address for subsprite data
+	lea	subspr_data(a1),a2 ; starting address for subsprite data
 
 -	move.w	d3,(a2)+	; sub?_x_pos
 	move.w	d2,(a2)+	; sub?_y_pos
@@ -22236,8 +22412,8 @@ Obj11_MapUnc_FC70:	BINCLUDE "mappings/sprite/obj11_b.bin"
 
     if ~~removeJmpTos
 ; sub_FC88:
-JmpTo_SingleObjLoad2 ; JmpTo
-	jmp	(SingleObjLoad2).l
+JmpTo_AllocateObjectAfterCurrent ; JmpTo
+	jmp	(AllocateObjectAfterCurrent).l
 JmpTo_PlatformObject11_cont ; JmpTo
 	jmp	(PlatformObject11_cont).l
 ; sub_FC94:
@@ -22313,7 +22489,7 @@ Obj15_Init:
 	andi.w	#$F,d1
 	move.w	x_pos(a0),d2
 	move.w	y_pos(a0),d3
-	jsrto	SingleObjLoad2, JmpTo2_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo2_AllocateObjectAfterCurrent
 	bne.w	+++
 	_move.b	id(a0),id(a1) ; load obj15
 	move.l	mappings(a0),mappings(a1)
@@ -22339,7 +22515,7 @@ Obj15_Init:
 	move.b	#$48,mainspr_width(a1)
 	move.b	d1,mainspr_childsprites(a1)
 	subq.b	#1,d1
-	lea	sub2_x_pos(a1),a2
+	lea	subspr_data(a1),a2
 
 -	move.w	d2,(a2)+	; sub?_x_pos
 	move.w	d3,(a2)+	; sub?_y_pos
@@ -22448,7 +22624,7 @@ loc_FEC2:
 	asr.l	#4,d1
 	moveq	#0,d4
 	moveq	#0,d5
-	lea	sub2_x_pos(a1),a2
+	lea	subspr_data(a1),a2
 
 -	movem.l	d4-d5,-(sp)
 	swap	d4
@@ -22580,7 +22756,7 @@ Obj15_State4:
 	beq.w	BranchTo_loc_1000C
 	tst.b	(Oscillating_Data+$18).w
 	bne.w	BranchTo_loc_1000C
-	jsrto	SingleObjLoad2, JmpTo2_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo2_AllocateObjectAfterCurrent
 	bne.s	loc_100E4
 	moveq	#0,d0
 
@@ -22603,18 +22779,24 @@ Obj15_State4:
 	neg.w	x_vel(a1)
 +
 	bset	#1,status(a1)
+    if object_size<>$40
+	moveq	#0,d0 ; Clear the high word for the coming division.
+    endif
 	move.w	a0,d0
 	subi.w	#Object_RAM,d0
     if object_size=$40
-	lsr.w	#6,d0
+	lsr.w	#object_size_bits,d0
     else
 	divu.w	#object_size,d0
     endif
 	andi.w	#$7F,d0
+    if object_size<>$40
+	moveq	#0,d1 ; Clear the high word for the coming division.
+    endif
 	move.w	a1,d1
 	subi.w	#Object_RAM,d1
     if object_size=$40
-	lsr.w	#6,d1
+	lsr.w	#object_size_bits,d1
     else
 	divu.w	#object_size,d1
     endif
@@ -22776,8 +22958,8 @@ word_102E4:	dc.w 2
     if ~~removeJmpTos
 JmpTo_PlatformObject2 ; JmpTo
 	jmp	(PlatformObject2).l
-JmpTo2_SingleObjLoad2 ; JmpTo
-	jmp	(SingleObjLoad2).l
+JmpTo2_AllocateObjectAfterCurrent ; JmpTo
+	jmp	(AllocateObjectAfterCurrent).l
 JmpTo2_CalcSine ; JmpTo
 	jmp	(CalcSine).l
 JmpTo_ObjCheckRightWallDist ; JmpTo
@@ -22832,13 +23014,16 @@ Obj17_Init:
 	moveq	#0,d6
 ; loc_10372:
 Obj17_MakeHelix:
-	bsr.w	SingleObjLoad2
+	bsr.w	AllocateObjectAfterCurrent
 	bne.s	Obj17_Main
 	addq.b	#1,subtype(a0)
+    if object_size<>$40
+	moveq	#0,d5 ; Clear the high word for the coming division.
+    endif
 	move.w	a1,d5
 	subi.w	#Object_RAM,d5
     if object_size=$40
-	lsr.w	#6,d5
+	lsr.w	#object_size_bits,d5
     else
 	divu.w	#object_size,d5
     endif
@@ -22889,7 +23074,7 @@ Obj17_DelLoop:
 	moveq	#0,d0
 	move.b	(a2)+,d0
     if object_size=$40
-	lsl.w	#6,d0
+	lsl.w	#object_size_bits,d0
     else
 	mulu.w	#object_size,d0
     endif
@@ -23226,7 +23411,7 @@ loc_10730:
 	add.l	d0,d3
 	move.l	d3,objoff_2C(a0)
 	addi.w	#$38,y_vel(a0)
-	move.w	(Camera_Max_Y_pos_now).w,d0
+	move.w	(Camera_Max_Y_pos).w,d0
 	addi.w	#$120,d0
 	cmp.w	objoff_2C(a0),d0
 	bhs.s	+	; rts
@@ -23393,7 +23578,16 @@ Obj1A_Init:
 ; ===========================================================================
 +
 	move.l	#Obj1A_GHZ_SlopeData,collapsing_platform_slope_pointer(a0)
+    if fixBugs
+	move.b	#$30,width_pixels(a0)
+    else
+	; This is too wide, causing the player to teleport downwards when
+	; running off the platform. Sonic 1 used a width of $30 for the
+	; collision and $64 for width_pixels, but in Sonic 2 they must be
+	; the same. $64 seems to be overkill, as $30 still results in good
+	; sprite culling.
 	move.b	#$34,width_pixels(a0)
+    endif
 	move.b	#$38,y_radius(a0)
 	bset	#4,render_flags(a0)
 ; loc_1097C:
@@ -23595,7 +23789,7 @@ Obj1A_CreateFragments:
 	movea.l	a0,a1
 	bra.s	+
 ; ===========================================================================
--	bsr.w	SingleObjLoad
+-	bsr.w	AllocateObject
 	bne.s	+++
 	addq.w	#8,a3
 +
@@ -23793,7 +23987,6 @@ Obj1C_Radii:
 	dc.b $30	; 18
 	dc.b $40	; 19
 	dc.b $50	; 20
-	dc.b   0	; 21
 	even
 ; ===========================================================================
 ; loc_112A4:
@@ -24193,22 +24386,22 @@ zoneAnimals macro first,second
 	; This table declares what animals will appear in the zone.
 	; When an enemy is destroyed, a random animal is chosen from the 2 selected animals.
 	; Note: you must also load the corresponding art in the PLCs.
-	zoneAnimals.b Squirrel,	Bird	; EHZ
-	zoneAnimals.b Squirrel,	Bird	; Zone 1
-	zoneAnimals.b Squirrel,	Bird	; WZ
-	zoneAnimals.b Squirrel,	Bird	; Zone 3
-	zoneAnimals.b Beaver,	Eagle	; MTZ
-	zoneAnimals.b Beaver,	Eagle	; MTZ
-	zoneAnimals.b Beaver,	Eagle	; WFZ
-	zoneAnimals.b Beaver,	Eagle	; HTZ
+	zoneAnimals.b Squirrel,	Flicky	; EHZ
+	zoneAnimals.b Squirrel,	Flicky	; Zone 1
+	zoneAnimals.b Squirrel,	Flicky	; WZ
+	zoneAnimals.b Squirrel,	Flicky	; Zone 3
+	zoneAnimals.b Monkey,	Eagle	; MTZ1,2
+	zoneAnimals.b Monkey,	Eagle	; MTZ3
+	zoneAnimals.b Monkey,	Eagle	; WFZ
+	zoneAnimals.b Monkey,	Eagle	; HTZ
 	zoneAnimals.b Mouse,	Seal	; HPZ
 	zoneAnimals.b Mouse,	Seal	; Zone 9
 	zoneAnimals.b Penguin,	Seal	; OOZ
 	zoneAnimals.b Mouse,	Chicken	; MCZ
-	zoneAnimals.b Bear,	Bird	; CNZ
+	zoneAnimals.b Bear,	Flicky	; CNZ
 	zoneAnimals.b Rabbit,	Eagle	; CPZ
 	zoneAnimals.b Pig,	Chicken	; DEZ
-	zoneAnimals.b Penguin,	Bird	; ARZ
+	zoneAnimals.b Penguin,	Flicky	; ARZ
 	zoneAnimals.b Turtle,	Chicken	; SCZ
     zoneTableEnd
 
@@ -24227,11 +24420,11 @@ Chicken:	obj28decl -$200,-$300,Obj28_MapUnc_11E1C
 Penguin:	obj28decl -$180,-$300,Obj28_MapUnc_11EAC
 Seal:		obj28decl -$140,-$180,Obj28_MapUnc_11E88
 Pig:		obj28decl -$1C0,-$300,Obj28_MapUnc_11E64
-Bird:		obj28decl -$300,-$400,Obj28_MapUnc_11E1C
+Flicky:		obj28decl -$300,-$400,Obj28_MapUnc_11E1C
 Squirrel:	obj28decl -$280,-$380,Obj28_MapUnc_11E40
 Eagle:		obj28decl -$280,-$300,Obj28_MapUnc_11E1C
 Mouse:		obj28decl -$200,-$380,Obj28_MapUnc_11E40
-Beaver:		obj28decl -$2C0,-$300,Obj28_MapUnc_11E40
+Monkey:		obj28decl -$2C0,-$300,Obj28_MapUnc_11E40
 Turtle:		obj28decl -$140,-$200,Obj28_MapUnc_11E40
 Bear:		obj28decl -$200,-$300,Obj28_MapUnc_11E40
 
@@ -24337,7 +24530,7 @@ Obj28_InitRandom:
 	move.w	#-$400,y_vel(a0)
 	tst.b	objoff_38(a0)
 	bne.s	++
-	bsr.w	SingleObjLoad
+	bsr.w	AllocateObject
 	bne.s	+
 	_move.b	#ObjID_Points,id(a1) ; load obj29
 	move.w	x_pos(a0),x_pos(a1)
@@ -24849,7 +25042,7 @@ Obj37_Init:
 	bra.s	+
 ; ===========================================================================
 
--	bsr.w	SingleObjLoad
+-	bsr.w	AllocateObject
 	bne.w	+++
 +
 	_move.b	#ObjID_LostRings,id(a1) 		; load obj37
@@ -24941,8 +25134,8 @@ loc_121B8:
 
 	tst.b	(Ring_spill_anim_counter).w
 	beq.s	Obj37_Delete
-	move.w	(Camera_Max_Y_pos_now).w,d0
-	addi.w	#$E0,d0
+	move.w	(Camera_Max_Y_pos).w,d0
+	addi.w	#224,d0
 	cmp.w	y_pos(a0),d0
 	blo.s	Obj37_Delete
 	bra.w	DisplaySprite
@@ -25018,7 +25211,7 @@ BigRing_Main:
 BigRing_Enter:
 	subq.b	#2,routine(a0)
 	move.b	#0,collision_flags(a0)
-	bsr.w	SingleObjLoad
+	bsr.w	AllocateObject
 	bne.w	+
 	; Note: the object ID is not set
 	; If you want to restore the big ring object, you'll also have to
@@ -25090,7 +25283,7 @@ BigRingFlash_Animate:
 	movea.l	objoff_3C(a0),a1 ; a1=object	; get the parent big ring object
 	move.b	#6,routine(a1)			; set its routine to "delete"
 	move.b	#AniIDSonAni_Blank,(MainCharacter+anim).w	; change the character's animation
-	move.b	#1,(SpecialStage_flag_2P).w
+	move.b	#1,(f_bigring).w
 	lea	(MainCharacter).w,a1 ; a1=character
 	bclr	#status_sec_isInvincible,status_secondary(a1)
 	bclr	#status_sec_hasShield,status_secondary(a1)
@@ -25383,7 +25576,7 @@ Obj26_SpawnIcon:
 	clr.b	status(a0)
 	addq.b	#2,routine(a0)
 	move.b	#0,collision_flags(a0)
-	bsr.w	SingleObjLoad
+	bsr.w	AllocateObject
 	bne.s	Obj26_SpawnSmoke
 	_move.b	#ObjID_MonitorContents,id(a1) ; load obj2E
 	move.w	x_pos(a0),x_pos(a1)	; set icon's position
@@ -25392,7 +25585,7 @@ Obj26_SpawnIcon:
 	move.w	parent(a0),parent(a1)	; parent gets the item
 ;loc_1281E:
 Obj26_SpawnSmoke:
-	bsr.w	SingleObjLoad
+	bsr.w	AllocateObject
 	bne.s	+
 	_move.b	#ObjID_Explosion,id(a1) ; load obj27
 	addq.b	#2,routine(a1)
@@ -25802,7 +25995,7 @@ swap_loop_objects:
 	moveq	#0,d0
 	move.b	interact(a1),d0
     if object_size=$40
-	lsl.w	#6,d0
+	lsl.w	#object_size_bits,d0
     else
 	mulu.w	#object_size,d0
     endif
@@ -25828,7 +26021,7 @@ swap_loop_objects:
 	moveq	#0,d0
 	move.b	interact(a1),d0
     if object_size=$40
-	lsl.w	#6,d0
+	lsl.w	#object_size_bits,d0
     else
 	mulu.w	#object_size,d0
     endif
@@ -27022,9 +27215,9 @@ Obj34_Init:
 
 	move.w	#$26,(TitleCard_Bottom+titlecard_location).w
 	clr.w	(Vscroll_Factor_FG).w
-	move.w	#-$E0,(Vscroll_Factor_P2_FG).w
+	move.w	#-224,(Vscroll_Factor_P2_FG).w
 
-	clearRAM Horiz_Scroll_Buf,Horiz_Scroll_Buf_End
+	clearRAM Horiz_Scroll_Buf,Horiz_Scroll_Buf+HorizontalScrollBuffer.len
 
 	rts
 ; ===========================================================================
@@ -27038,16 +27231,16 @@ Obj34_Init:
 ; - the Y position (word)
 titlecardobjdata macro routine,frame,width,duration,xstart,xstop,y
 	dc.b routine,frame,width,duration
-	dc.w xstart,xstop,y
+	dc.w 128+xstart,128+xstop,128+y
     endm
 ; word_13CD4:
 Obj34_TitleCardData:
-	titlecardobjdata  8,   0, $80, $1B, $240, $120, $B8	; zone name
-	titlecardobjdata $A, $11, $40, $1C,  $28, $148, $D0	; "ZONE"
-	titlecardobjdata $C, $12, $18, $1C,  $68, $188, $D0	; act number
-	titlecardobjdata  2,   0,   0,   0,    0,    0,   0	; blue background
-	titlecardobjdata  4, $15, $48,   8, $2A8, $168,$120	; bottom yellow part
-	titlecardobjdata  6, $16,   8, $15,  $80,  $F0, $F0	; left red part
+	titlecardobjdata  8,   0, $80, $1B, 320+128,   160,    56	; zone name
+	titlecardobjdata $A, $11, $40, $1C,    0-88,   200,    80	; "ZONE"
+	titlecardobjdata $C, $12, $18, $1C,    0-24,   264,    80	; act number
+	titlecardobjdata  2,   0,   0,   0,   0-128, 0-128, 0-128	; blue background
+	titlecardobjdata  4, $15, $48,   8, 320+232,   232,   160	; bottom yellow part
+	titlecardobjdata  6, $16,   8, $15,       0,   112,   112	; left red part
 Obj34_TitleCardData_End:
 
 ; ||||||||||||||| S U B R O U T I N E |||||||||||||||||||||||||||||||||||||||
@@ -27167,20 +27360,22 @@ Obj34_ActNumber:	; the act number, coming in
 
 ; sub_13E1C:
 Obj34_MoveTowardsTargetPosition:
-	moveq	#$10,d0			; set speed
-	move.w	x_pixel(a0),d1		; get the X position
-	cmp.w	titlecard_x_target(a0),d1 ; compare with target position
-	beq.s	++			; if it reached its target position, branch
-	bhi.s	+			; if it's beyond the target position, branch
-	neg.w	d0			; negate the speed
+	moveq	#$10,d0 ; Movement speed
+	move.w	x_pixel(a0),d1
+	cmp.w	titlecard_x_target(a0),d1
+	beq.s	.display
+	bhi.s	+
+	neg.w	d0
 +
-	sub.w	d0,x_pixel(a0)		; move the object
-	cmpi.w	#$200,x_pixel(a0)	; is it beyond $200?
-	bhi.s	++			; if yes, return
-+
+	sub.w	d0,x_pixel(a0)
+	; If target lies very far off-screen, then don't bother trying to display it.
+	; This is because the sprite coordinates are prone to overflow and underflow.
+	cmpi.w	#128+320+64,x_pixel(a0)
+	bhi.s	.return
+.display:
 	bra.w	DisplaySprite
-; ---------------------------------------------------------------------------
-+	rts
+.return:
+	rts
 ; End of function Obj34_MoveTowardsTargetPosition
 
 ; ===========================================================================
@@ -27310,23 +27505,23 @@ Obj34_LoadStandardWaterAndAnimalArt:
 ; ===========================================================================
 ;byte_13F62:
 Animal_PLCTable: zoneOrderedTable 1,1
-	zoneTableEntry.b PLCID_EhzAnimals	; $0
-	zoneTableEntry.b PLCID_EhzAnimals	; $1
-	zoneTableEntry.b PLCID_EhzAnimals	; $2
-	zoneTableEntry.b PLCID_EhzAnimals	; $3
-	zoneTableEntry.b PLCID_MtzAnimals	; $4
-	zoneTableEntry.b PLCID_MtzAnimals	; $5
-	zoneTableEntry.b PLCID_WfzAnimals	; $6
-	zoneTableEntry.b PLCID_HtzAnimals	; $7
-	zoneTableEntry.b PLCID_HpzAnimals	; $8
-	zoneTableEntry.b PLCID_HpzAnimals	; $9
-	zoneTableEntry.b PLCID_OozAnimals	; $A
-	zoneTableEntry.b PLCID_MczAnimals	; $B
-	zoneTableEntry.b PLCID_CnzAnimals	; $C
-	zoneTableEntry.b PLCID_CpzAnimals	; $D
-	zoneTableEntry.b PLCID_DezAnimals	; $E
-	zoneTableEntry.b PLCID_ArzAnimals	; $F
-	zoneTableEntry.b PLCID_SczAnimals	; $10
+	zoneTableEntry.b PLCID_EhzAnimals	; EHZ
+	zoneTableEntry.b PLCID_EhzAnimals	; Zone 1
+	zoneTableEntry.b PLCID_EhzAnimals	; WZ
+	zoneTableEntry.b PLCID_EhzAnimals	; Zone 3
+	zoneTableEntry.b PLCID_MtzAnimals	; MTZ1,2
+	zoneTableEntry.b PLCID_MtzAnimals	; MTZ3
+	zoneTableEntry.b PLCID_WfzAnimals	; WFZ
+	zoneTableEntry.b PLCID_HtzAnimals	; HTZ
+	zoneTableEntry.b PLCID_HpzAnimals	; HPZ
+	zoneTableEntry.b PLCID_HpzAnimals	; Zone 9
+	zoneTableEntry.b PLCID_OozAnimals	; OOZ
+	zoneTableEntry.b PLCID_MczAnimals	; MCZ
+	zoneTableEntry.b PLCID_CnzAnimals	; CNZ
+	zoneTableEntry.b PLCID_CpzAnimals	; CPZ
+	zoneTableEntry.b PLCID_DezAnimals	; DEZ
+	zoneTableEntry.b PLCID_ArzAnimals	; ARZ
+	zoneTableEntry.b PLCID_SczAnimals	; SCZ
     zoneTableEnd
 
 	dc.b PLCID_SczAnimals	; level slot $11 (non-existent), not part of main table
@@ -27471,8 +27666,8 @@ loc_140AC:
 ; ---------------------------------------------------------------------------
 +
 	movea.l	a0,a1
-	lea	byte_14380(pc),a2
-	moveq	#7,d1
+	lea	Obj3A_SubObjectMetadata(pc),a2
+	moveq	#bytesToXcnt(Obj3A_SubObjectMetadata_End-Obj3A_SubObjectMetadata, results_screen_object_size),d1
 
 loc_140BC:
 	_move.b	id(a1),d0
@@ -27487,7 +27682,7 @@ loc_140CE:
 
 	_move.b	#ObjID_Results,id(a1) ; load obj3A
 	move.w	(a2)+,x_pixel(a1)
-	move.w	(a2)+,objoff_30(a1)
+	move.w	(a2)+,titlecard_x_target(a1)
 	move.w	(a2)+,y_pixel(a1)
 	move.b	(a2)+,routine(a1)
 	move.b	(a2)+,mapping_frame(a1)
@@ -27511,7 +27706,7 @@ loc_14118:
 	move.b	d0,mapping_frame(a0)
 	bsr.w	Obj34_MoveTowardsTargetPosition
 	move.w	x_pixel(a0),d0
-	cmp.w	objoff_30(a0),d0
+	cmp.w	titlecard_x_target(a0),d0
 	bne.w	return_14138
 	move.b	#$A,routine(a0)
 	move.w	#$B4,anim_frame_duration(a0)
@@ -27703,93 +27898,133 @@ loc_142E2:
 ; -------------------------------------------------------------------------------
 ;word_142F8:
 LevelOrder: zoneOrderedTable 2,2	; WrdArr_LevelOrder
-	zoneTableEntry.w  emerald_hill_zone_act_2
-	zoneTableEntry.w  chemical_plant_zone_act_1	; 1
-	zoneTableEntry.w  emerald_hill_zone_act_1	; 2
-	zoneTableEntry.w  emerald_hill_zone_act_1	; 3
-	zoneTableEntry.w  wood_zone_act_2		; 4
-	zoneTableEntry.w  metropolis_zone_act_1		; 5
-	zoneTableEntry.w  emerald_hill_zone_act_1	; 6
-	zoneTableEntry.w  emerald_hill_zone_act_1	; 7
-	zoneTableEntry.w  metropolis_zone_act_2		; 8
-	zoneTableEntry.w  metropolis_zone_act_3		; 9
-	zoneTableEntry.w  sky_chase_zone_act_1		; 10
-	zoneTableEntry.w  emerald_hill_zone_act_1	; 11
-	zoneTableEntry.w  death_egg_zone_act_1		; 12
-	zoneTableEntry.w  emerald_hill_zone_act_1	; 13
-	zoneTableEntry.w  hill_top_zone_act_2		; 14
-	zoneTableEntry.w  mystic_cave_zone_act_1	; 15
-	zoneTableEntry.w  hidden_palace_zone_act_2 	; 16
-	zoneTableEntry.w  oil_ocean_zone_act_1		; 17
-	zoneTableEntry.w  emerald_hill_zone_act_1	; 18
-	zoneTableEntry.w  emerald_hill_zone_act_1	; 19
-	zoneTableEntry.w  oil_ocean_zone_act_2		; 20
-	zoneTableEntry.w  metropolis_zone_act_1		; 21
-	zoneTableEntry.w  mystic_cave_zone_act_2	; 22
-	zoneTableEntry.w  oil_ocean_zone_act_1		; 23
-	zoneTableEntry.w  casino_night_zone_act_2	; 24
-	zoneTableEntry.w  hill_top_zone_act_1		; 25
-	zoneTableEntry.w  chemical_plant_zone_act_2	; 26
-	zoneTableEntry.w  aquatic_ruin_zone_act_1	; 27
-	zoneTableEntry.w  $FFFF				; 28
-	zoneTableEntry.w  emerald_hill_zone_act_1	; 29
-	zoneTableEntry.w  aquatic_ruin_zone_act_2	; 30
-	zoneTableEntry.w  casino_night_zone_act_1	; 31
-	zoneTableEntry.w  wing_fortress_zone_act_1 	; 32
-	zoneTableEntry.w  emerald_hill_zone_act_1	; 33
+	; EHZ
+	zoneTableEntry.w  emerald_hill_zone_act_2	; Act 1
+	zoneTableEntry.w  chemical_plant_zone_act_1	; Act 2
+	; Zone 1
+	zoneTableEntry.w  0				; Act 1
+	zoneTableEntry.w  0				; Act 2
+	; WZ
+	zoneTableEntry.w  wood_zone_act_2		; Act 1
+	zoneTableEntry.w  metropolis_zone_act_1		; Act 2
+	; Zone 3
+	zoneTableEntry.w  0				; Act 1
+	zoneTableEntry.w  0				; Act 2
+	; MTZ
+	zoneTableEntry.w  metropolis_zone_act_2		; Act 1
+	zoneTableEntry.w  metropolis_zone_act_3		; Act 2
+	; MTZ
+	zoneTableEntry.w  sky_chase_zone_act_1		; Act 3
+	zoneTableEntry.w  0				; Act 4
+	; WFZ
+	zoneTableEntry.w  death_egg_zone_act_1		; Act 1
+	zoneTableEntry.w  0				; Act 2
+	; HTZ
+	zoneTableEntry.w  hill_top_zone_act_2		; Act 1
+	zoneTableEntry.w  mystic_cave_zone_act_1	; Act 2
+	; HPZ
+	zoneTableEntry.w  hidden_palace_zone_act_2 	; Act 1
+	zoneTableEntry.w  oil_ocean_zone_act_1		; Act 2
+	; Zone 9
+	zoneTableEntry.w  0				; Act 1
+	zoneTableEntry.w  0				; Act 2
+	; OOZ
+	zoneTableEntry.w  oil_ocean_zone_act_2		; Act 1
+	zoneTableEntry.w  metropolis_zone_act_1		; Act 2
+	; MCZ
+	zoneTableEntry.w  mystic_cave_zone_act_2	; Act 1
+	zoneTableEntry.w  oil_ocean_zone_act_1		; Act 2
+	; CNZ
+	zoneTableEntry.w  casino_night_zone_act_2	; Act 1
+	zoneTableEntry.w  hill_top_zone_act_1		; Act 2
+	; CPZ
+	zoneTableEntry.w  chemical_plant_zone_act_2	; Act 1
+	zoneTableEntry.w  aquatic_ruin_zone_act_1	; Act 2
+	; DEZ
+	zoneTableEntry.w  -1				; Act 1
+	zoneTableEntry.w  0				; Act 2
+	; ARZ
+	zoneTableEntry.w  aquatic_ruin_zone_act_2	; Act 1
+	zoneTableEntry.w  casino_night_zone_act_1	; Act 2
+	; SCZ
+	zoneTableEntry.w  wing_fortress_zone_act_1 	; Act 1
+	zoneTableEntry.w  0				; Act 2
     zoneTableEnd
 
 ;word_1433C:
 LevelOrder_2P: zoneOrderedTable 2,2	; WrdArr_LevelOrder_2P
-	zoneTableEntry.w  emerald_hill_zone_act_2
-	zoneTableEntry.w  casino_night_zone_act_1	; 1
-	zoneTableEntry.w  emerald_hill_zone_act_1	; 2
-	zoneTableEntry.w  emerald_hill_zone_act_1	; 3
-	zoneTableEntry.w  wood_zone_act_2		; 4
-	zoneTableEntry.w  metropolis_zone_act_1		; 5
-	zoneTableEntry.w  emerald_hill_zone_act_1	; 6
-	zoneTableEntry.w  emerald_hill_zone_act_1	; 7
-	zoneTableEntry.w  metropolis_zone_act_2		; 8
-	zoneTableEntry.w  metropolis_zone_act_3		; 9
-	zoneTableEntry.w  sky_chase_zone_act_1		; 10
-	zoneTableEntry.w  emerald_hill_zone_act_1	; 11
-	zoneTableEntry.w  death_egg_zone_act_1		; 12
-	zoneTableEntry.w  emerald_hill_zone_act_1	; 13
-	zoneTableEntry.w  hill_top_zone_act_2		; 14
-	zoneTableEntry.w  mystic_cave_zone_act_1	; 15
-	zoneTableEntry.w  hidden_palace_zone_act_2 	; 16
-	zoneTableEntry.w  oil_ocean_zone_act_1		; 17
-	zoneTableEntry.w  emerald_hill_zone_act_1	; 18
-	zoneTableEntry.w  emerald_hill_zone_act_1	; 19
-	zoneTableEntry.w  oil_ocean_zone_act_2		; 20
-	zoneTableEntry.w  metropolis_zone_act_1		; 21
-	zoneTableEntry.w  mystic_cave_zone_act_2	; 22
-	zoneTableEntry.w  $FFFF				; 23
-	zoneTableEntry.w  casino_night_zone_act_2	; 24
-	zoneTableEntry.w  mystic_cave_zone_act_1	; 25
-	zoneTableEntry.w  chemical_plant_zone_act_2 	; 26
-	zoneTableEntry.w  aquatic_ruin_zone_act_1	; 27
-	zoneTableEntry.w  $FFFF				; 28
-	zoneTableEntry.w  emerald_hill_zone_act_1	; 29
-	zoneTableEntry.w  aquatic_ruin_zone_act_2	; 30
-	zoneTableEntry.w  casino_night_zone_act_1	; 31
-	zoneTableEntry.w  wing_fortress_zone_act_1 	; 32
-	zoneTableEntry.w  emerald_hill_zone_act_1	; 33
+	; EHZ
+	zoneTableEntry.w  emerald_hill_zone_act_2	; Act 1
+	zoneTableEntry.w  casino_night_zone_act_1	; Act 2
+	; Zone 1
+	zoneTableEntry.w  0				; Act 1
+	zoneTableEntry.w  0				; Act 2
+	; WZ
+	zoneTableEntry.w  wood_zone_act_2		; Act 1
+	zoneTableEntry.w  metropolis_zone_act_1		; Act 2
+	; Zone 3
+	zoneTableEntry.w  0				; Act 1
+	zoneTableEntry.w  0				; Act 2
+	; MTZ
+	zoneTableEntry.w  metropolis_zone_act_2		; Act 1
+	zoneTableEntry.w  metropolis_zone_act_3		; Act 2
+	; MTZ
+	zoneTableEntry.w  sky_chase_zone_act_1		; Act 3
+	zoneTableEntry.w  0				; Act 4
+	; WFZ
+	zoneTableEntry.w  death_egg_zone_act_1		; Act 1
+	zoneTableEntry.w  0				; Act 2
+	; HTZ
+	zoneTableEntry.w  hill_top_zone_act_2		; Act 1
+	zoneTableEntry.w  mystic_cave_zone_act_1	; Act 2
+	; HPZ
+	zoneTableEntry.w  hidden_palace_zone_act_2 	; Act 1
+	zoneTableEntry.w  oil_ocean_zone_act_1		; Act 2
+	; Zone 9
+	zoneTableEntry.w  0				; Act 1
+	zoneTableEntry.w  0				; Act 2
+	; OOZ
+	zoneTableEntry.w  oil_ocean_zone_act_2		; Act 1
+	zoneTableEntry.w  metropolis_zone_act_1		; Act 2
+	; MCZ
+	zoneTableEntry.w  mystic_cave_zone_act_2	; Act 1
+	zoneTableEntry.w  -1				; Act 2
+	; CNZ
+	zoneTableEntry.w  casino_night_zone_act_2	; Act 1
+	zoneTableEntry.w  mystic_cave_zone_act_1	; Act 2
+	; CPZ
+	zoneTableEntry.w  chemical_plant_zone_act_2 	; Act 1
+	zoneTableEntry.w  aquatic_ruin_zone_act_1	; Act 2
+	; DEZ
+	zoneTableEntry.w  -1				; Act 1
+	zoneTableEntry.w  0				; Act 2
+	; ARZ
+	zoneTableEntry.w  aquatic_ruin_zone_act_2	; Act 1
+	zoneTableEntry.w  casino_night_zone_act_1	; Act 2
+	; SCZ
+	zoneTableEntry.w  wing_fortress_zone_act_1 	; Act 1
+	zoneTableEntry.w  0				; Act 2
     zoneTableEnd
 
-byte_14380:
 results_screen_object macro startx, targetx, y, routine, frame
-	dc.w	startx, targetx, y
+	dc.w	128+startx, 128+targetx, 128+y
 	dc.b	routine, frame
     endm
-	results_screen_object   $20, $120,  $B8,   2,  0
-	results_screen_object  $200, $100,  $CA,   4,  3
-	results_screen_object  $240, $140,  $CA,   6,  4
-	results_screen_object  $278, $178,  $BE,   8,  6
-	results_screen_object  $350, $120, $120,   4,  9
-	results_screen_object  $320, $120,  $F0,   4, $A
-	results_screen_object  $330, $120, $100,   4, $B
-	results_screen_object  $340, $120, $110, $16, $E
+
+results_screen_object_size = 8
+
+; byte_14380:
+Obj3A_SubObjectMetadata:
+	;                      start X, target X, start Y, routine, map frame
+	results_screen_object     0-96,    320/2,      56,       2,         0
+	results_screen_object   320+64, 320/2-32,      74,       4,         3
+	results_screen_object  320+128, 320/2+32,      74,       6,         4
+	results_screen_object  320+184, 320/2+88,      62,       8,         6
+	results_screen_object  320+400,    320/2,     160,       4,         9
+	results_screen_object  320+352,    320/2,     112,       4,        $A
+	results_screen_object  320+368,    320/2,     128,       4,        $B
+	results_screen_object  320+384,    320/2,     144,     $16,        $E
+Obj3A_SubObjectMetadata_End:
 ; ===========================================================================
 ; ----------------------------------------------------------------------------
 ; Object 6F - End of special stage results screen
@@ -27829,7 +28064,7 @@ Obj6F_Index:	offsetTable
 		offsetTableEntry.w Obj6F_TimedDisplay	; $2C
 		offsetTableEntry.w Obj6F_DisplayOnly	; $2E
 		offsetTableEntry.w Obj6F_InitAndMoveSuperMsg	; $30
-		offsetTableEntry.w Obj6F_MoveToTargetPos	; $32
+		offsetTableEntry.w Obj6F_MoveTowardsSourcePosition	; $32
 		offsetTableEntry.w Obj6F_MoveAndDisplay	; $34
 ; ===========================================================================
 ;loc_14406
@@ -27840,13 +28075,13 @@ Obj6F_Init:
 ; ===========================================================================
 +
 	movea.l	a0,a1
-	lea	byte_14752(pc),a2
-	moveq	#$C,d1
+	lea	Obj6F_SubObjectMetaData(pc),a2
+	moveq	#bytesToXcnt(Obj6F_SubObjectMetaData_End-Obj6F_SubObjectMetaData, results_screen_object_size),d1
 
 -	_move.b	id(a0),id(a1) ; load obj6F
 	move.w	(a2),x_pixel(a1)
-	move.w	(a2)+,objoff_32(a1)
-	move.w	(a2)+,objoff_30(a1)
+	move.w	(a2)+,titlecard_x_source(a1)
+	move.w	(a2)+,titlecard_x_target(a1)
 	move.w	(a2)+,y_pixel(a1)
 	move.b	(a2)+,routine(a1)
 	move.b	(a2)+,mapping_frame(a1)
@@ -27866,7 +28101,7 @@ Obj6F_InitEmeraldText:
 	bne.s	+
 	move.b	#$19,mapping_frame(a0)		; "Chaos Emeralds"
 +
-	move.w	objoff_30(a0),d0
+	move.w	titlecard_x_target(a0),d0
 	cmp.w	x_pixel(a0),d0
 	bne.s	BranchTo2_Obj34_MoveTowardsTargetPosition
 	move.b	#$1C,routine(a0)	; => Obj6F_TimedDisplay
@@ -28098,10 +28333,10 @@ Obj6F_PerfectBonus:
 ; ===========================================================================
 ;loc_146A6
 Obj6F_InitAndMoveSuperMsg:
-	move.b	#$32,next_object+routine(a0)			; => Obj6F_MoveToTargetPos
-	move.w	x_pos(a0),d0
-	cmp.w	objoff_32(a0),d0
-	bne.s	Obj6F_MoveToTargetPos
+	move.b	#$32,next_object+routine(a0)			; => Obj6F_MoveTowardsSourcePosition
+	move.w	x_pixel(a0),d0
+	cmp.w	titlecard_x_source(a0),d0
+	bne.s	Obj6F_MoveTowardsSourcePosition
 	move.b	#$14,next_object+routine(a0)			; => BranchTo3_Obj34_MoveTowardsTargetPosition
 	subq.w	#8,next_object+y_pixel(a0)
 	move.b	#$1A,next_object+mapping_frame(a0)		; "Now Sonic can"
@@ -28111,7 +28346,7 @@ Obj6F_InitAndMoveSuperMsg:
 	lea	(SpecialStageResults2).w,a1
 	_move.b	id(a0),id(a1) ; load obj6F; (uses screen-space)
 	clr.w	x_pixel(a1)
-	move.w	#$120,objoff_30(a1)
+	move.w	#$120,titlecard_x_target(a1)
 	move.w	#$B4,y_pixel(a1)
 	move.b	#$14,routine(a1)						; => BranchTo3_Obj34_MoveTowardsTargetPosition
 	move.b	#$1C,mapping_frame(a1)					; "Super Sonic"
@@ -28120,70 +28355,77 @@ Obj6F_InitAndMoveSuperMsg:
 	move.b	#0,render_flags(a1)
 	bra.w	DisplaySprite
 ; ===========================================================================
-;loc_14714
-Obj6F_MoveToTargetPos:
-	moveq	#$20,d0
-	move.w	x_pos(a0),d1
-	cmp.w	objoff_32(a0),d1
-	beq.s	BranchTo20_DisplaySprite
+; Modified copy of `Obj34_MoveTowardsTargetPosition`. It has a higher speed
+; and moves the object toward its source instead of its destination.
+;loc_14714 Obj6F_MoveToTargetPos
+Obj6F_MoveTowardsSourcePosition:
+	moveq	#$20,d0 ; Movement speed
+	move.w	x_pixel(a0),d1
+	cmp.w	titlecard_x_source(a0),d1
+	beq.s	.display
 	bhi.s	+
 	neg.w	d0
 +
-	sub.w	d0,x_pos(a0)
-	cmpi.w	#$200,x_pos(a0)
-	bhi.s	+
-
-BranchTo20_DisplaySprite
+	sub.w	d0,x_pixel(a0)
+	; If target lies very far off-screen, then don't bother trying to display it.
+	; This is because the sprite coordinates are prone to overflow and underflow.
+	cmpi.w	#128+320+64,x_pixel(a0)
+	bhi.s	.return
+;BranchTo20_DisplaySprite
+.display:
 	bra.w	DisplaySprite
-; ===========================================================================
-+
+.return:
 	rts
 ; ===========================================================================
 ;loc_14736
 Obj6F_MoveAndDisplay:
-	move.w	x_pos(a0),d0
-	cmp.w	objoff_30(a0),d0
+	move.w	x_pixel(a0),d0
+	cmp.w	titlecard_x_target(a0),d0
 	bne.w	Obj34_MoveTowardsTargetPosition
 	move.w	#$B4,anim_frame_duration(a0)
 	move.b	#$20,routine(a0)	; => Obj6F_TimedDisplay
 	bra.w	DisplaySprite
 ; ===========================================================================
-byte_14752:
-	;      startx  targx   starty  routine   map frame
-	results_screen_object  $240, $120,  $AA,   2,   0		; "Special Stage"
-	results_screen_object     0, $120,  $98,   4,   1		; "Sonic got a"
-	results_screen_object  $118,    0,  $C4,   6,   5		; Emerald 0
-	results_screen_object  $130,    0,  $D0,   8,   6		; Emerald 1
-	results_screen_object  $130,    0,  $E8,  $A,   7		; Emerald 2
-	results_screen_object  $118,    0,  $F4,  $C,   8		; Emerald 3
-	results_screen_object  $100,    0,  $E8,  $E,   9		; Emerald 4
-	results_screen_object  $100,    0,  $D0, $10,  $A		; Emerald 5
-	results_screen_object  $118,    0,  $DC, $12,  $B		; Emerald 6
-	results_screen_object  $330, $120, $108, $14,  $C		; Score
-	results_screen_object  $340, $120, $118, $16,  $D		; Sonic Rings
-	results_screen_object  $350, $120, $128, $18,  $E		; Miles Rings
-	results_screen_object  $360, $120, $138, $1A, $10		; Gems Bonus
+;byte_14752
+Obj6F_SubObjectMetaData:
+	;                       start X, target X, start Y, routine, map frame
+	results_screen_object   320+128,    320/2,      42,       2,         0		; "Special Stage"
+	results_screen_object     0-128,    320/2,      24,       4,         1		; "Sonic got a"
+	results_screen_object   320/2-8,    0-128,      68,       6,         5		; Emerald 0
+	results_screen_object  320/2+16,    0-128,      80,       8,         6		; Emerald 1
+	results_screen_object  320/2+16,    0-128,     104,      $A,         7		; Emerald 2
+	results_screen_object   320/2-8,    0-128,     116,      $C,         8		; Emerald 3
+	results_screen_object  320/2-32,    0-128,     104,      $E,         9		; Emerald 4
+	results_screen_object  320/2-32,    0-128,      80,     $10,        $A		; Emerald 5
+	results_screen_object   320/2-8,    0-128,      92,     $12,        $B		; Emerald 6
+	results_screen_object   320+368,    320/2,     136,     $14,        $C		; Score
+	results_screen_object   320+384,    320/2,     152,     $16,        $D		; Sonic Rings
+	results_screen_object   320+400,    320/2,     168,     $18,        $E		; Miles Rings
+	results_screen_object   320+416,    320/2,     184,     $1A,       $10		; Gems Bonus
+Obj6F_SubObjectMetaData_End:
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
 Obj34_MapUnc_147BA:	offsetTable
-	offsetTableEntry.w word_147E8
-	offsetTableEntry.w word_147E8
-	offsetTableEntry.w word_147E8
-	offsetTableEntry.w word_147E8
-	offsetTableEntry.w word_14842
-	offsetTableEntry.w word_14842
-	offsetTableEntry.w word_14B24
-	offsetTableEntry.w word_14894
-	offsetTableEntry.w word_148CE
-	offsetTableEntry.w word_147E8
-	offsetTableEntry.w word_14930
-	offsetTableEntry.w word_14972
-	offsetTableEntry.w word_149C4
-	offsetTableEntry.w word_14A1E
-	offsetTableEntry.w word_14B86
-	offsetTableEntry.w word_14A88
-	offsetTableEntry.w word_14AE2
+.zone_names:	zoneOrderedOffsetTable 2,1
+	zoneOffsetTableEntry.w word_147E8	; EHZ
+	zoneOffsetTableEntry.w word_147E8	; Zone 1
+	zoneOffsetTableEntry.w word_147E8	; WZ
+	zoneOffsetTableEntry.w word_147E8	; Zone 3
+	zoneOffsetTableEntry.w word_14842	; MTZ1,2
+	zoneOffsetTableEntry.w word_14842	; MTZ3
+	zoneOffsetTableEntry.w word_14B24	; WFZ
+	zoneOffsetTableEntry.w word_14894	; HTZ
+	zoneOffsetTableEntry.w word_148CE	; HPZ
+	zoneOffsetTableEntry.w word_147E8	; Zone 9
+	zoneOffsetTableEntry.w word_14930	; OOZ
+	zoneOffsetTableEntry.w word_14972	; MCZ
+	zoneOffsetTableEntry.w word_149C4	; CNZ
+	zoneOffsetTableEntry.w word_14A1E	; CPZ
+	zoneOffsetTableEntry.w word_14B86	; DEZ
+	zoneOffsetTableEntry.w word_14A88	; ARZ
+	zoneOffsetTableEntry.w word_14AE2	; SCZ
+    zoneTableEnd
 	offsetTableEntry.w word_14BC8
 	offsetTableEntry.w word_14BEA
 	offsetTableEntry.w word_14BF4
@@ -28738,24 +28980,25 @@ loc_1581A:
 	rts
 ; ===========================================================================
 ; byte_15820:
-Off_TitleCardLetters:
-	dc.b TitleCardLetters_EHZ - TitleCardLetters	; 0
-	dc.b TitleCardLetters_EHZ - TitleCardLetters	; 1
-	dc.b TitleCardLetters_EHZ - TitleCardLetters	; 2
-	dc.b TitleCardLetters_EHZ - TitleCardLetters	; 3
-	dc.b TitleCardLetters_MTZ - TitleCardLetters	; 4
-	dc.b TitleCardLetters_MTZ - TitleCardLetters	; 5
-	dc.b TitleCardLetters_WFZ - TitleCardLetters	; 6
-	dc.b TitleCardLetters_HTZ - TitleCardLetters	; 7
-	dc.b TitleCardLetters_HPZ - TitleCardLetters	; 8
-	dc.b TitleCardLetters_EHZ - TitleCardLetters	; 9
-	dc.b TitleCardLetters_OOZ - TitleCardLetters	; A
-	dc.b TitleCardLetters_MCZ - TitleCardLetters	; B
-	dc.b TitleCardLetters_CNZ - TitleCardLetters	; C
-	dc.b TitleCardLetters_CPZ - TitleCardLetters	; D
-	dc.b TitleCardLetters_DEZ - TitleCardLetters	; E
-	dc.b TitleCardLetters_ARZ - TitleCardLetters	; F
-	dc.b TitleCardLetters_SCZ - TitleCardLetters	; 10
+Off_TitleCardLetters: zoneOrderedTable 1,1
+	zoneTableEntry.b TitleCardLetters_EHZ - TitleCardLetters	; EHZ
+	zoneTableEntry.b TitleCardLetters_EHZ - TitleCardLetters	; Zone 1
+	zoneTableEntry.b TitleCardLetters_EHZ - TitleCardLetters	; WZ
+	zoneTableEntry.b TitleCardLetters_EHZ - TitleCardLetters	; Zone 3
+	zoneTableEntry.b TitleCardLetters_MTZ - TitleCardLetters	; MTZ1,2
+	zoneTableEntry.b TitleCardLetters_MTZ - TitleCardLetters	; MTZ3
+	zoneTableEntry.b TitleCardLetters_WFZ - TitleCardLetters	; WFZ
+	zoneTableEntry.b TitleCardLetters_HTZ - TitleCardLetters	; HTZ
+	zoneTableEntry.b TitleCardLetters_HPZ - TitleCardLetters	; HPZ
+	zoneTableEntry.b TitleCardLetters_EHZ - TitleCardLetters	; Zone 9
+	zoneTableEntry.b TitleCardLetters_OOZ - TitleCardLetters	; OOZ
+	zoneTableEntry.b TitleCardLetters_MCZ - TitleCardLetters	; MCZ
+	zoneTableEntry.b TitleCardLetters_CNZ - TitleCardLetters	; CNZ
+	zoneTableEntry.b TitleCardLetters_CPZ - TitleCardLetters	; CPZ
+	zoneTableEntry.b TitleCardLetters_DEZ - TitleCardLetters	; DEZ
+	zoneTableEntry.b TitleCardLetters_ARZ - TitleCardLetters	; ARZ
+	zoneTableEntry.b TitleCardLetters_SCZ - TitleCardLetters	; SCZ
+    zoneTableEnd
 	even
 
  ; temporarily remap characters to title card letter format
@@ -28881,7 +29124,7 @@ Obj36_Init:
 	addq.b	#2,routine(a0)	; => Obj36_Sideways
 	move.w	#make_art_tile(ArtTile_ArtNem_HorizSpike,1,0),art_tile(a0)
 +
-	btst	#1,status(a0)		; are spikes upsiede-down?
+	btst	#1,status(a0)		; are spikes upside-down?
 	beq.s	+			; if not, branch
 	move.b	#6,routine(a0)	; => Obj36_Upsidedown
 +
@@ -29133,6 +29376,12 @@ Obj3B_Main:
 	move.w	#$10,d3
 	move.w	x_pos(a0),d4
 	bsr.w	SolidObject
+	; This code contains a bugfix that Sonic 1 lacks: in Sonic 1,
+	; DisplaySprite is called right here, resulting in a
+	; display-after-delete bug when DeleteObject is called.
+	; This, combined with leftover debugging code in REV00's BuildSprites
+	; function, show that an effort was made to eliminate
+	; display-after-delete bugs during Sonic 2's development.
 	move.w	x_pos(a0),d0
 	andi.w	#$FF80,d0
 	sub.w	(Camera_X_pos_coarse).w,d0
@@ -29235,7 +29484,7 @@ BreakObjectToPieces:	; splits up one object into its current mapping frame piece
 ; ===========================================================================
 ; loc_15E3E:
 BreakObjectToPieces_Loop:
-	bsr.w	SingleObjLoad2
+	bsr.w	AllocateObjectAfterCurrent
 	bne.s	loc_15E82
 	addq.w	#8,a3	; next mapping piece
 ; loc_15E46:
@@ -30035,9 +30284,6 @@ BuildSprites_LevelLoop:
 BuildSprites_ObjLoop:
 	movea.w	(a4,d6.w),a0 ; a0=object
 
-	; These is a sanity check, to detect invalid objects which should not
-	; have been queued for display. S3K gets rids of this, since it
-	; should not be needed and it just slows this code down.
 	; These are sanity checks, to detect invalid objects which should not
 	; have been queued for display. S3K gets rids of them compeletely,
 	; since they should not be needed and they just slow this code down.
@@ -30217,7 +30463,7 @@ BuildSprites_MultiDraw:
 	move.w	(sp)+,d4
 +
 	ori.b	#$80,render_flags(a0)	; set onscreen flag
-	lea	sub2_x_pos(a0),a6
+	lea	subspr_data(a0),a6
 	moveq	#0,d0
 	move.b	mainspr_childsprites(a0),d0	; get child sprite count
 	subq.w	#1,d0		; if there are 0, go to next object
@@ -30481,7 +30727,20 @@ CellOffsets_XFlip2:
 
 ; loc_1694E:
 BuildSprites_2P:
+    if fixBugs
+	; Like in Sonic 3, the sprite tables are page-flipped in two-player mode.
+	; This fixes a race-condition where incomplete sprite tables can be uploaded
+	; to the VDP on lag frames, causing corrupted sprites to appear.
+
+	; Modify the back buffer.
 	lea	(Sprite_Table).w,a2
+	tst.b	(Current_sprite_table_page).w
+	beq.s	+
+	lea	(Sprite_Table_Alternate).w,a2
++
+    else
+	lea	(Sprite_Table).w,a2
+    endif
 	moveq	#2,d5
 	moveq	#0,d4
 	move.l	#$1D80F01,(a2)+	; mask all sprites
@@ -30608,9 +30867,22 @@ BuildSprites_P1_NextLevel:
 
 ; loc_16A7A:
 BuildSprites_P2:
+    if fixBugs
+	; Like in Sonic 3, the sprite tables are page-flipped in two-player mode.
+	; This fixes a race-condition where incomplete sprite tables can be uploaded
+	; to the VDP on lag frames, causing corrupted sprites to appear.
+
+	; Modify the back buffer.
+	lea	(Sprite_Table_P2).w,a2
+	tst.b	(Current_sprite_table_page).w
+	beq.s	+
+	lea	(Sprite_Table_P2_Alternate).w,a2
++
+    else
 	tst.w	(Hint_flag).w	; has H-int occured yet?
 	bne.s	BuildSprites_P2	; if not, wait
-	lea	(Sprite_Table_2).w,a2
+	lea	(Sprite_Table_P2).w,a2
+    endif
 	moveq	#0,d5
 	moveq	#0,d4
 	tst.b	(Level_started_flag).w
@@ -30717,6 +30989,13 @@ BuildSprites_P2_NextObj:
 BuildSprites_P2_NextLevel:
 	lea	$80(a4),a4
 	dbf	d7,BuildSprites_P2_LevelLoop
+
+    if fixBugs
+	; The new sprite tables are complete: signal a page flip to
+	; allow them to be uploaded to the VDP!
+	st.b	(Sprite_table_page_flip_pending).w
+    endif
+
 	move.b	d5,(Sprite_count).w
 	; Terminate the sprite list.
 	; If the sprite list is full, then set the link field of the last
@@ -30789,7 +31068,7 @@ BuildSprites_P1_MultiDraw:
 	move.w	(sp)+,d4
 +
 	ori.b	#$80,render_flags(a0)
-	lea	sub2_x_pos(a0),a6
+	lea	subspr_data(a0),a6
 	moveq	#0,d0
 	move.b	mainspr_childsprites(a0),d0
 	subq.w	#1,d0
@@ -30879,7 +31158,7 @@ BuildSprites_P2_MultiDraw:
 	move.w	(sp)+,d4
 +
 	ori.b	#$80,render_flags(a0)
-	lea	sub2_x_pos(a0),a6
+	lea	subspr_data(a0),a6
 	moveq	#0,d0
 	move.b	mainspr_childsprites(a0),d0
 	subq.w	#1,d0
@@ -33113,7 +33392,7 @@ ChkLoadObj:
 ; ---------------------------------------------------------------------------
 
 +
-	bsr.w	SingleObjLoad	; find empty slot
+	bsr.w	AllocateObject	; find empty slot
 	bne.s	return_17F7E	; branch, if there is no room left in the SST
 	move.w	(a0)+,x_pos(a1)
 	move.w	(a0)+,d0	; there are three things stored in this word
@@ -33148,13 +33427,13 @@ ChkLoadObj_2P:
 +
 	btst	#4,2(a0)	; the bit that's being tested for here should always be zero,
 	beq.s	+		; but assuming it weren't and this branch isn't taken,
-	bsr.w	SingleObjLoad	; then this object would not be loaded into one of the 12
+	bsr.w	AllocateObject	; then this object would not be loaded into one of the 12
 	bne.s	return_17FD8	; byte blocks after Dynamic_Object_RAM_2P_End and would most
 	bra.s	ChkLoadObj_2P_LoadData	; likely end up somwhere before this in Dynamic_Object_RAM
 ; ---------------------------------------------------------------------------
 
 +
-	bsr.w	SingleObjLoad3	; find empty slot in current 12 object block
+	bsr.w	AllocateObject_2P	; find empty slot in current 12 object block
 	bne.s	return_17FD8	; branch, if there is no room left in this block
 ;loc_17FAA:
 ChkLoadObj_2P_LoadData:
@@ -33184,8 +33463,8 @@ return_17FD8:
 
 ; ||||||||||||||| S U B R O U T I N E |||||||||||||||||||||||||||||||||||||||
 
-; loc_17FDA: ; allocObject:
-SingleObjLoad:
+; loc_17FDA: ; allocObject: ; SingleObjLoad:
+AllocateObject:
 	lea	(Dynamic_Object_RAM).w,a1 ; a1=object
 	move.w	#(Dynamic_Object_RAM_End-Dynamic_Object_RAM)/object_size-1,d0 ; search to end of table
 	tst.w	(Two_player_mode).w
@@ -33208,13 +33487,13 @@ return_17FF8:
 
 ; ||||||||||||||| S U B R O U T I N E |||||||||||||||||||||||||||||||||||||||
 
-; loc_17FFA: ; allocObjectAfterCurrent:
-SingleObjLoad2:
+; loc_17FFA: ; allocObjectAfterCurrent: ; SingleObjLoad2:
+AllocateObjectAfterCurrent:
 	movea.l	a0,a1
 	move.w	#Dynamic_Object_RAM_End,d0	; $D000
 	sub.w	a0,d0	; subtract current object location
     if object_size=$40
-	lsr.w	#6,d0	; divide by $40
+	lsr.w	#object_size_bits,d0	; divide by $40
 	subq.w	#1,d0	; keep from going over the object zone
 	bcs.s	return_18014
     else
@@ -33233,19 +33512,13 @@ return_18014:
 	rts
 
     if object_size<>$40
-+	dc.b -1
-.a :=	1		; .a is the object slot we are currently processing
-.b :=	1		; .b is used to calculate when there will be a conversion error due to object_size being > $40
-
-	rept (Dynamic_Object_RAM_End-Dynamic_Object_RAM)/object_size-1
-		if (object_size * (.a-1)) / $40 > .b+1	; this line checks, if there would be a conversion error
-			dc.b .a-1, .a-1			; and if is, it generates 2 entries to correct for the error
-		else
-			dc.b .a-1
-		endif
-
-.b :=		(object_size * (.a-1)) / $40		; this line adjusts .b based on the iteration count to check
-.a :=		.a+1					; run interation counter
++
+.a	set	Dynamic_Object_RAM
+.b	set	Dynamic_Object_RAM_End
+.c	set	.b			; begin from bottom of array and decrease backwards
+	rept	(.b-.a+$40-1)/$40	; repeat for all slots, minus exception
+.c	set	.c-$40			; address for previous $40 (also skip last part)
+	dc.b	(.b-.c-1)/object_size-1	; write possible slots according to object_size division + hack + dbf hack
 	endm
 	even
     endif
@@ -33257,10 +33530,10 @@ return_18014:
 
 ; ||||||||||||||| S U B R O U T I N E |||||||||||||||||||||||||||||||||||||||
 
-; loc_18016:
-SingleObjLoad3:
+; loc_18016: ; SingleObjLoad3:
+AllocateObject_2P:
 	movea.l	a3,a1
-	move.w	#$B,d0
+	move.w	#12-1,d0
 
 -
 	tst.b	id(a1)	; is object RAM slot empty?
@@ -33434,7 +33707,7 @@ loc_189C0:
 ; ===========================================================================
 
 loc_189CA:
-	move.w	#$100,anim(a0)
+	move.w	#(1<<8)|(0<<0),anim(a0)
 	addq.w	#8,y_pos(a1)
 	move.w	objoff_30(a0),y_vel(a1)
 	bset	#1,status(a1)
@@ -33528,7 +33801,7 @@ loc_18AE0:
 ; ===========================================================================
 
 loc_18AEE:
-	move.w	#$300,anim(a0)
+	move.w	#(3<<8)|(0<<0),anim(a0)
 	move.w	objoff_30(a0),x_vel(a1)
 	addq.w	#8,x_pos(a1)
 	bset	#0,status(a1)
@@ -33686,7 +33959,7 @@ loc_18CBC:
 ; ===========================================================================
 
 loc_18CC6:
-	move.w	#$100,anim(a0)
+	move.w	#(1<<8)|(0<<0),anim(a0)
 	subq.w	#8,y_pos(a1)
 	move.w	objoff_30(a0),y_vel(a1)
 	neg.w	y_vel(a1)
@@ -33779,7 +34052,7 @@ loc_18DCA:
 ; ===========================================================================
 
 loc_18DD8:
-	move.w	#$500,anim(a0)
+	move.w	#(5<<8)|(0<<0),anim(a0)
 	move.w	objoff_30(a0),y_vel(a1)
 	move.w	objoff_30(a0),x_vel(a1)
 	addq.w	#6,y_pos(a1)
@@ -33862,7 +34135,7 @@ loc_18EDA:
 ; ===========================================================================
 
 loc_18EE6:
-	move.w	#$500,anim(a0)
+	move.w	#(5<<8)|(0<<0),anim(a0)
 	move.w	objoff_30(a0),y_vel(a1)
 	neg.w	y_vel(a1)
 	move.w	objoff_30(a0),x_vel(a1)
@@ -34175,7 +34448,7 @@ Obj0D_Main:
 	move.w	#SndID_Signpost,d0
 	jsr	(PlayMusic).l	; play spinning sound
 	clr.b	(Update_HUD_timer).w
-	move.w	#1,anim(a0)
+	move.w	#(0<<8)|(1<<0),anim(a0)
 	move.w	#0,obj0D_spinframe(a0)
 	move.w	(Camera_Max_X_pos).w,(Camera_Min_X_pos).w	; lock screen
 	move.b	#2,routine_secondary(a0) ; => Obj0D_Main_State2
@@ -34215,7 +34488,7 @@ loc_192D6:
 	move.w	#SndID_Signpost,d0
 	jsr	(PlayMusic).l
 	clr.b	(Update_HUD_timer_2P).w
-	move.w	#1,anim(a0)
+	move.w	#(0<<8)|(1<<0),anim(a0)
 	move.w	#0,obj0D_spinframe(a0)
 	move.w	(Tails_Max_X_pos).w,(Tails_Min_X_pos).w
 	move.b	#2,routine_secondary(a0) ; => Obj0D_Main_State2
@@ -34273,7 +34546,7 @@ loc_19398:
 	addq.b	#2,obj0D_sparkleframe(a0)
 	andi.b	#$E,obj0D_sparkleframe(a0)
 	lea	Obj0D_RingSparklePositions(pc,d0.w),a2
-	bsr.w	SingleObjLoad
+	bsr.w	AllocateObject
 	bne.s	return_19406
 	_move.b	#ObjID_Ring,id(a1) ; load obj25 (a ring) for the sparkly effects over the signpost
 	move.b	#6,routine(a1) ; => Obj_25_sub_6
@@ -34344,7 +34617,7 @@ Load_EndOfAct:
 	lea	(MainCharacter).w,a1 ; a1=character
 	clr.b	status_secondary(a1)
 	clr.b	(Update_HUD_timer).w
-	bsr.w	SingleObjLoad
+	bsr.w	AllocateObject
 	bne.s	+
 	move.b	#ObjID_Results,id(a1) ; load obj3A (end of level results screen)
 +
@@ -34974,7 +35247,7 @@ SolidObject_TestClearPush:
 	cmpi.b	#AniIDSonAni_Drown,anim(a1)
 	beq.s	Solid_NotPushing
     endif
-	move.w	#AniIDSonAni_Run,anim(a1) ; use running animation
+	move.w	#(AniIDSonAni_Walk<<8)|(AniIDSonAni_Run<<0),anim(a1) ; use walking animation (and force it to restart)
 ; loc_19ADC:
 Solid_NotPushing:
 	move.l	d6,d4
@@ -35405,7 +35678,7 @@ RideObject_SetRide:
 	moveq	#0,d0
 	move.b	interact(a1),d0
     if object_size=$40
-	lsl.w	#6,d0
+	lsl.w	#object_size_bits,d0
     else
 	mulu.w	#object_size,d0
     endif
@@ -35414,10 +35687,13 @@ RideObject_SetRide:
 	bclr	d6,status(a3)
 
 loc_19E30:
+    if object_size<>$40
+	moveq	#0,d0 ; Clear the high word for the coming division.
+    endif
 	move.w	a0,d0
 	subi.w	#Object_RAM,d0
     if object_size=$40
-	lsr.w	#6,d0
+	lsr.w	#object_size_bits,d0
     else
 	divu.w	#object_size,d0
     endif
@@ -35783,7 +36059,7 @@ Obj01_InWater:
 	asr.w	y_vel(a0)	; memory operands can only be shifted one bit at a time
 	asr.w	y_vel(a0)
 	beq.s	return_1A18C
-	move.w	#$100,(Sonic_Dust+anim).w	; splash animation
+	move.w	#(1<<8)|(0<<0),(Sonic_Dust+anim).w	; splash animation
 	move.w	#SndID_Splash,d0	; splash sound
 	jmp	(PlaySound).l
 ; ---------------------------------------------------------------------------
@@ -35809,7 +36085,7 @@ Obj01_OutWater:
 +
 	tst.w	y_vel(a0)
 	beq.w	return_1A18C
-	move.w	#$100,(Sonic_Dust+anim).w	; splash animation
+	move.w	#(1<<8)|(0<<0),(Sonic_Dust+anim).w	; splash animation
 	movea.l	a0,a1
 	bsr.w	ResumeMusic
 	cmpi.w	#-$1000,y_vel(a0)
@@ -35963,7 +36239,7 @@ Obj01_NotRight:
 	moveq	#0,d0
 	move.b	interact(a0),d0
     if object_size=$40
-	lsl.w	#6,d0
+	lsl.w	#object_size_bits,d0
     else
 	mulu.w	#object_size,d0
     endif
@@ -36639,8 +36915,19 @@ Sonic_LevelBound:
 
 ; loc_1A9A6:
 Sonic_Boundary_CheckBottom:
-	move.w	(Camera_Max_Y_pos_now).w,d0
-	addi.w	#$E0,d0
+	move.w	(Camera_Max_Y_pos).w,d0
+    if fixBugs
+	; The original code does not consider that the camera boundary
+	; may be in the middle of lowering itself, which is why going
+	; down the S-tunnel in Green Hill Zone Act 1 fast enough can
+	; kill Sonic.
+	move.w	(Camera_Max_Y_pos_target).w,d1
+	cmp.w	d0,d1
+	blo.s	.skip
+	move.w	d1,d0
+.skip:
+    endif
+	addi.w	#224,d0
 	cmp.w	y_pos(a0),d0		; has Sonic touched the bottom boundary?
 	blt.s	Sonic_Boundary_Bottom	; if yes, branch
 	rts
@@ -37050,7 +37337,7 @@ Sonic_ChargingSpindash:			; If still charging the dash...
 	move.b	(Ctrl_1_Press_Logical).w,d0
 	andi.b	#button_B_mask|button_C_mask|button_A_mask,d0
 	beq.w	Obj01_Spindash_ResetScr
-	move.w	#(AniIDSonAni_Spindash<<8),anim(a0)
+	move.w	#(AniIDSonAni_Spindash<<8)|(AniIDSonAni_Walk<<0),anim(a0)
 	move.w	#SndID_SpindashRev,d0
 	jsr	(PlaySound).l
 	addi.w	#$200,spindash_counter(a0)
@@ -37539,8 +37826,19 @@ Obj01_Hurt_Normal:
 ; ===========================================================================
 ; loc_1B184:
 Sonic_HurtStop:
-	move.w	(Camera_Max_Y_pos_now).w,d0
-	addi.w	#$E0,d0
+	move.w	(Camera_Max_Y_pos).w,d0
+    if fixBugs
+	; The original code does not consider that the camera boundary
+	; may be in the middle of lowering itself, which is why going
+	; down the S-tunnel in Green Hill Zone Act 1 fast enough can
+	; kill Sonic.
+	move.w	(Camera_Max_Y_pos_target).w,d1
+	cmp.w	d0,d1
+	blo.s	.skip
+	move.w	d1,d0
+.skip:
+    endif
+	addi.w	#224,d0
 	cmp.w	y_pos(a0),d0
 	blt.w	JmpTo_KillCharacter
 	bsr.w	Sonic_DoLevelCollision
@@ -37599,7 +37897,7 @@ Obj01_Dead:
 CheckGameOver:
 	move.b	#1,(Scroll_lock).w
 	move.b	#0,spindash_flag(a0)
-	move.w	(Camera_Max_Y_pos_now).w,d0
+	move.w	(Camera_Max_Y_pos).w,d0
 	addi.w	#$100,d0
 	cmp.w	y_pos(a0),d0
 	bge.w	return_1B31A
@@ -38214,7 +38512,7 @@ Obj02:
 	bne.s	+
 	move.w	(Camera_Min_X_pos).w,(Tails_Min_X_pos).w
 	move.w	(Camera_Max_X_pos).w,(Tails_Max_X_pos).w
-	move.w	(Camera_Max_Y_pos_now).w,(Tails_Max_Y_pos).w
+	move.w	(Camera_Max_Y_pos).w,(Tails_Max_Y_pos).w
 +
 	moveq	#0,d0
 	move.b	routine(a0),d0
@@ -38750,14 +39048,14 @@ TailsCPU_CheckDespawn:
 	moveq	#0,d0
 	move.b	interact(a0),d0
     if object_size=$40
-	lsl.w	#6,d0
+	lsl.w	#object_size_bits,d0
     else
 	mulu.w	#object_size,d0
     endif
 	addi.l	#Object_RAM,d0
 	movea.l	d0,a3	; a3=object
 	move.b	(Tails_interact_ID).w,d0
-	cmp.b	(a3),d0
+	cmp.b	id(a3),d0
 	bne.s	BranchTo_TailsCPU_Despawn
 
 ; loc_1BE8C:
@@ -38777,13 +39075,13 @@ TailsCPU_UpdateObjInteract:
 	moveq	#0,d0
 	move.b	interact(a0),d0
     if object_size=$40
-	lsl.w	#6,d0
+	lsl.w	#object_size_bits,d0
     else
 	mulu.w	#object_size,d0
     endif
 	addi.l	#Object_RAM,d0
 	movea.l	d0,a3	; a3=object
-	move.b	(a3),(Tails_interact_ID).w
+	move.b	id(a3),(Tails_interact_ID).w
 	rts
 
 ; ===========================================================================
@@ -38894,7 +39192,7 @@ Obj02_InWater:
 	asr	y_vel(a0)
 	asr	y_vel(a0)
 	beq.s	return_1BF58
-	move.w	#$100,(Tails_Dust+anim).w	; splash animation
+	move.w	#(1<<8)|(0<<0),(Tails_Dust+anim).w	; splash animation
 	move.w	#SndID_Splash,d0	; splash sound
 	jmp	(PlaySound).l
 ; ---------------------------------------------------------------------------
@@ -38915,7 +39213,7 @@ Obj02_OutWater:
 +
 	tst.w	y_vel(a0)
 	beq.w	return_1BF58
-	move.w	#$100,(Tails_Dust+anim).w	; splash animation
+	move.w	#(1<<8)|(0<<0),(Tails_Dust+anim).w	; splash animation
 	movea.l	a0,a1
 	bsr.w	ResumeMusic
 	cmpi.w	#-$1000,y_vel(a0)
@@ -39041,7 +39339,7 @@ Obj02_NotRight:
 	moveq	#0,d0
 	move.b	interact(a0),d0
     if object_size=$40
-	lsl.w	#6,d0
+	lsl.w	#object_size_bits,d0
     else
 	mulu.w	#object_size,d0
     endif
@@ -39602,7 +39900,7 @@ Tails_LevelBound:
 	cmp.w	d1,d0			; has Tails touched the left boundary?
 	bhi.s	Tails_Boundary_Sides	; if yes, branch
 	move.w	(Tails_Max_X_pos).w,d0
-	addi.w	#$128,d0
+	addi.w	#320-24,d0		; screen width - Tails's width_pixels
 	tst.b	(Current_Boss_ID).w
 	bne.s	+
 	addi.w	#$40,d0
@@ -39613,7 +39911,18 @@ Tails_LevelBound:
 ; loc_1C58C:
 Tails_Boundary_CheckBottom:
 	move.w	(Tails_Max_Y_pos).w,d0
-	addi.w	#$E0,d0
+    if fixBugs
+	; The original code does not consider that the camera boundary
+	; may be in the middle of lowering itself, which is why going
+	; down the S-tunnel in Green Hill Zone Act 1 fast enough can
+	; kill Sonic.
+	move.w	(Camera_Max_Y_pos_target).w,d1
+	cmp.w	d0,d1
+	blo.s	.skip
+	move.w	d1,d0
+.skip:
+    endif
+	addi.w	#224,d0
 	cmp.w	y_pos(a0),d0		; has Tails touched the bottom boundary?
 	blt.s	Tails_Boundary_Bottom	; if yes, branch
 	rts
@@ -39896,7 +40205,7 @@ loc_1C7F8:
 	move.b	(Ctrl_2_Press_Logical).w,d0
 	andi.b	#button_B_mask|button_C_mask|button_A_mask,d0
 	beq.w	loc_1C828
-	move.w	#(AniIDSonAni_Spindash<<8),anim(a0)
+	move.w	#(AniIDSonAni_Spindash<<8)|(AniIDSonAni_Walk<<0),anim(a0)
 	move.w	#SndID_SpindashRev,d0
 	jsr	(PlaySound).l
 	addi.w	#$200,spindash_counter(a0)
@@ -40329,7 +40638,14 @@ Tails_ResetOnFloor_Part3:
 	bclr	#5,status(a0)
 	bclr	#4,status(a0)
 	move.b	#0,jumping(a0)
+    if fixBugs
+	; Without this check, AI Tails will ruin the player's
+	; combo when he touches the floor.
+	cmpi.w	#2,(Player_mode).w
+	bne.s	+
+    endif
 	move.w	#0,(Chain_Bonus_counter).w
++
 	move.b	#0,flip_angle(a0)
 	move.b	#0,flip_turned(a0)
 	move.b	#0,flips_remaining(a0)
@@ -40368,7 +40684,18 @@ Obj02_Hurt:
 ; loc_1CC08:
 Tails_HurtStop:
 	move.w	(Tails_Max_Y_pos).w,d0
-	addi.w	#$E0,d0
+    if fixBugs
+	; The original code does not consider that the camera boundary
+	; may be in the middle of lowering itself, which is why going
+	; down the S-tunnel in Green Hill Zone Act 1 fast enough can
+	; kill Sonic.
+	move.w	(Camera_Max_Y_pos_target).w,d1
+	cmp.w	d0,d1
+	blo.s	.skip
+	move.w	d1,d0
+.skip:
+    endif
+	addi.w	#224,d0
 	cmp.w	y_pos(a0),d0
 	blt.w	JmpTo2_KillCharacter
 	bsr.w	Tails_DoLevelCollision
@@ -41479,7 +41806,7 @@ Obj0A_MakeBubbleNow:
 	addq.w	#8,d0
 	move.w	d0,obj0a_next_bubble_timer(a0)
 
-	jsr	(SingleObjLoad).l
+	jsr	(AllocateObject).l
 	bne.w	return_1D81C
 	_move.b	id(a0),id(a1)		; load obj0A
 	move.w	x_pos(a2),x_pos(a1)	; match its X position to Sonic
@@ -41762,7 +42089,7 @@ loc_1DA0C:
 	move.w	d0,x_pos(a0)
 	move.w	y_pos(a1),d1
 	move.w	d1,y_pos(a0)
-	lea	sub2_x_pos(a0),a2
+	lea	subspr_data(a0),a2
 	lea	byte_1DB82(pc),a3
 	moveq	#0,d5
 
@@ -41832,7 +42159,7 @@ loc_1DAAC:
 	move.w	(a2)+,d1
 	move.w	d0,x_pos(a0)
 	move.w	d1,y_pos(a0)
-	lea	sub2_x_pos(a0),a2
+	lea	subspr_data(a0),a2
 	movea.l	objoff_30(a0),a3
 
 loc_1DAD4:
@@ -42045,7 +42372,7 @@ Obj08_SkidDust:
 	subq.b	#1,obj08_dust_timer(a0)
 	bpl.s	loc_1DEE0
 	move.b	#3,obj08_dust_timer(a0)
-	bsr.w	SingleObjLoad
+	bsr.w	AllocateObject
 	bne.s	loc_1DEE0
 	_move.b	id(a0),id(a1) ; load obj08
 	move.w	x_pos(a2),x_pos(a1)
@@ -42673,9 +43000,9 @@ loc_1E7F0:	; block has some solidity
 	subi.b	#$40,(a4)
 +
 	andi.w	#$F,d1	; x_pos (mod 16)
-	add.w	d0,d1	; d0 = 16*blockID -> offset in ColArray to look up
-	lea	(ColArray).l,a2
-	move.b	(a2,d1.w),d0	; heigth from ColArray
+	add.w	d0,d1	; d0 = 16*blockID -> offset in ColArrayVertical to look up
+	lea	(ColArrayVertical).l,a2
+	move.b	(a2,d1.w),d0	; heigth from ColArrayVertical
 	ext.w	d0
 	eor.w	d6,d4
 	btst	#$B,d4	; Y flipping
@@ -42762,7 +43089,7 @@ loc_1E898:
 +
 	andi.w	#$F,d1
 	add.w	d0,d1
-	lea	(ColArray).l,a2
+	lea	(ColArrayVertical).l,a2
 	move.b	(a2,d1.w),d0
 	ext.w	d0
 	eor.w	d6,d4
@@ -42838,7 +43165,7 @@ loc_1E928:
 +
 	andi.w	#$F,d1
 	add.w	d0,d1
-	lea	(ColArray).l,a2
+	lea	(ColArrayVertical).l,a2
 	move.b	(a2,d1.w),d0
 	ext.w	d0
 	eor.w	d6,d4
@@ -42926,7 +43253,7 @@ loc_1E9D0:
 +
 	andi.w	#$F,d1	; y
 	add.w	d0,d1	; line to look up
-	lea	(ColArray2).l,a2	; rotated collision array
+	lea	(ColArrayHorizontal).l,a2	; rotated collision array
 	move.b	(a2,d1.w),d0	; collision value
 	ext.w	d0
 	eor.w	d6,d4	; set x-flip flag if from the right
@@ -43014,7 +43341,7 @@ loc_1EA78:
 +
 	andi.w	#$F,d1
 	add.w	d0,d1
-	lea	(ColArray2).l,a2
+	lea	(ColArrayHorizontal).l,a2
 	move.b	(a2,d1.w),d0
 	ext.w	d0
 	eor.w	d6,d4
@@ -43044,7 +43371,8 @@ loc_1EAE0:
 
 ; ---------------------------------------------------------------------------
 ; This subroutine takes 'raw' bitmap-like collision block data as input and
-; converts it into the proper collision arrays (ColArray and ColArray2).
+; converts it into the proper collision arrays (ColArrayVertical and
+; ColArrayHorizontal).
 ; Pointers to said raw data are dummied out.
 ; Curiously, an example of the original 'raw' data that this was intended
 ; to process can be found in the J2ME version of Sonic 1, in a file called
@@ -43054,8 +43382,8 @@ loc_1EAE0:
 ; instead (though it too is dummied out, hence collision being broken).
 ; ---------------------------------------------------------------------------
 
-RawColBlocks		= ColArray
-ConvRowColBlocks	= ColArray
+RawColBlocks		= ColArrayVertical
+ConvRowColBlocks	= ColArrayVertical
 
 ; ||||||||||||||| S U B R O U T I N E |||||||||||||||||||||||||||||||||||||||
 
@@ -43093,10 +43421,10 @@ ConvertCollisionArray:
 
 	; This then converts the collision data into the final collision arrays
 	lea	(ConvRowColBlocks).l,a1
-	lea	(ColArray2).l,a2	; Convert the row-converted collision block data into final rotated collision array
+	lea	(ColArrayHorizontal).l,a2	; Convert the row-converted collision block data into final rotated collision array
 	bsr.s	.convertArrayToStandardFormat
 	lea	(RawColBlocks).l,a1
-	lea	(ColArray).l,a2		; Convert the raw collision block data into final normal collision array
+	lea	(ColArrayVertical).l,a2		; Convert the raw collision block data into final normal collision array
 
 ; loc_1EB46: FloorLog_Unk2:
 .convertArrayToStandardFormat:
@@ -43868,7 +44196,7 @@ Obj79_CheckActivation:
 	bhs.w	return_1F220
 	move.w	#SndID_Checkpoint,d0 ; checkpoint ding-dong sound
 	jsr	(PlaySound).l
-	jsr	(SingleObjLoad).l
+	jsr	(AllocateObject).l
 	bne.s	loc_1F206
 	_move.b	#ObjID_Starpost,id(a1) ; load obj79
 	move.b	#6,routine(a1) ; => Obj79_Dongle
@@ -43968,7 +44296,7 @@ Obj79_SaveData:
 	move.b	(Extra_life_flags).w,(Saved_Extra_life_flags).w
 	move.l	(Timer).w,(Saved_Timer).w
 	move.b	(Dynamic_Resize_Routine).w,(Saved_Dynamic_Resize_Routine).w
-	move.w	(Camera_Max_Y_pos_now).w,(Saved_Camera_Max_Y_pos).w
+	move.w	(Camera_Max_Y_pos).w,(Saved_Camera_Max_Y_pos).w
 	move.w	(Camera_X_pos).w,(Saved_Camera_X_pos).w
 	move.w	(Camera_Y_pos).w,(Saved_Camera_Y_pos).w
 	move.w	(Camera_BG_X_pos).w,(Saved_Camera_BG_X_pos).w
@@ -44013,8 +44341,8 @@ Obj79_LoadData:
 	move.w	(Saved_Solid_bits).w,(MainCharacter+top_solid_bit).w
 	move.b	(Saved_Dynamic_Resize_Routine).w,(Dynamic_Resize_Routine).w
 	move.b	(Saved_Water_routine).w,(Water_routine).w
-	move.w	(Saved_Camera_Max_Y_pos).w,(Camera_Max_Y_pos_now).w
 	move.w	(Saved_Camera_Max_Y_pos).w,(Camera_Max_Y_pos).w
+	move.w	(Saved_Camera_Max_Y_pos).w,(Camera_Max_Y_pos_target).w
 	move.w	(Saved_Camera_X_pos).w,(Camera_X_pos).w
 	move.w	(Saved_Camera_Y_pos).w,(Camera_Y_pos).w
 	move.w	(Saved_Camera_BG_X_pos).w,(Camera_BG_X_pos).w
@@ -44068,7 +44396,7 @@ Obj79_MakeSpecialStars:
 	moveq	#4-1,d1 ; execute the loop 4 times (1 for each star)
 	moveq	#0,d2
 
--	bsr.w	SingleObjLoad2
+-	bsr.w	AllocateObjectAfterCurrent
 	bne.s	+	; rts
 	_move.b	id(a0),id(a1) ; load obj79
 	move.l	#Obj79_MapUnc_1F4A0,mappings(a1)
@@ -44099,7 +44427,7 @@ Obj79_Star:
 	beq.w	loc_1F554
 	andi.b	#1,d0
 	beq.s	+
-	move.b	#1,(SpecialStage_flag_2P).w
+	move.b	#1,(f_bigring).w
 	move.b	#GameModeID_SpecialStage,(Game_Mode).w ; => SpecialStage
 +
 	clr.b	collision_property(a0)
@@ -44238,7 +44566,7 @@ Obj7D_Init:
 	bhs.s	Obj7D_NoAdd
 	tst.b	(Debug_placement_mode).w
 	bne.s	Obj7D_NoAdd
-	tst.b	(SpecialStage_flag_2P).w
+	tst.b	(f_bigring).w
 	bne.s	Obj7D_NoAdd
 	addq.b	#2,routine(a0)
 	move.l	#Obj7D_MapUnc_1F6FE,mappings(a0)
@@ -44271,9 +44599,14 @@ JmpTo11_DeleteObject ; JmpTo
 ; ===========================================================================
 word_1F6D2:
 	dc.w	 0
-	dc.w  1000	; 1
-	dc.w   100	; 2
-	dc.w	 1	; 3
+	dc.w  1000
+	dc.w   100
+    if fixBugs
+	dc.w	10
+    else
+	; This should give 100 points, not 10.
+	dc.w	 1
+    endif
 ; ===========================================================================
 ; loc_1F6DA:
 Obj7D_Main:
@@ -44389,7 +44722,7 @@ Obj44_BumpCharacter:
 	moveq	#1,d0
 	movea.w	a1,a3
 	jsr	(AddPoints2).l
-	bsr.w	SingleObjLoad
+	bsr.w	AllocateObject
 	bne.s	return_1F83C
 	_move.b	#ObjID_Points,id(a1) ; load obj29
 	move.w	x_pos(a0),x_pos(a1)
@@ -44589,7 +44922,7 @@ loc_1FA2A:
 	jsr	(RandomNumber).l
 	andi.w	#$1F,d0
 	move.w	d0,objoff_38(a0)
-	bsr.w	SingleObjLoad
+	bsr.w	AllocateObject
 	bne.s	loc_1FAA6
 	_move.b	id(a0),id(a1) ; load obj24
 	move.w	x_pos(a0),x_pos(a1)
@@ -45457,7 +45790,7 @@ Obj13_Init:
 ; ===========================================================================
 ; loc_20428:
 Obj13_LoadSubObject:
-	jsr	(SingleObjLoad2).l
+	jsr	(AllocateObjectAfterCurrent).l
 	bne.s	+	; rts
 	_move.b	#ObjID_HPZWaterfall,id(a1) ; load obj13
 	addq.b	#4,routine(a1)
@@ -45983,7 +46316,7 @@ Obj27_Index:	offsetTable
 ; loc_2109C: Obj27_Init:
 Obj27_InitWithAnimal:
 	addq.b	#2,routine(a0) ; => Obj27_Init
-	jsrto	SingleObjLoad, JmpTo2_SingleObjLoad
+	jsrto	AllocateObject, JmpTo2_AllocateObject
 	bne.s	Obj27_Init
 	_move.b	#ObjID_Animal,id(a1) ; load obj28 (Animal and 100 points)
 	move.w	x_pos(a0),x_pos(a1)
@@ -46354,8 +46687,8 @@ JmpTo10_DisplaySprite ; JmpTo
 	jmp	(DisplaySprite).l
 JmpTo18_DeleteObject ; JmpTo
 	jmp	(DeleteObject).l
-JmpTo2_SingleObjLoad ; JmpTo
-	jmp	(SingleObjLoad).l
+JmpTo2_AllocateObject ; JmpTo
+	jmp	(AllocateObject).l
 JmpTo12_Adjust2PArtPointer ; JmpTo
 	jmp	(Adjust2PArtPointer).l
 
@@ -46650,7 +46983,7 @@ Obj06_Cylinder:
 	move.w	d2,y_pos(a1)
 	move.b	#1,flip_turned(a1) ; face the other way
 	bsr.w	RideObject_SetRide
-	move.w	#AniIDSonAni_Run,anim(a1)
+	move.w	#(AniIDSonAni_Walk<<8)|(AniIDSonAni_Run<<0),anim(a1)
 	move.b	#0,(a2)
 	tst.w	inertia(a1)
 	bne.s	return_2188A
@@ -46759,7 +47092,7 @@ Obj14_Init:
 	move.w	x_pos(a0),objoff_30(a0)
 	tst.b	subtype(a0)
 	bne.s	loc_219A4
-	jsrto	SingleObjLoad2, JmpTo3_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo3_AllocateObjectAfterCurrent
 	bne.s	loc_219A4
 	_move.b	#ObjID_Seesaw,id(a1) ; load obj14
 	addq.b	#6,routine(a1)
@@ -47083,8 +47416,8 @@ Obj14_MapUnc_21D7C:	BINCLUDE "mappings/sprite/obj14_b.bin"
 ; ===========================================================================
 
     if ~~removeJmpTos
-JmpTo3_SingleObjLoad2 ; JmpTo
-	jmp	(SingleObjLoad2).l
+JmpTo3_AllocateObjectAfterCurrent ; JmpTo
+	jmp	(AllocateObjectAfterCurrent).l
 JmpTo13_Adjust2PArtPointer ; JmpTo
 	jmp	(Adjust2PArtPointer).l
 JmpTo_ObjectMoveAndFall ; JmpTo
@@ -47186,7 +47519,7 @@ Obj16_Slide:
 	move.b	#2,mapping_frame(a0)
 	move.w	#0,x_vel(a0)
 	move.w	#0,y_vel(a0)
-	jsrto	SingleObjLoad2, JmpTo4_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo4_AllocateObjectAfterCurrent
 	bne.s	+	; rts
 	_move.b	#ObjID_Scenery,id(a1) ; load obj1C
 	move.w	x_pos(a0),x_pos(a1)
@@ -47199,8 +47532,8 @@ Obj16_Slide:
 Obj16_Fall:
 	jsrto	ObjectMove, JmpTo4_ObjectMove
 	addi.w	#$38,y_vel(a0)
-	move.w	(Camera_Max_Y_pos_now).w,d0
-	addi.w	#$E0,d0
+	move.w	(Camera_Max_Y_pos).w,d0
+	addi.w	#224,d0
 	cmp.w	y_pos(a0),d0
 	bhs.s	+++	; rts
 	move.b	status(a0),d0
@@ -47229,8 +47562,8 @@ Obj16_MapUnc_21F14:	BINCLUDE "mappings/sprite/obj16.bin"
     if ~~removeJmpTos
 JmpTo5_MarkObjGone ; JmpTo
 	jmp	(MarkObjGone).l
-JmpTo4_SingleObjLoad2 ; JmpTo
-	jmp	(SingleObjLoad2).l
+JmpTo4_AllocateObjectAfterCurrent ; JmpTo
+	jmp	(AllocateObjectAfterCurrent).l
 JmpTo14_Adjust2PArtPointer ; JmpTo
 	jmp	(Adjust2PArtPointer).l
 JmpTo3_PlatformObject ; JmpTo
@@ -47692,7 +48025,7 @@ Obj1D_Init:
 	bra.s	Obj1D_InitBall
 ; ---------------------------------------------------------------------------
 Obj1D_LoadBall:
-	jsrto	SingleObjLoad2, JmpTo5_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo5_AllocateObjectAfterCurrent
 	bne.s	++
 ; loc_22458:
 Obj1D_InitBall:
@@ -47793,8 +48126,8 @@ Obj1D_MapUnc_22576:	BINCLUDE "mappings/sprite/obj1D.bin"
     if ~~removeJmpTos
 JmpTo7_MarkObjGone ; JmpTo
 	jmp	(MarkObjGone).l
-JmpTo5_SingleObjLoad2 ; JmpTo
-	jmp	(SingleObjLoad2).l
+JmpTo5_AllocateObjectAfterCurrent ; JmpTo
+	jmp	(AllocateObjectAfterCurrent).l
 JmpTo3_Adjust2PArtPointer2 ; JmpTo
 	jmp	(Adjust2PArtPointer2).l
 ; loc_22596:
@@ -48294,10 +48627,10 @@ loc_23076:
 loc_23084:
 	cmpi.b	#5,anim_frame_duration(a0)
 	bne.s	loc_230B4
-	jsrto	SingleObjLoad2, JmpTo6_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo6_AllocateObjectAfterCurrent
 	bne.s	loc_230A6
 	bsr.s	loc_230C2
-	jsrto	SingleObjLoad2, JmpTo6_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo6_AllocateObjectAfterCurrent
 	bne.s	loc_230A6
 	bsr.s	loc_230C2
 	neg.w	x_vel(a1)
@@ -48338,7 +48671,7 @@ loc_2311E:
 	bpl.s	loc_23136
 	move.w	objoff_34(a0),objoff_32(a0)
 	move.b	#2,routine(a0)
-	move.w	#1,anim(a0)
+	move.w	#(0<<8)|(1<<0),anim(a0)
 
 loc_23136:
 	lea	(Ani_obj20).l,a1
@@ -48356,8 +48689,8 @@ loc_23144:
 loc_2315A:
 	jsrto	ObjectMove, JmpTo7_ObjectMove
 	addi.w	#$18,y_vel(a0)
-	move.w	(Camera_Max_Y_pos_now).w,d0
-	addi.w	#$E0,d0
+	move.w	(Camera_Max_Y_pos).w,d0
+	addi.w	#224,d0
 	cmp.w	y_pos(a0),d0
 	bhs.s	loc_23176
 	jmpto	DeleteObject, JmpTo21_DeleteObject
@@ -48393,7 +48726,7 @@ loc_231D2:
 	move.w	#$7F,objoff_32(a0)
 	subq.b	#1,objoff_36(a0)
 	bmi.s	loc_23224
-	jsrto	SingleObjLoad2, JmpTo6_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo6_AllocateObjectAfterCurrent
 	bne.s	loc_23224
 	moveq	#0,d0
 
@@ -48408,7 +48741,7 @@ loc_231F0:
     endif
 
 	move.w	#9,objoff_32(a1)
-	move.w	#$200,anim(a1)
+	move.w	#(2<<8)|(0<<0),anim(a1)
 	move.w	#$E,d0
 	tst.w	x_vel(a1)
 	bpl.s	loc_23214
@@ -48458,8 +48791,8 @@ JmpTo21_DeleteObject ; JmpTo
 	jmp	(DeleteObject).l
 JmpTo8_MarkObjGone ; JmpTo
 	jmp	(MarkObjGone).l
-JmpTo6_SingleObjLoad2 ; JmpTo
-	jmp	(SingleObjLoad2).l
+JmpTo6_AllocateObjectAfterCurrent ; JmpTo
+	jmp	(AllocateObjectAfterCurrent).l
 JmpTo4_AnimateSprite ; JmpTo
 	jmp	(AnimateSprite).l
 JmpTo17_Adjust2PArtPointer ; JmpTo
@@ -48845,7 +49178,7 @@ Obj32_VelArray2:
 ; ===========================================================================
 ; loc_236A8:
 SmashableObject_LoadPoints:
-	jsrto	SingleObjLoad, JmpTo3_SingleObjLoad
+	jsrto	AllocateObject, JmpTo3_AllocateObject
 	bne.s	+++	; rts
 	_move.b	#ObjID_Points,id(a1) ; load obj29
 	move.w	x_pos(a0),x_pos(a1)
@@ -48898,8 +49231,8 @@ JmpTo12_DisplaySprite ; JmpTo
 	jmp	(DisplaySprite).l
 JmpTo22_DeleteObject ; JmpTo
 	jmp	(DeleteObject).l
-JmpTo3_SingleObjLoad ; JmpTo
-	jmp	(SingleObjLoad).l
+JmpTo3_AllocateObject ; JmpTo
+	jmp	(AllocateObject).l
 JmpTo9_MarkObjGone ; JmpTo
 	jmp	(MarkObjGone).l
 JmpTo18_Adjust2PArtPointer ; JmpTo
@@ -49128,7 +49461,7 @@ Obj33_Init:
 	beq.s	+
 	move.b	#4,routine_secondary(a0)
 +
-	jsrto	SingleObjLoad2, JmpTo7_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo7_AllocateObjectAfterCurrent
 	bne.s	Obj33_Main
 	_move.b	id(a0),id(a1) ; load obj33
 	move.b	#4,routine(a1)
@@ -49346,8 +49679,8 @@ Obj33_MapUnc_23DF0:	BINCLUDE "mappings/sprite/obj33_b.bin"
     if ~~removeJmpTos
 JmpTo10_MarkObjGone ; JmpTo
 	jmp	(MarkObjGone).l
-JmpTo7_SingleObjLoad2 ; JmpTo
-	jmp	(SingleObjLoad2).l
+JmpTo7_AllocateObjectAfterCurrent ; JmpTo
+	jmp	(AllocateObjectAfterCurrent).l
 JmpTo4_SolidObject ; JmpTo
 	jmp	(SolidObject).l
 
@@ -49409,7 +49742,7 @@ Obj43_Init:
 ; ===========================================================================
 
 loc_23E84:
-	jsrto	SingleObjLoad2, JmpTo8_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo8_AllocateObjectAfterCurrent
 	bne.s	loc_23ED4
 	_move.b	id(a0),id(a1) ; load obj43
 	move.b	#4,routine(a1)
@@ -49538,8 +49871,8 @@ Obj43_MapUnc_23FE0:	BINCLUDE "mappings/sprite/obj43.bin"
 ; ===========================================================================
 
     if ~~removeJmpTos
-JmpTo8_SingleObjLoad2 ; JmpTo
-	jmp	(SingleObjLoad2).l
+JmpTo8_AllocateObjectAfterCurrent ; JmpTo
+	jmp	(AllocateObjectAfterCurrent).l
 JmpTo19_Adjust2PArtPointer ; JmpTo
 	jmp	(Adjust2PArtPointer).l
 
@@ -50126,7 +50459,7 @@ Obj46_Init:
 	move.b	#1,objoff_1F(a0)
 
 ; Obj46_InitPressureSpring:	; loads the spring under the ball
-	jsrto	SingleObjLoad, JmpTo4_SingleObjLoad
+	jsrto	AllocateObject, JmpTo4_AllocateObject
 	bne.s	+
 	_move.b	#ObjID_OOZBall,id(a1) ; load obj46
 	addq.b	#6,routine(a1)
@@ -50174,8 +50507,8 @@ Obj46_Moving:
 	beq.s	loc_24B8C
 	addi.w	#$18,y_vel(a0)
 	bmi.s	+
-	move.w	(Camera_Max_Y_pos_now).w,d0
-	addi.w	#$E0,d0
+	move.w	(Camera_Max_Y_pos).w,d0
+	addi.w	#224,d0
 	cmp.w	y_pos(a0),d0
 	blo.s	loc_24BC4
 	jsr	(ObjCheckFloorDist).l
@@ -50301,8 +50634,8 @@ Obj46_MapUnc_24C52:	BINCLUDE "mappings/sprite/obj46.bin"
     if ~~removeJmpTos
 JmpTo25_DeleteObject ; JmpTo
 	jmp	(DeleteObject).l
-JmpTo4_SingleObjLoad ; JmpTo
-	jmp	(SingleObjLoad).l
+JmpTo4_AllocateObject ; JmpTo
+	jmp	(AllocateObject).l
 ; some of these are still used, for some reason:
 JmpTo11_MarkObjGone ; JmpTo
 	jmp	(MarkObjGone).l
@@ -50524,7 +50857,7 @@ loc_24EE8:
 
 loc_24F04:
 	andi.b	#~standing_mask,status(a0)
-	jsrto	SingleObjLoad2, JmpTo9_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo9_AllocateObjectAfterCurrent
 	bne.s	loc_24F28
 	moveq	#0,d0
 	move.w	#bytesToLcnt(objoff_2C),d1 ; Copy everything up until 'objoff_2C', which is where the sub-object's own scratch RAM begins.
@@ -50621,10 +50954,13 @@ loc_25002:
 	bclr	#5,status(a1)
 	bset	#1,status(a1)
 	bset	#3,status(a1)
+    if object_size<>$40
+	moveq	#0,d0 ; Clear the high word for the coming division.
+    endif
 	move.w	a0,d0
 	subi.w	#Object_RAM,d0
     if object_size=$40
-	lsr.w	#6,d0
+	lsr.w	#object_size_bits,d0
     else
 	divu.w	#object_size,d0
     endif
@@ -50697,8 +51033,8 @@ JmpTo26_DeleteObject ; JmpTo
 	jmp	(DeleteObject).l
 JmpTo13_MarkObjGone ; JmpTo
 	jmp	(MarkObjGone).l
-JmpTo9_SingleObjLoad2 ; JmpTo
-	jmp	(SingleObjLoad2).l
+JmpTo9_AllocateObjectAfterCurrent ; JmpTo
+	jmp	(AllocateObjectAfterCurrent).l
 JmpTo3_MarkObjGone3 ; JmpTo
 	jmp	(MarkObjGone3).l
 JmpTo22_Adjust2PArtPointer ; JmpTo
@@ -50835,7 +51171,7 @@ loc_252F0:
 	moveq	#0,d0
 	move.b	interact(a1),d0
     if object_size=$40
-	lsl.w	#6,d0
+	lsl.w	#object_size_bits,d0
     else
 	mulu.w	#object_size,d0
     endif
@@ -50843,10 +51179,13 @@ loc_252F0:
 	movea.l	d0,a3	; a3=object
 	move.b	#0,(a3,d2.w)
 +
+    if object_size<>$40
+	moveq	#0,d0 ; Clear the high word for the coming division.
+    endif
 	move.w	a0,d0
 	subi.w	#Object_RAM,d0
     if object_size=$40
-	lsr.w	#6,d0
+	lsr.w	#object_size_bits,d0
     else
 	divu.w	#object_size,d0
     endif
@@ -51080,7 +51419,7 @@ Obj22_DetectPlayer:
 ; ===========================================================================
 ; loc_2572A:
 Obj22_ShootArrow:
-	jsrto	SingleObjLoad, JmpTo5_SingleObjLoad
+	jsrto	AllocateObject, JmpTo5_AllocateObject
 	bne.s	+
 	_move.b	id(a0),id(a1) ; load obj22
 	addq.b	#6,routine(a1)
@@ -51158,8 +51497,8 @@ Obj22_MapUnc_25804:	BINCLUDE "mappings/sprite/obj22.bin"
     if ~~removeJmpTos
 JmpTo27_DeleteObject ; JmpTo
 	jmp	(DeleteObject).l
-JmpTo5_SingleObjLoad ; JmpTo
-	jmp	(SingleObjLoad).l
+JmpTo5_AllocateObject ; JmpTo
+	jmp	(AllocateObject).l
 JmpTo15_MarkObjGone ; JmpTo
 	jmp	(MarkObjGone).l
 JmpTo5_AnimateSprite ; JmpTo
@@ -51202,7 +51541,7 @@ Obj23_Init:
 	move.b	#$10,width_pixels(a0)
 	move.b	#$20,y_radius(a0)
 	move.b	#4,priority(a0)
-	jsrto	SingleObjLoad2, JmpTo10_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo10_AllocateObjectAfterCurrent
 	bne.s	Obj23_Main
 	_move.b	id(a0),id(a1) ; load obj23
 	addq.b	#2,routine(a1)
@@ -51500,7 +51839,7 @@ loc_25BF6:
 ; ===========================================================================
 
 loc_25C1C:
-	jsrto	SingleObjLoad2, JmpTo10_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo10_AllocateObjectAfterCurrent
 	bne.s	loc_25C64
 	addq.w	#8,a3
 
@@ -51540,8 +51879,8 @@ JmpTo28_DeleteObject ; JmpTo
 	jmp	(DeleteObject).l
 JmpTo16_MarkObjGone ; JmpTo
 	jmp	(MarkObjGone).l
-JmpTo10_SingleObjLoad2 ; JmpTo
-	jmp	(SingleObjLoad2).l
+JmpTo10_AllocateObjectAfterCurrent ; JmpTo
+	jmp	(AllocateObjectAfterCurrent).l
 JmpTo25_Adjust2PArtPointer ; JmpTo
 	jmp	(Adjust2PArtPointer).l
 JmpTo8_SolidObject ; JmpTo
@@ -51669,7 +52008,7 @@ loc_261E4:
 	moveq	#4-1,d6
 
 loc_261EC:
-	jsrto	SingleObjLoad, JmpTo6_SingleObjLoad
+	jsrto	AllocateObject, JmpTo6_AllocateObject
 	bne.w	loc_26278
 	_move.b	#ObjID_LeavesGenerator,id(a1) ; load obj2C
 	move.b	#4,routine(a1)
@@ -51781,8 +52120,8 @@ JmpTo17_DisplaySprite ; JmpTo
 	jmp	(DisplaySprite).l
 JmpTo29_DeleteObject ; JmpTo
 	jmp	(DeleteObject).l
-JmpTo6_SingleObjLoad ; JmpTo
-	jmp	(SingleObjLoad).l
+JmpTo6_AllocateObject ; JmpTo
+	jmp	(AllocateObject).l
 JmpTo2_RandomNumber ; JmpTo
 	jmp	(RandomNumber).l
 JmpTo7_CalcSine ; JmpTo
@@ -51885,7 +52224,7 @@ loc_26436:
 loc_26446:
 	cmpi.b	#1,anim(a0)
 	beq.s	loc_26456
-	move.w	#$100,anim(a0)
+	move.w	#(1<<8)|(0<<0),anim(a0)
 	rts
 ; ===========================================================================
 
@@ -52130,7 +52469,7 @@ BranchTo_JmpTo18_MarkObjGone ; BranchTo
 ; ===========================================================================
 
 loc_2674C:
-	jsrto	SingleObjLoad, JmpTo7_SingleObjLoad
+	jsrto	AllocateObject, JmpTo7_AllocateObject
 	bne.s	+
 	_move.b	id(a0),id(a1) ; load obj42
 	addq.b	#4,routine(a1)
@@ -52226,8 +52565,8 @@ JmpTo18_DisplaySprite ; JmpTo
 	jmp	(DisplaySprite).l
 JmpTo30_DeleteObject ; JmpTo
 	jmp	(DeleteObject).l
-JmpTo7_SingleObjLoad ; JmpTo
-	jmp	(SingleObjLoad).l
+JmpTo7_AllocateObject ; JmpTo
+	jmp	(AllocateObject).l
 JmpTo18_MarkObjGone ; JmpTo
 	jmp	(MarkObjGone).l
 JmpTo27_Adjust2PArtPointer ; JmpTo
@@ -52470,7 +52809,7 @@ loc_26B6E:
 	bne.s	+
 	move.w	objoff_3C(a0),objoff_3A(a0)
 +
-	jsrto	SingleObjLoad2, JmpTo11_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo11_AllocateObjectAfterCurrent
 	bne.s	loc_26C04
 	_move.b	id(a0),id(a1) ; load obj65
 	addq.b	#4,routine(a1)
@@ -52807,8 +53146,8 @@ Obj65_MapUnc_26F04:	BINCLUDE "mappings/sprite/obj65_b.bin"
     if ~~removeJmpTos
 JmpTo19_MarkObjGone ; JmpTo
 	jmp	(MarkObjGone).l
-JmpTo11_SingleObjLoad2 ; JmpTo
-	jmp	(SingleObjLoad2).l
+JmpTo11_AllocateObjectAfterCurrent ; JmpTo
+	jmp	(AllocateObjectAfterCurrent).l
 JmpTo29_Adjust2PArtPointer ; JmpTo
 	jmp	(Adjust2PArtPointer).l
 JmpTo10_SolidObject ; JmpTo
@@ -53094,7 +53433,7 @@ loc_271D0:
 	clr.b	1(a4)
 	move.w	#SndID_Roll,d0
 	jsr	(PlaySound).l
-	move.w	#$100,anim(a0)
+	move.w	#(1<<8)|(0<<0),anim(a0)
 
 return_2725E:
 	rts
@@ -53334,7 +53673,7 @@ Obj68_Init:
 	move.b	#4,render_flags(a0)
 	move.b	#$10,width_pixels(a0)
 	move.b	#4,priority(a0)
-	jsrto	SingleObjLoad2, JmpTo12_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo12_AllocateObjectAfterCurrent
 	bne.s	+
 	_move.b	id(a0),id(a1) ; load obj68
 	addq.b	#4,routine(a1)
@@ -53563,8 +53902,8 @@ Obj6D_Action_End:
     if ~~removeJmpTos
 JmpTo20_MarkObjGone ; JmpTo
 	jmp	(MarkObjGone).l
-JmpTo12_SingleObjLoad2 ; JmpTo
-	jmp	(SingleObjLoad2).l
+JmpTo12_AllocateObjectAfterCurrent ; JmpTo
+	jmp	(AllocateObjectAfterCurrent).l
 JmpTo31_Adjust2PArtPointer ; JmpTo
 	jmp	(Adjust2PArtPointer).l
 JmpTo11_SolidObject ; JmpTo
@@ -53818,7 +54157,7 @@ Obj6A_Init:
 	move.b	#0,mapping_frame(a0)
 	cmpi.b	#$18,subtype(a0)
 	bne.w	loc_27BD0
-	jsrto	SingleObjLoad2, JmpTo13_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo13_AllocateObjectAfterCurrent
 	bne.s	++
 	bsr.s	Obj6A_InitSubObject
 	addi.w	#$40,x_pos(a1)
@@ -53828,7 +54167,7 @@ Obj6A_Init:
 	beq.s	+
 	move.b	#$C,subtype(a1)
 +
-	jsrto	SingleObjLoad2, JmpTo13_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo13_AllocateObjectAfterCurrent
 	bne.s	+
 	bsr.s	Obj6A_InitSubObject
 	subi.w	#$40,x_pos(a1)
@@ -53977,8 +54316,8 @@ Obj6A_MapUnc_27D30:	BINCLUDE "mappings/sprite/obj6A.bin"
 ; ===========================================================================
 
     if ~~removeJmpTos
-JmpTo13_SingleObjLoad2 ; JmpTo
-	jmp	(SingleObjLoad2).l
+JmpTo13_AllocateObjectAfterCurrent ; JmpTo
+	jmp	(AllocateObjectAfterCurrent).l
 JmpTo33_Adjust2PArtPointer ; JmpTo
 	jmp	(Adjust2PArtPointer).l
 JmpTo13_SolidObject ; JmpTo
@@ -54168,8 +54507,8 @@ loc_27EE2:
 	add.l	d0,d3
 	move.l	d3,y_pos(a0)
 	addi_.w	#8,y_vel(a0)
-	move.w	(Camera_Max_Y_pos_now).w,d0
-	addi.w	#$E0,d0
+	move.w	(Camera_Max_Y_pos).w,d0
+	addi.w	#224,d0
 	cmp.w	y_pos(a0),d0
 	bhs.s	return_27F0E
 	move.b	#0,subtype(a0)
@@ -54409,7 +54748,7 @@ loc_28112:
 ; ===========================================================================
 ; loc_28130:
 Obj6C_SubObjectsLoop:
-	jsrto	SingleObjLoad, JmpTo8_SingleObjLoad
+	jsrto	AllocateObject, JmpTo8_AllocateObject
 	bne.s	+
 ; loc_28136:
 Obj6C_LoadSubObject:
@@ -54584,8 +54923,8 @@ JmpTo20_DisplaySprite ; JmpTo
 	jmp	(DisplaySprite).l
 JmpTo34_DeleteObject ; JmpTo
 	jmp	(DeleteObject).l
-JmpTo8_SingleObjLoad ; JmpTo
-	jmp	(SingleObjLoad).l
+JmpTo8_AllocateObject ; JmpTo
+	jmp	(AllocateObject).l
 JmpTo35_Adjust2PArtPointer ; JmpTo
 	jmp	(Adjust2PArtPointer).l
 JmpTo5_PlatformObject ; JmpTo
@@ -54789,7 +55128,7 @@ Obj70_Init:
 ; ===========================================================================
 ; loc_285EE:
 Obj70_SubObjectLoop:
-	jsrto	SingleObjLoad2, JmpTo14_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo14_AllocateObjectAfterCurrent
 	bne.s	+
 ; loc_285F4:
 Obj70_LoadSubObject:
@@ -54949,8 +55288,8 @@ Obj70_MapUnc_28786:	BINCLUDE "mappings/sprite/obj70.bin"
     endif
 
     if ~~removeJmpTos
-JmpTo14_SingleObjLoad2 ; JmpTo
-	jmp	(SingleObjLoad2).l
+JmpTo14_AllocateObjectAfterCurrent ; JmpTo
+	jmp	(AllocateObjectAfterCurrent).l
 JmpTo4_Adjust2PArtPointer2 ; JmpTo
 	jmp	(Adjust2PArtPointer2).l
 JmpTo16_SolidObject ; JmpTo
@@ -55091,13 +55430,16 @@ Obj73_Init:
 	bcs.s	Obj73_LoadSubObject_End
 ; loc_28A6E:
 Obj73_LoadSubObject:
-	jsrto	SingleObjLoad, JmpTo9_SingleObjLoad
+	jsrto	AllocateObject, JmpTo9_AllocateObject
 	bne.s	Obj73_LoadSubObject_End
 	addq.b	#1,objoff_29(a0)
+    if object_size<>$40
+	moveq	#0,d5 ; Clear the high word for the coming division.
+    endif
 	move.w	a1,d5
 	subi.w	#Object_RAM,d5
     if object_size=$40
-	lsr.w	#6,d5
+	lsr.w	#object_size_bits,d5
     else
 	divu.w	#object_size,d5
     endif
@@ -55118,10 +55460,13 @@ Obj73_LoadSubObject:
 ; loc_28AC8:
 Obj73_LoadSubObject_End:
 
+    if object_size<>$40
+	moveq	#0,d5 ; Clear the high word for the coming division.
+    endif
 	move.w	a0,d5
 	subi.w	#Object_RAM,d5
     if object_size=$40
-	lsr.w	#6,d5
+	lsr.w	#object_size_bits,d5
     else
 	divu.w	#object_size,d5
     endif
@@ -55155,7 +55500,7 @@ loc_28B16:
 	moveq	#0,d4
 	move.b	(a2)+,d4
     if object_size=$40
-	lsl.w	#6,d4
+	lsl.w	#object_size_bits,d4
     else
 	mulu.w	#object_size,d4
     endif
@@ -55192,7 +55537,7 @@ loc_28B46:
 -	moveq	#0,d0
 	move.b	(a2)+,d0
     if object_size=$40
-	lsl.w	#6,d0
+	lsl.w	#object_size_bits,d0
     else
 	mulu.w	#object_size,d0
     endif
@@ -55222,8 +55567,8 @@ Obj73_MapUnc_28B9C:	BINCLUDE "mappings/sprite/obj73.bin"
     if ~~removeJmpTos
 JmpTo21_DisplaySprite ; JmpTo
 	jmp	(DisplaySprite).l
-JmpTo9_SingleObjLoad ; JmpTo
-	jmp	(SingleObjLoad).l
+JmpTo9_AllocateObject ; JmpTo
+	jmp	(AllocateObject).l
 JmpTo_DeleteObject2 ; JmpTo
 	jmp	(DeleteObject2).l
 JmpTo37_Adjust2PArtPointer ; JmpTo
@@ -55291,7 +55636,7 @@ Obj75_Init:
 ; ===========================================================================
 +
 	move.b	#$9A,collision_flags(a0)
-	jsrto	SingleObjLoad2, JmpTo15_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo15_AllocateObjectAfterCurrent
 	bne.s	Obj75_Main
 	_move.b	id(a0),id(a1) ; load obj75
 	move.l	mappings(a0),mappings(a1)
@@ -55303,7 +55648,7 @@ Obj75_Init:
 	move.w	y_pos(a0),d3
 	move.b	d1,mainspr_childsprites(a1)
 	subq.w	#1,d1
-	lea	sub2_x_pos(a1),a2
+	lea	subspr_data(a1),a2
 
 -	move.w	d2,(a2)+	; sub?_x_pos
 	move.w	d3,(a2)+	; sub?_y_pos
@@ -55337,7 +55682,7 @@ Obj75_Main:
 	asr.l	#4,d1
 	moveq	#0,d4
 	moveq	#0,d5
-	lea	sub2_x_pos(a1),a2
+	lea	subspr_data(a1),a2
 
 -	movem.l	d4-d5,-(sp)
 	swap	d4
@@ -55411,8 +55756,8 @@ JmpTo22_MarkObjGone ; JmpTo
 	jmp	(MarkObjGone).l
 JmpTo2_DeleteObject2 ; JmpTo
 	jmp	(DeleteObject2).l
-JmpTo15_SingleObjLoad2 ; JmpTo
-	jmp	(SingleObjLoad2).l
+JmpTo15_AllocateObjectAfterCurrent ; JmpTo
+	jmp	(AllocateObjectAfterCurrent).l
 JmpTo38_Adjust2PArtPointer ; JmpTo
 	jmp	(Adjust2PArtPointer).l
 JmpTo8_CalcSine ; JmpTo
@@ -55723,7 +56068,7 @@ Obj78_Init:
 ; ===========================================================================
 ; loc_29206:
 Obj78_SubObjectLoop:
-	jsrto	SingleObjLoad2, JmpTo16_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo16_AllocateObjectAfterCurrent
 	bne.w	Obj78_Main
 	move.b	#4,routine(a1)
 ; loc_29214:
@@ -55887,8 +56232,8 @@ return_29386:
 ; ===========================================================================
 
     if ~~removeJmpTos
-JmpTo16_SingleObjLoad2 ; JmpTo
-	jmp	(SingleObjLoad2).l
+JmpTo16_AllocateObjectAfterCurrent ; JmpTo
+	jmp	(AllocateObjectAfterCurrent).l
 JmpTo5_Adjust2PArtPointer2 ; JmpTo
 	jmp	(Adjust2PArtPointer2).l
 JmpTo21_SolidObject ; JmpTo
@@ -55966,7 +56311,7 @@ Obj7A_Init:
 ; ===========================================================================
 ; loc_29408:
 Obj7A_SubObjectLoop:
-	jsrto	SingleObjLoad2, JmpTo17_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo17_AllocateObjectAfterCurrent
 	bne.s	Obj7A_SubObjectLoop_End
 	_move.b	id(a0),id(a1) ; load obj7A
 	move.b	#4,routine(a1)
@@ -56102,8 +56447,8 @@ Obj7A_MapUnc_29564:	BINCLUDE "mappings/sprite/obj7A.bin"
     if ~~removeJmpTos
 JmpTo24_DisplaySprite ; JmpTo
 	jmp	(DisplaySprite).l
-JmpTo17_SingleObjLoad2 ; JmpTo
-	jmp	(SingleObjLoad2).l
+JmpTo17_AllocateObjectAfterCurrent ; JmpTo
+	jmp	(AllocateObjectAfterCurrent).l
 JmpTo41_Adjust2PArtPointer ; JmpTo
 	jmp	(Adjust2PArtPointer).l
 JmpTo6_PlatformObject ; JmpTo
@@ -56236,7 +56581,7 @@ loc_296B6:
 ; ===========================================================================
 
 loc_296C2:
-	move.w	#$100,anim(a0)
+	move.w	#(1<<8)|(0<<0),anim(a0)
 	addq.w	#4,y_pos(a1)
 	move.w	objoff_30(a0),y_vel(a1)
 	bset	#1,status(a1)
@@ -56783,7 +57128,7 @@ Obj81_Init:
 	neg.w	d1
 +
 	move.w	d1,objoff_34(a0)
-	jsrto	SingleObjLoad2, JmpTo18_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo18_AllocateObjectAfterCurrent
 	bne.s	Obj81_BridgeUp
 	_move.b	id(a0),id(a1) ; load obj81
 	move.l	mappings(a0),mappings(a1)
@@ -56796,7 +57141,7 @@ Obj81_Init:
 	moveq	#8,d1
 	move.b	d1,mainspr_childsprites(a1)
 	subq.w	#1,d1
-	lea	sub2_x_pos(a1),a2
+	lea	subspr_data(a1),a2
 
 -	add.w	d4,d3
 	move.w	d2,(a2)+	; sub?_x_pos
@@ -56911,7 +57256,7 @@ loc_2A1EA:
 	asr.l	#4,d1
 	move.l	d0,d4
 	move.l	d1,d5
-	lea	sub2_x_pos(a1),a2
+	lea	subspr_data(a1),a2
 
 -	movem.l	d4-d5,-(sp)
 	swap	d4
@@ -56951,8 +57296,8 @@ JmpTo41_DeleteObject ; JmpTo
 	jmp	(DeleteObject).l
 JmpTo3_DeleteObject2 ; JmpTo
 	jmp	(DeleteObject2).l
-JmpTo18_SingleObjLoad2 ; JmpTo
-	jmp	(SingleObjLoad2).l
+JmpTo18_AllocateObjectAfterCurrent ; JmpTo
+	jmp	(AllocateObjectAfterCurrent).l
 JmpTo45_Adjust2PArtPointer ; JmpTo
 	jmp	(Adjust2PArtPointer).l
 JmpTo9_CalcSine ; JmpTo
@@ -57280,7 +57625,7 @@ Obj83_Init:
 	move.b	d0,angle(a0)
 
 	; Create child object (chain multisprite)
-	jsrto	SingleObjLoad2, JmpTo19_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo19_AllocateObjectAfterCurrent
 	bne.s	.noRAMforChildObjects
 
 	_move.b	id(a0),id(a1) ; load obj83
@@ -57292,7 +57637,7 @@ Obj83_Init:
 	moveq	#8,d1
 	move.b	d1,mainspr_childsprites(a1)
 	subq.w	#1,d1
-	lea	sub2_x_pos(a1),a2
+	lea	subspr_data(a1),a2
 
 .nextChildSprite:
 	addq.w	#next_subspr-2,a2
@@ -57315,7 +57660,7 @@ Obj83_Init:
 ; ===========================================================================
 ; loc_2A5DE:
 Obj83_LoadSubObject:
-	jsrto	SingleObjLoad2, JmpTo19_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo19_AllocateObjectAfterCurrent
 	bne.s	.noRAMforChildObject	; rts
 	addq.b	#4,routine(a1)
 	_move.b	id(a0),id(a1) ; load obj
@@ -57342,7 +57687,7 @@ Obj83_Main:
 	move.w	Obj83_initial_x_pos(a0),d3
 	moveq	#0,d6
 	movea.l	Obj83_childobjptr_chains(a0),a1 ; a1=object
-	lea	sub2_x_pos(a1),a2
+	lea	subspr_data(a1),a2
 
 	; Update first row of chains
 	move.b	angle(a0),d0
@@ -57480,8 +57825,8 @@ JmpTo42_DeleteObject ; JmpTo
 	jmp	(DeleteObject).l
 JmpTo4_DeleteObject2 ; JmpTo
 	jmp	(DeleteObject2).l
-JmpTo19_SingleObjLoad2 ; JmpTo
-	jmp	(SingleObjLoad2).l
+JmpTo19_AllocateObjectAfterCurrent ; JmpTo
+	jmp	(AllocateObjectAfterCurrent).l
 JmpTo47_Adjust2PArtPointer ; JmpTo
 	jmp	(Adjust2PArtPointer).l
 JmpTo10_CalcSine ; JmpTo
@@ -57807,7 +58152,7 @@ Obj85_Init:
 	move.w	y_pos(a0),d3
 	addi.w	#0,d3
 	move.b	#1,mainspr_childsprites(a0)
-	lea	sub2_x_pos(a0),a2
+	lea	subspr_data(a0),a2
 	move.w	d2,(a2)+	; sub2_x_pos
 	move.w	d3,(a2)+	; sub2_y_pos
 	move.w	#2,(a2)+	; sub2_mapframe
@@ -57822,7 +58167,7 @@ Obj85_Init_Up:
 	move.w	y_pos(a0),d3
 	addi.w	#$20,d3
 	move.b	#1,mainspr_childsprites(a0)
-	lea	sub2_x_pos(a0),a2
+	lea	subspr_data(a0),a2
 	move.w	d2,(a2)+	; sub2_x_pos
 	move.w	d3,(a2)+	; sub2_y_pos
 	move.w	#2,(a2)+	; sub2_mapframe
@@ -58384,7 +58729,7 @@ loc_2B352:
 ; ===========================================================================
 
 loc_2B35C:
-	move.w	#$300,anim(a0)
+	move.w	#(3<<8)|(0<<0),anim(a0)
 	move.w	#-$1000,x_vel(a1)
 	addq.w	#8,x_pos(a1)
 	bset	#0,status(a1)
@@ -58394,7 +58739,7 @@ loc_2B35C:
 	bclr	#0,status(a1)
 	subi.w	#$10,x_pos(a1)
 	neg.w	x_vel(a1)
-	move.w	#$400,anim(a0)
+	move.w	#(4<<8)|(0<<0),anim(a0)
 
 loc_2B392:
 	move.w	#$F,move_lock(a1)
@@ -59059,7 +59404,7 @@ loc_2BC86:
 	beq.w	loc_2BD48
 	cmpi.w	#$10,objoff_2C(a0)
 	bhs.w	loc_2BD48
-	jsrto	SingleObjLoad, JmpTo10_SingleObjLoad
+	jsrto	AllocateObject, JmpTo10_AllocateObject
 	bne.w	loc_2BD48
 	_move.b	#ObjID_BombPrize,id(a1) ; load objD3
 	move.l	#ObjD3_MapUnc_2B8D4,mappings(a1)
@@ -59103,7 +59448,7 @@ loc_2BD4E:
 	beq.w	return_2BDF6
 	cmpi.w	#$10,objoff_2C(a0)
 	bhs.w	return_2BDF6
-	jsrto	SingleObjLoad, JmpTo10_SingleObjLoad
+	jsrto	AllocateObject, JmpTo10_AllocateObject
 	bne.w	return_2BDF6
 	_move.b	#ObjID_RingPrize,id(a1) ; load objDC
 	move.l	#Obj25_MapUnc_12382,mappings(a1)
@@ -59183,7 +59528,7 @@ loc_2BE5E:
 	moveq	#10,d0
 	movea.w	a1,a3
 	jsr	(AddPoints2).l
-	jsrto	SingleObjLoad, JmpTo10_SingleObjLoad
+	jsrto	AllocateObject, JmpTo10_AllocateObject
 	bne.s	+	; rts
 	_move.b	#ObjID_Points,id(a1) ; load obj29
 	move.w	x_pos(a0),x_pos(a1)
@@ -59768,8 +60113,8 @@ SlotSequence3:	dc.b   3,  0,  1,  4,  2,  5,  4,  1
     endif
 
     if ~~removeJmpTos
-JmpTo10_SingleObjLoad ; JmpTo
-	jmp	(SingleObjLoad).l
+JmpTo10_AllocateObject ; JmpTo
+	jmp	(AllocateObject).l
 JmpTo29_MarkObjGone ; JmpTo
 	jmp	(MarkObjGone).l
 JmpTo10_AnimateSprite ; JmpTo
@@ -60168,7 +60513,7 @@ loc_2C806:
 
 loc_2C85C:
 	jsr	(AddPoints2).l
-	jsrto	SingleObjLoad, JmpTo11_SingleObjLoad
+	jsrto	AllocateObject, JmpTo11_AllocateObject
 	bne.s	loc_2C87E
 	_move.b	#ObjID_Points,id(a1) ; load obj29
 	move.w	x_pos(a0),x_pos(a1)
@@ -60222,8 +60567,8 @@ ObjD8_MapUnc_2C8C4:	BINCLUDE "mappings/sprite/objD8.bin"
     if ~~removeJmpTos
 JmpTo46_DeleteObject ; JmpTo
 	jmp	(DeleteObject).l
-JmpTo11_SingleObjLoad ; JmpTo
-	jmp	(SingleObjLoad).l
+JmpTo11_AllocateObject ; JmpTo
+	jmp	(AllocateObject).l
 JmpTo31_MarkObjGone ; JmpTo
 	jmp	(MarkObjGone).l
 JmpTo12_AnimateSprite ; JmpTo
@@ -60487,7 +60832,7 @@ Obj4A_FireBullet:
 	; In the Simon Wai beta, the object loads another object
 	; here, which makes it look angry as it fires.
 	; This object would have used Obj4A_Angry.
-	jsr	(SingleObjLoad).l
+	jsr	(AllocateObject).l
 	bne.s	+	; rts
 	_move.b	#ObjID_Octus,id(a1) ; load obj4A
 	move.b	#6,routine(a1)
@@ -60614,7 +60959,7 @@ Obj50_Init:
 	move.b	#3,Obj50_shots_remaining(a0)	; hardcoded to three shots
 
 	; creat wing child object
-	jsrto	SingleObjLoad, JmpTo12_SingleObjLoad
+	jsrto	AllocateObject, JmpTo12_AllocateObject
 	bne.s	Obj50_Main
 
 	_move.b	#ObjID_Aquis,id(a1) ; load obj50
@@ -60705,7 +61050,7 @@ Obj50_ChkIfShoot:
 	bhs.s	return_2CEAC
 
 	; shoot bullet
-	jsrto	SingleObjLoad, JmpTo12_SingleObjLoad
+	jsrto	AllocateObject, JmpTo12_AllocateObject
 	bne.s	return_2CEAC
 	_move.b	#ObjID_Aquis,id(a1) ; load obj50
 	move.b	#6,routine(a1)	; => Obj50_Bullet
@@ -60842,8 +61187,8 @@ JmpTo32_DisplaySprite ; JmpTo
 	jmp	(DisplaySprite).l
 JmpTo48_DeleteObject ; JmpTo
 	jmp	(DeleteObject).l
-JmpTo12_SingleObjLoad ; JmpTo
-	jmp	(SingleObjLoad).l
+JmpTo12_AllocateObject ; JmpTo
+	jmp	(AllocateObject).l
 JmpTo33_MarkObjGone ; JmpTo
 	jmp	(MarkObjGone).l
 JmpTo14_AnimateSprite ; JmpTo
@@ -60943,7 +61288,7 @@ Obj4B_Init:
 	addq.b	#2,routine(a0)	; => Obj4B_Main
 
 	; load exhaust flame object
-	jsrto	SingleObjLoad2, JmpTo20_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo20_AllocateObjectAfterCurrent
 	bne.s	+	; rts
 
 	_move.b	#ObjID_Buzzer,id(a1) ; load obj4B
@@ -61068,7 +61413,7 @@ Obj4B_DoneShooting:
 ; ---------------------------------------------------------------------------
 ; loc_2D24E
 Obj4B_ShootProjectile:
-	jsr	(SingleObjLoad2).l	; Find next open object space
+	jsr	(AllocateObjectAfterCurrent).l	; Find next open object space
 	bne.s	+
 
 	_move.b	#ObjID_Buzzer,id(a1) ; load obj4B
@@ -61126,8 +61471,8 @@ Obj4B_MapUnc_2D2EA:	BINCLUDE "mappings/sprite/obj4B.bin"
 ; loc_2D368:
 JmpTo49_DeleteObject ; JmpTo
 	jmp	(DeleteObject).l
-JmpTo20_SingleObjLoad2 ; JmpTo
-	jmp	(SingleObjLoad2).l
+JmpTo20_AllocateObjectAfterCurrent ; JmpTo
+	jmp	(AllocateObjectAfterCurrent).l
 JmpTo15_AnimateSprite ; JmpTo
 	jmp	(AnimateSprite).l
 JmpTo7_Adjust2PArtPointer2 ; JmpTo
@@ -61485,7 +61830,7 @@ Boss_LoadExplosion:
 	move.b	(Vint_runcount+3).w,d0
 	andi.b	#7,d0
 	bne.s	+	; rts
-	jsr	(SingleObjLoad).l
+	jsr	(AllocateObject).l
 	bne.s	+	; rts
 	_move.b	#ObjID_BossExplosion,id(a1) ; load obj58
 	move.w	x_pos(a0),x_pos(a1)
@@ -61588,7 +61933,7 @@ Obj5D_Init:
 	jsrto	Adjust2PArtPointer, JmpTo60_Adjust2PArtPointer
 
 	; Robotnik sitting in his eggmobile
-	jsr	(SingleObjLoad2).l
+	jsr	(AllocateObjectAfterCurrent).l
 	bne.w	loc_2D8AC
 	_move.b	#ObjID_CPZBoss,id(a1) ; load obj5D
 	move.l	a0,Obj5D_parent(a1)
@@ -61608,7 +61953,7 @@ Obj5D_Init:
 	bmi.w	loc_2D8AC
 
 	; eggmobile's exhaust flame
-	jsr	(SingleObjLoad2).l
+	jsr	(AllocateObjectAfterCurrent).l
 	bne.w	loc_2D8AC
 	_move.b	#ObjID_CPZBoss,id(a1) ; load obj5D
 	move.l	a0,Obj5D_parent(a1)
@@ -61625,7 +61970,7 @@ Obj5D_Init:
 	move.b	render_flags(a0),render_flags(a1)
 
 	; large pump mechanism on top of eggmobile
-	jsr	(SingleObjLoad2).l
+	jsr	(AllocateObjectAfterCurrent).l
 	bne.s	loc_2D8AC
 	_move.b	#ObjID_CPZBoss,id(a1) ; load obj5D
 	move.l	a0,Obj5D_parent(a1)
@@ -61640,7 +61985,7 @@ Obj5D_Init:
 
 loc_2D8AC:
 	; glass container that dumps mega mack on player
-	jsr	(SingleObjLoad2).l
+	jsr	(AllocateObjectAfterCurrent).l
 	bne.s	loc_2D908
 	_move.b	#ObjID_CPZBoss,id(a1) ; load obj5D
 	move.l	a0,Obj5D_parent(a1)
@@ -61659,7 +62004,7 @@ loc_2D8AC:
 
 loc_2D908:
 	; pipe used to suck mega mack from tube below
-	jsr	(SingleObjLoad2).l
+	jsr	(AllocateObjectAfterCurrent).l
 	bne.s	return_2D94C
 	_move.b	#ObjID_CPZBoss,id(a1) ; load obj5D
 	move.l	a0,Obj5D_parent(a1)
@@ -61887,7 +62232,7 @@ Obj5D_Main_CreateExplosion:
 	move.b	(Vint_runcount+3).w,d0
 	andi.b	#7,d0
 	bne.s	+	; rts
-	jsr	(SingleObjLoad).l
+	jsr	(AllocateObject).l
 	bne.s	+	; rts
 	_move.b	#ObjID_BossExplosion,id(a1) ; load obj58
 	move.w	x_pos(a0),x_pos(a1)
@@ -61909,7 +62254,7 @@ Obj5D_Main_CreateExplosion:
 ; Creates an explosion.
 
 Obj5D_Main_Explode2:
-	jsr	(SingleObjLoad).l
+	jsr	(AllocateObject).l
 	bne.s	+	; rts
 	_move.b	#ObjID_BossExplosion,id(a1) ; load obj58
 	; This code suggests that the intended effect is for each piece of
@@ -62068,7 +62413,7 @@ Obj5D_Pump:
 	addq.w	#1,d3
 
 -
-	jsr	(SingleObjLoad).l
+	jsr	(AllocateObject).l
 	bne.w	JmpTo51_DeleteObject
 	_move.b	#ObjID_CPZBoss,id(a1) ; load obj5D
 	move.l	#Obj5D_MapUnc_2EADC,mappings(a1)
@@ -62150,7 +62495,7 @@ Obj5D_Pipe_Extend:
 	subq.w  #1,Obj5D_pipe_segments(a0)	; is pipe fully extended?
 	blt.s   Obj5D_Pipe_Extend_End		; if yes, branch
     endif
-	jsr	(SingleObjLoad2).l
+	jsr	(AllocateObjectAfterCurrent).l
 	beq.s	+
 	rts
 ; ---------------------------------------------------------------------------
@@ -62208,7 +62553,7 @@ Obj5D_Pipe_Pump_Index:	offsetTable
 ; prepares for pumping animation
 
 Obj5D_Pipe_Pump_0:
-	jsr	(SingleObjLoad2).l
+	jsr	(AllocateObjectAfterCurrent).l
 	bne.w	Obj5D_PipeSegment
 	move.b	#$E,routine(a0)	; => Obj5D_PipeSegment	; temporarily turn control object into a pipe segment
 	move.b	#6,routine(a1)			; => Obj5D_Pipe_Pump
@@ -62231,7 +62576,7 @@ Obj5D_Pipe_Pump_0:
 	move.l	a0,Obj5D_parent(a1)	; address of control object
 	move.b	#$12,Obj5D_timer(a1)
 
-	jsr	(SingleObjLoad2).l
+	jsr	(AllocateObjectAfterCurrent).l
 	bne.s	BranchTo_Obj5D_PipeSegment
 	_move.b	#ObjID_CPZBoss,id(a1) ; load obj5D
 	move.b	#$A,routine(a1)	; => Obj5D_Dripper
@@ -62513,7 +62858,7 @@ Obj5D_Container_Init:
 	btst	#7,Obj5D_status2(a1)
 	bne.s	+
 	bset	#7,Obj5D_status2(a1)
-	jsr	(SingleObjLoad2).l
+	jsr	(AllocateObjectAfterCurrent).l
 	bne.s	+
 	_move.b	#ObjID_CPZBoss,id(a1) ; load obj5D
 	move.l	a0,Obj5D_parent(a1)
@@ -62528,7 +62873,7 @@ Obj5D_Container_Init:
 	move.b	#4,routine_secondary(a1)	; => Obj5D_Container_Floor
 	move.b	#9,anim(a1)
 +
-	jsr	(SingleObjLoad2).l
+	jsr	(AllocateObjectAfterCurrent).l
 	bne.s	+
 	_move.b	#ObjID_CPZBoss,id(a1) ; load obj5D
 	move.l	a0,Obj5D_parent(a1)
@@ -62627,7 +62972,7 @@ loc_2E356:
 	bmi.w	loc_2E3E6
 
 loc_2E35C:
-	jsr	(SingleObjLoad).l
+	jsr	(AllocateObject).l
 	bne.w	JmpTo51_DeleteObject
 	_move.b	#ObjID_CPZBoss,id(a1) ; load obj5D
 	move.l	#Obj5D_MapUnc_2EADC,mappings(a1)
@@ -62712,7 +63057,7 @@ loc_2E464:
 	bset	#5,Obj5D_status2(a1)
 	bclr	#2,Obj5D_status2(a1)
 	move.w	#$12,Obj5D_timer2(a0)
-	jsr	(SingleObjLoad2).l
+	jsr	(AllocateObjectAfterCurrent).l
 	bne.s	return_2E4CC
 	_move.b	#ObjID_CPZBoss,id(a1) ; load obj5D
 	move.l	a0,Obj5D_parent(a1)
@@ -62745,7 +63090,7 @@ loc_2E4CE:
 	bclr	#2,Obj5D_status2(a1)
 	clr.b	routine_secondary(a0)
 	movea.l	a1,a2
-	jsr	(SingleObjLoad2).l
+	jsr	(AllocateObjectAfterCurrent).l
 	bne.s	return_2E550
 	_move.b	#ObjID_CPZBoss,id(a1) ; load obj5D
 	move.l	Obj5D_parent(a0),Obj5D_parent(a1)
@@ -62997,7 +63342,7 @@ Obj5D_Gunk_Droplets:
 	moveq	#3,d3
 
 Obj5D_Gunk_Droplets_Loop:
-	jsr	(SingleObjLoad2).l
+	jsr	(AllocateObjectAfterCurrent).l
 	bne.w	BranchTo_JmpTo34_DisplaySprite
 	_move.b	#ObjID_CPZBoss,id(a1) ; load obj5D
 	move.l	a0,Obj5D_parent(a1)
@@ -63371,7 +63716,7 @@ Obj56_Init:
 	move.w	x_pos(a0),objoff_30(a0)
 	move.w	y_pos(a0),objoff_38(a0)
 	jsrto	Adjust2PArtPointer, JmpTo61_Adjust2PArtPointer
-	jsr	(SingleObjLoad2).l	; vehicle with ability to fly, top part
+	jsr	(AllocateObjectAfterCurrent).l	; vehicle with ability to fly, top part
 	bne.w	+
 
 	_move.b	#ObjID_EHZBoss,id(a1) ; load obj56
@@ -63388,7 +63733,7 @@ Obj56_Init:
 	move.b	#1,anim(a1)	; normal animation
 	move.b	render_flags(a0),render_flags(a1)
 +
-	jsr	(SingleObjLoad2).l	; Vehicle on ground
+	jsr	(AllocateObjectAfterCurrent).l	; Vehicle on ground
 	bne.s	+
 
 	_move.b	#ObjID_EHZBoss,id(a1) ; load obj56
@@ -63408,7 +63753,7 @@ Obj56_Init:
 	subi_.w	#8,objoff_38(a0)
 	move.w	#$2AF0,x_pos(a0)
 	move.w	#$2F8,y_pos(a0)
-	jsr	(SingleObjLoad2).l	; propeller normal
+	jsr	(AllocateObjectAfterCurrent).l	; propeller normal
 	bne.s	+	; rts
 
 	_move.b	#ObjID_EHZBoss,id(a1) ; load obj56
@@ -63428,7 +63773,7 @@ Obj56_Init:
 ; ---------------------------------------------------------------------------
 
 loc_2F098:
-	jsr	(SingleObjLoad2).l	; first foreground wheel
+	jsr	(AllocateObjectAfterCurrent).l	; first foreground wheel
 	bne.s	+
 
 	_move.b	#ObjID_EHZBoss,id(a1) ; load obj56
@@ -63451,7 +63796,7 @@ loc_2F098:
 	move.w	#$A,objoff_2A(a1)
 	move.b	#0,subtype(a1)
 +
-	jsr	(SingleObjLoad2).l	; second foreground wheel
+	jsr	(AllocateObjectAfterCurrent).l	; second foreground wheel
 	bne.s	+
 
 	_move.b	#ObjID_EHZBoss,id(a1) ; load obj56
@@ -63474,7 +63819,7 @@ loc_2F098:
 	move.w	#$A,objoff_2A(a1)
 	move.b	#1,subtype(a1)
 +
-	jsr	(SingleObjLoad2).l	; background wheel
+	jsr	(AllocateObjectAfterCurrent).l	; background wheel
 	bne.s	+
 
 	_move.b	#ObjID_EHZBoss,id(a1) ; load obj56
@@ -63497,7 +63842,7 @@ loc_2F098:
 	move.w	#$A,objoff_2A(a1)
 	move.b	#2,subtype(a1)
 +
-	jsr	(SingleObjLoad2).l	; Spike
+	jsr	(AllocateObjectAfterCurrent).l	; Spike
 	bne.s	+
 
 	_move.b	#ObjID_EHZBoss,id(a1) ; load obj56
@@ -63645,7 +63990,7 @@ off_2F39C:	offsetTable
 
 loc_2F3A2:	; Obj56_VehicleMain_SubA_0:
 	bclr	#0,objoff_2D(a0)	; Robotnik off ground
-	jsrto	SingleObjLoad2, JmpTo21_SingleObjLoad2	; reload propeller after defeat
+	jsrto	AllocateObjectAfterCurrent, JmpTo21_AllocateObjectAfterCurrent	; reload propeller after defeat
 	bne.w	+	; rts
 
 	_move.b	#ObjID_EHZBoss,id(a1) ; load obj56
@@ -64228,8 +64573,8 @@ JmpTo5_DeleteObject2 ; JmpTo
 	jmp	(DeleteObject2).l
 JmpTo6_PlaySound ; JmpTo
 	jmp	(PlaySound).l
-JmpTo21_SingleObjLoad2 ; JmpTo
-	jmp	(SingleObjLoad2).l
+JmpTo21_AllocateObjectAfterCurrent ; JmpTo
+	jmp	(AllocateObjectAfterCurrent).l
 JmpTo17_AnimateSprite ; JmpTo
 	jmp	(AnimateSprite).l
 JmpTo9_Adjust2PArtPointer2 ; JmpTo
@@ -64377,7 +64722,7 @@ Obj52_Mobile_Flamethrower:
 	move.b	#1,mainspr_childsprites(a0)
 	cmpi.b	#-$18,objoff_3E(a0)
 	bne.s	Obj52_Mobile_Hover
-	jsrto	SingleObjLoad, JmpTo13_SingleObjLoad
+	jsrto	AllocateObject, JmpTo13_AllocateObject
 	bne.s	loc_2FDAA
 	_move.b	#ObjID_HTZBoss,id(a1) ; load obj52
 	move.b	#4,boss_subtype(a1)
@@ -64439,7 +64784,7 @@ Obj52_CreateLavaBall:
 	tst.b	objoff_38(a0)
 	bne.s	loc_2FE58
 	st.b	objoff_38(a0)
-	jsrto	SingleObjLoad, JmpTo13_SingleObjLoad
+	jsrto	AllocateObject, JmpTo13_AllocateObject
 	bne.s	loc_2FE58
 	move.b	#ObjID_HTZBoss,id(a1) ; load obj52
 	move.b	#6,boss_subtype(a1)
@@ -64567,7 +64912,7 @@ loc_2FF78:
 ; ===========================================================================
 
 loc_2FF80:
-	jsrto	SingleObjLoad, JmpTo13_SingleObjLoad
+	jsrto	AllocateObject, JmpTo13_AllocateObject
 	bne.w	return_30006
 	move.w	x_pos(a0),x_pos(a1)
 	move.w	y_pos(a0),y_pos(a1)
@@ -64770,7 +65115,7 @@ JmpTo53_DeleteObject ; JmpTo
 
 ; loc_301B4:
 Obj52_CreateSmoke
-	jsrto	SingleObjLoad, JmpTo13_SingleObjLoad
+	jsrto	AllocateObject, JmpTo13_AllocateObject
 	bne.s	return_3020E
 	move.b	#ObjID_HTZBoss,id(a1) ; load obj52
 	move.b	#8,boss_subtype(a1)
@@ -64862,8 +65207,8 @@ JmpTo36_DisplaySprite ; JmpTo
 	jmp	(DisplaySprite).l
 JmpTo53_DeleteObject ; JmpTo
 	jmp	(DeleteObject).l
-JmpTo13_SingleObjLoad ; JmpTo
-	jmp	(SingleObjLoad).l
+JmpTo13_AllocateObject ; JmpTo
+	jmp	(AllocateObject).l
 JmpTo37_MarkObjGone ; JmpTo
 	jmp	(MarkObjGone).l
 JmpTo7_PlaySound ; JmpTo
@@ -64994,7 +65339,7 @@ Obj89_Init_RaisePillars:
 	move.w	#$100,(Boss_Y_vel).w
 
 	; load first pillar object
-	jsrto	SingleObjLoad, JmpTo14_SingleObjLoad
+	jsrto	AllocateObject, JmpTo14_AllocateObject
 	bne.w	Obj89_Init_Standard
 	move.b	#ObjID_ARZBoss,id(a1) ; load obj89
 	move.l	#Obj89_MapUnc_30D68,mappings(a1)
@@ -65010,7 +65355,7 @@ Obj89_Init_RaisePillars:
 	move.b	#2,priority(a1)
 	move.b	#$20,y_radius(a1)
 	movea.l	a1,a2				; save first pillar's address
-	jsrto	SingleObjLoad2, JmpTo22_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo22_AllocateObjectAfterCurrent
 	bne.s	Obj89_Init_Standard
 	moveq	#0,d0
 
@@ -65561,7 +65906,7 @@ Obj89_Pillar_ShakeOffsets:
 ; ===========================================================================
 ; loc_30AB4:
 Obj89_Pillar_Shoot:
-	jsrto	SingleObjLoad, JmpTo14_SingleObjLoad
+	jsrto	AllocateObject, JmpTo14_AllocateObject
 	bne.w	return_30B40
 	_move.b	#ObjID_ARZBoss,id(a1) ; load obj89
     if fixBugs
@@ -65589,7 +65934,7 @@ Obj89_Pillar_Shoot:
 	add.w	d0,d0
 	move.w	Obj89_Arrow_Offsets(pc,d0.w),y_pos(a1)
 	movea.l	a1,a2
-	jsrto	SingleObjLoad, JmpTo14_SingleObjLoad
+	jsrto	AllocateObject, JmpTo14_AllocateObject
 	bne.s	return_30B40
 	_move.b	#ObjID_ARZBoss,id(a1) ; load obj89
     if fixBugs
@@ -65850,12 +66195,12 @@ JmpTo37_DisplaySprite ; JmpTo
 	jmp	(DisplaySprite).l
 JmpTo55_DeleteObject ; JmpTo
 	jmp	(DeleteObject).l
-JmpTo14_SingleObjLoad ; JmpTo
-	jmp	(SingleObjLoad).l
+JmpTo14_AllocateObject ; JmpTo
+	jmp	(AllocateObject).l
 JmpTo8_PlaySound ; JmpTo
 	jmp	(PlaySound).l
-JmpTo22_SingleObjLoad2 ; JmpTo
-	jmp	(SingleObjLoad2).l
+JmpTo22_AllocateObjectAfterCurrent ; JmpTo
+	jmp	(AllocateObjectAfterCurrent).l
 JmpTo19_AnimateSprite ; JmpTo
 	jmp	(AnimateSprite).l
 JmpTo3_RandomNumber ; JmpTo
@@ -66245,7 +66590,7 @@ Obj57_LoadStoneSpike:
 	addi.w	#$20F0,d1
 	cmpi.w	#$2230,d1
 	bgt.s	Obj57_LoadStoneSpike
-	jsrto	SingleObjLoad, JmpTo15_SingleObjLoad
+	jsrto	AllocateObject, JmpTo15_AllocateObject
 	bne.s	return_31438
 	move.b	#ObjID_MCZBoss,id(a1)	; load obj57
 	move.b	#4,boss_subtype(a1)
@@ -66526,8 +66871,8 @@ JmpTo38_DisplaySprite ; JmpTo
 	jmp	(DisplaySprite).l
 JmpTo57_DeleteObject ; JmpTo
 	jmp	(DeleteObject).l
-JmpTo15_SingleObjLoad ; JmpTo
-	jmp	(SingleObjLoad).l
+JmpTo15_AllocateObject ; JmpTo
+	jmp	(AllocateObject).l
 JmpTo4_RandomNumber ; JmpTo
 	jmp	(RandomNumber).l
 JmpTo9_LoadPLC ; JmpTo
@@ -66780,7 +67125,7 @@ loc_31BC6:
 ; ===========================================================================
 
 loc_31BF2:
-	jsrto	SingleObjLoad, JmpTo16_SingleObjLoad
+	jsrto	AllocateObject, JmpTo16_AllocateObject
 	bne.s	return_31C06
 	move.b	#ObjID_CNZBoss,id(a1) ; load obj51
 	move.b	#4,boss_subtype(a1)
@@ -67208,7 +67553,7 @@ loc_32030:
 	move.b	#4,boss_subtype(a0)
 	move.b	#6,routine_secondary(a0)
 	move.b	#$98,collision_flags(a0)
-	jsrto	SingleObjLoad2, JmpTo23_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo23_AllocateObjectAfterCurrent
 	bne.s	return_3207E
 	moveq	#0,d0
 
@@ -67280,12 +67625,12 @@ JmpTo39_DisplaySprite ; JmpTo
 	jmp	(DisplaySprite).l
 JmpTo59_DeleteObject ; JmpTo
 	jmp	(DeleteObject).l
-JmpTo16_SingleObjLoad ; JmpTo
-	jmp	(SingleObjLoad).l
+JmpTo16_AllocateObject ; JmpTo
+	jmp	(AllocateObject).l
 JmpTo9_PlaySound ; JmpTo
 	jmp	(PlaySound).l
-JmpTo23_SingleObjLoad2 ; JmpTo
-	jmp	(SingleObjLoad2).l
+JmpTo23_AllocateObjectAfterCurrent ; JmpTo
+	jmp	(AllocateObjectAfterCurrent).l
 JmpTo20_AnimateSprite ; JmpTo
 	jmp	(AnimateSprite).l
 JmpTo10_LoadPLC ; JmpTo
@@ -67356,7 +67701,7 @@ Obj54_Init:
 	move.w	x_pos(a0),sub3_x_pos(a0)
 	move.w	y_pos(a0),sub3_y_pos(a0)
 	move.b	#0,sub3_mapframe(a0)
-	jsrto	SingleObjLoad, JmpTo17_SingleObjLoad
+	jsrto	AllocateObject, JmpTo17_AllocateObject
 	bne.s	+
 	move.b	#ObjID_MTZBoss,id(a1) ; load obj54
 	move.b	#6,boss_subtype(a1)		; => Obj54_LaserShooter
@@ -67369,7 +67714,7 @@ Obj54_Init:
 	move.w	y_pos(a0),y_pos(a1)
 	move.l	a0,objoff_34(a1)
 	move.b	#$20,width_pixels(a1)
-	jsrto	SingleObjLoad, JmpTo17_SingleObjLoad
+	jsrto	AllocateObject, JmpTo17_AllocateObject
 	bne.s	+
 	move.b	#ObjID_MTZBossOrb,id(a1) ; load obj53
 	move.l	a0,objoff_34(a1)
@@ -67716,7 +68061,7 @@ Obj54_FireLaser:
 	tst.b	objoff_2D(a0)
 	beq.s	+		; rts
 	subq.b	#1,objoff_2D(a0)
-	jsrto	SingleObjLoad, JmpTo17_SingleObjLoad
+	jsrto	AllocateObject, JmpTo17_AllocateObject
 	bne.s	+		; rts
 	move.b	#ObjID_MTZBoss,id(a1) ; load obj54
 	move.b	#4,boss_subtype(a1)		; => Obj54_Laser
@@ -67920,7 +68265,7 @@ Obj53_Init:
 	moveq	#0,d2
 	bra.s	+
 ; ===========================================================================
--	jsrto	SingleObjLoad, JmpTo17_SingleObjLoad
+-	jsrto	AllocateObject, JmpTo17_AllocateObject
 	bne.s	++
 +
 	move.b	#$20,width_pixels(a1)
@@ -68319,8 +68664,8 @@ JmpTo40_DisplaySprite ; JmpTo
 	jmp	(DisplaySprite).l
 JmpTo61_DeleteObject ; JmpTo
 	jmp	(DeleteObject).l
-JmpTo17_SingleObjLoad ; JmpTo
-	jmp	(SingleObjLoad).l
+JmpTo17_AllocateObject ; JmpTo
+	jmp	(AllocateObject).l
 JmpTo10_PlaySound ; JmpTo
 	jmp	(PlaySound).l
 JmpTo21_AnimateSprite ; JmpTo
@@ -68736,7 +69081,7 @@ Obj55_LaserShooter_Fire:
 	move.w	#0,(Boss_Y_vel).w
 	move.b	#8,Obj55_anim_frame_duration(a0)
 	move.b	#6,mainspr_mapframe(a0)	; use firing frame
-	jsrto	SingleObjLoad, JmpTo18_SingleObjLoad
+	jsrto	AllocateObject, JmpTo18_AllocateObject
 	bne.w	Obj55_LaserShooter_End
 	move.b	#ObjID_OOZBoss,id(a1) ; load obj55
 	move.b	#8,boss_subtype(a1)	; => Obj55_Laser
@@ -69042,7 +69387,7 @@ return_3363E:
 ; ===========================================================================
 ; loc_33640:
 Obj55_Laser_CreateWave:
-	jsrto	SingleObjLoad, JmpTo18_SingleObjLoad
+	jsrto	AllocateObject, JmpTo18_AllocateObject
 	bne.s	return_336B0
 	move.b	#ObjID_OOZBoss,id(a1) ; load obj55
 	move.b	#8,boss_subtype(a1)
@@ -69074,7 +69419,7 @@ Obj55_Wave:
 	move.w	#$C7,Obj55_Wave_delay(a0)
 	subq.b	#1,Obj55_Wave_count(a0)
 	bmi.s	Obj55_Wave_End
-	jsrto	SingleObjLoad2, JmpTo24_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo24_AllocateObjectAfterCurrent
 	bne.s	Obj55_Wave_End
 	moveq	#0,d0
 
@@ -69088,7 +69433,7 @@ Obj55_Wave:
     endif
 
 	move.w	#5,Obj55_Wave_delay(a1)
-	move.w	#$200,anim(a1)
+	move.w	#(2<<8)|(0<<0),anim(a1)
 	move.w	#$10,d0		; place new wave object 16 pixels next to current one
 	tst.w	x_vel(a1)	; is object going left?
 	bpl.s	+		; if not, branch
@@ -69147,14 +69492,14 @@ JmpTo41_DisplaySprite ; JmpTo
 	jmp	(DisplaySprite).l
 JmpTo62_DeleteObject ; JmpTo
 	jmp	(DeleteObject).l
-JmpTo18_SingleObjLoad ; JmpTo
-	jmp	(SingleObjLoad).l
+JmpTo18_AllocateObject ; JmpTo
+	jmp	(AllocateObject).l
 JmpTo38_MarkObjGone ; JmpTo
 	jmp	(MarkObjGone).l
 JmpTo11_PlaySound ; JmpTo
 	jmp	(PlaySound).l
-JmpTo24_SingleObjLoad2 ; JmpTo
-	jmp	(SingleObjLoad2).l
+JmpTo24_AllocateObjectAfterCurrent ; JmpTo
+	jmp	(AllocateObjectAfterCurrent).l
 JmpTo22_AnimateSprite ; JmpTo
 	jmp	(AnimateSprite).l
 JmpTo5_RandomNumber ; JmpTo
@@ -69304,7 +69649,7 @@ SSHurt_Animation:
 	tst.w	(Ring_count_2P).w
 	beq.s	return_33A90
 +
-	jsrto	SSSingleObjLoad, JmpTo_SSSingleObjLoad
+	jsrto	SSAllocateObject, JmpTo_SSAllocateObject
 	bne.s	return_33A90
 	move.l	a0,ss_parent(a1)
 	move.b	#ObjID_SSRingSpill,id(a1) ; load obj5B
@@ -70072,8 +70417,8 @@ Obj09_MapRUnc_345FA:	BINCLUDE "mappings/spriteDPLC/obj09.bin"
     if ~~removeJmpTos
 JmpTo42_DisplaySprite ; JmpTo
 	jmp	(DisplaySprite).l
-JmpTo_SSSingleObjLoad ; JmpTo
-	jmp	(SSSingleObjLoad).l
+JmpTo_SSAllocateObject ; JmpTo
+	jmp	(SSAllocateObject).l
 
 	align 4
     endif
@@ -70828,7 +71173,7 @@ loc_35282:
 ; ===========================================================================
 
 loc_3529C:
-	jsrto	SSSingleObjLoad2, JmpTo_SSSingleObjLoad2
+	jsrto	SSAllocateObjectAfterCurrent, JmpTo_SSAllocateObjectAfterCurrent
 	bne.w	return_3532C
 	move.l	a0,objoff_34(a1)
 	move.b	id(a0),id(a1)
@@ -71042,7 +71387,7 @@ loc_35440:
 loc_35458:
 	lea_	byte_353EA,a2
 loc_3545C:
-	cmpi.b	#ObjID_SonicSS,(a3)
+	cmpi.b	#ObjID_SonicSS,id(a3)
 	bne.s	loc_35468
 	sub.w	d1,(Ring_count).w
 	bra.s	loc_3546C
@@ -71060,7 +71405,7 @@ loc_3546C:
 ; ===========================================================================
 
 loc_35478:
-	jsrto	SSSingleObjLoad, JmpTo2_SSSingleObjLoad
+	jsrto	SSAllocateObject, JmpTo2_SSAllocateObject
 	bne.s	loc_354DE
 
 loc_3547E:
@@ -71096,9 +71441,9 @@ Obj5B_Main:
 	bsr.w	loc_3551C
 	tst.w	x_pos(a0)
 	bmi.w	JmpTo63_DeleteObject
-	cmpi.w	#$100,x_pos(a0)
+	cmpi.w	#256,x_pos(a0) ; Screen width
 	bhs.w	JmpTo63_DeleteObject
-	cmpi.w	#$E0,y_pos(a0)
+	cmpi.w	#224,y_pos(a0) ; Screen height
 	bgt.w	JmpTo63_DeleteObject
 	lea	(Ani_obj5B_obj60).l,a1
 	jsrto	AnimateSprite, JmpTo24_AnimateSprite
@@ -71164,7 +71509,7 @@ Obj5A_Init:
 	st.b	(SS_Checkpoint_Rainbow_flag).w
 	moveq	#6,d0
 -
-	jsrto	SSSingleObjLoad, JmpTo2_SSSingleObjLoad
+	jsrto	SSAllocateObject, JmpTo2_SSAllocateObject
 	bne.s	+
 	move.b	#ObjID_SSMessage,id(a1) ; load obj5A
 	move.b	#2,routine(a1)	; => Obj5A_CheckpointRainbow
@@ -71227,7 +71572,7 @@ Obj5A_ToGoOffsets:
 ;loc_3561E
 Obj5A_CreateRingsToGoText:
 	st.b	(SS_TriggerRingsToGo).w
-	jsrto	SSSingleObjLoad, JmpTo2_SSSingleObjLoad
+	jsrto	SSAllocateObject, JmpTo2_SSAllocateObject
 	bne.w	return_356E4
 	move.l	#Obj5F_MapUnc_72D2,mappings(a1)
 	move.w	#make_art_tile(ArtTile_ArtNem_SpecialHUD,2,0),art_tile(a1)
@@ -71241,7 +71586,7 @@ Obj5A_CreateRingsToGoText:
 	bset	#6,render_flags(a1)
 	move.b	#0,mainspr_childsprites(a1)
 	move.b	#$E,routine(a1)	; => Obj5A_RingsNeeded
-	lea	sub2_x_pos(a1),a2
+	lea	subspr_data(a1),a2
 	move.w	#$5A,d1
 	move.w	#$38,d2
 	moveq	#0,d0
@@ -71258,7 +71603,7 @@ Obj5A_CreateRingsToGoText:
 
 -	move.b	(a3)+,d0
 	bmi.s	+
-	jsrto	SSSingleObjLoad, JmpTo2_SSSingleObjLoad
+	jsrto	SSAllocateObject, JmpTo2_SSAllocateObject
 	bne.s	return_356E4
 	bsr.s	Init_Obj5A
 	move.b	#$10,routine(a1)
@@ -71273,7 +71618,7 @@ Obj5A_CreateRingsToGoText:
 
 -	move.b	(a3)+,d0
 	bmi.s	+
-	jsrto	SSSingleObjLoad, JmpTo2_SSSingleObjLoad
+	jsrto	SSAllocateObject, JmpTo2_SSAllocateObject
 	bne.s	return_356E4
 	bsr.s	Init_Obj5A
 	move.b	#$12,routine(a1)	; => Obj5A_MoveAndFlash
@@ -71284,7 +71629,7 @@ Obj5A_CreateRingsToGoText:
 ; ===========================================================================
 +
 	move.b	(a3)+,d0
-	jsrto	SSSingleObjLoad, JmpTo2_SSSingleObjLoad
+	jsrto	SSAllocateObject, JmpTo2_SSAllocateObject
 	bne.s	return_356E4
 	bsr.s	Init_Obj5A
 	move.b	#$14,routine(a1)	; => Obj5A_FlashOnly
@@ -71372,7 +71717,7 @@ Obj5A_RingsNeeded:
 
 loc_3577A:
 	moveq	#1,d2
-	lea	sub2_x_pos(a0),a1
+	lea	subspr_data(a0),a1
 	move.w	d0,(SS_RingsToGoBCD).w
 	move.w	d0,d1
 	andi.w	#$F,d1
@@ -71702,7 +72047,7 @@ Obj5A_CreateCheckpointWingedHand:
 	beq.s	+						; Branch if not
 	move.w	#$1C,d4
 +
-	jsrto	SSSingleObjLoad, JmpTo2_SSSingleObjLoad
+	jsrto	SSAllocateObject, JmpTo2_SSAllocateObject
 	bne.w	+		; rts
 	move.b	#ObjID_SSMessage,id(a1) ; load obj5A
 	move.b	#6,routine(a1)	; => Obj5A_Handshake
@@ -71715,7 +72060,7 @@ Obj5A_CreateCheckpointWingedHand:
 	move.w	#$46,objoff_2A(a1)
 	move.b	#$14,mapping_frame(a1)		; Checkpoint wings
 	movea.l	a1,a2
-	jsrto	SSSingleObjLoad, JmpTo2_SSSingleObjLoad
+	jsrto	SSAllocateObject, JmpTo2_SSAllocateObject
 	bne.s	+		; rts
 	move.b	#ObjID_SSMessage,id(a1) ; load obj5A
 	move.b	#6,routine(a1)	; => Obj5A_Handshake
@@ -71773,7 +72118,7 @@ Obj5A_TextFlyout:
 ; ===========================================================================
 ;loc_35BD6
 Obj5A_PrintNumber:
-	jsrto	SSSingleObjLoad2, JmpTo_SSSingleObjLoad2
+	jsrto	SSAllocateObjectAfterCurrent, JmpTo_SSAllocateObjectAfterCurrent
 	bne.s	+		; rts
 	move.b	d0,mapping_frame(a1)
 	move.l	#Obj5F_MapUnc_72D2,mappings(a1)
@@ -71799,7 +72144,7 @@ Obj5A_PrintWord:
 
 -	move.b	(a3)+,d0
 	bmi.s	+		; rts
-	jsrto	SSSingleObjLoad2, JmpTo_SSSingleObjLoad2
+	jsrto	SSAllocateObjectAfterCurrent, JmpTo_SSAllocateObjectAfterCurrent
 	bne.s	+		; rts
 	move.b	d0,mapping_frame(a1)
 	move.l	#Obj5A_MapUnc_35E1E,mappings(a1)
@@ -72447,10 +72792,10 @@ JmpTo14_CalcSine ; JmpTo
 	jmp	(CalcSine).l
 JmpTo7_ObjectMoveAndFall ; JmpTo
 	jmp	(ObjectMoveAndFall).l
-JmpTo_SSSingleObjLoad2 ; JmpTo
-	jmp	(SSSingleObjLoad2).l
-JmpTo2_SSSingleObjLoad ; JmpTo
-	jmp	(SSSingleObjLoad).l
+JmpTo_SSAllocateObjectAfterCurrent ; JmpTo
+	jmp	(SSAllocateObjectAfterCurrent).l
+JmpTo2_SSAllocateObject ; JmpTo
+	jmp	(SSAllocateObject).l
 
 	align 4
     endif
@@ -72773,7 +73118,7 @@ InheritParentXYFlip:
 
 ;loc_367D0:
 LoadChildObject:
-	jsr	(SingleObjLoad2).l
+	jsr	(AllocateObjectAfterCurrent).l
 	bne.s	+	; rts
 	move.w	(a2)+,d0
 	move.w	a1,(a0,d0.w) ; store pointer to child in parent's SST
@@ -72822,7 +73167,7 @@ Obj_CreateProjectiles:
 	moveq	#0,d1
 	; loop creates d6+1 projectiles
 -
-	jsr	(SingleObjLoad2).l
+	jsr	(AllocateObjectAfterCurrent).l
 	bne.s	return_3686E
 	_move.b	#ObjID_Projectile,id(a1) ; load obj98
 	move.b	d2,subtype(a1)	; used for object initialization
@@ -73295,7 +73640,7 @@ loc_36C2C:
 	moveq	#0,d1
 
 	moveq	#4,d6
--	jsrto	SingleObjLoad, JmpTo19_SingleObjLoad
+-	jsrto	AllocateObject, JmpTo19_AllocateObject
 	bne.s	+	; rts
 	bsr.w	loc_36C40
 	dbf	d6,-
@@ -73318,7 +73663,7 @@ loc_36C64:
 	moveq	#0,d1
 
 	moveq	#3,d6
--	jsrto	SingleObjLoad, JmpTo19_SingleObjLoad
+-	jsrto	AllocateObject, JmpTo19_AllocateObject
 	bne.s	+	; rts
 	bsr.w	loc_36C78
 	dbf	d6,-
@@ -73537,7 +73882,7 @@ Obj91_Animate:
 ; loc_36E78:
 Obj91_MakeBubble:
 	move.w	#$50,Obj91_bubble_timer(a0)	; reset timer
-	jsrto	SingleObjLoad, JmpTo19_SingleObjLoad
+	jsrto	AllocateObject, JmpTo19_AllocateObject
 	bne.s	return_36EB0
 	_move.b	#ObjID_SmallBubbles,id(a1) ; load obj
 	move.b	#6,subtype(a1) ; <== Obj90_SubObjData2
@@ -73679,7 +74024,7 @@ loc_36F90:
 ; ===========================================================================
 
 loc_36FA4:
-	jsrto	SingleObjLoad2, JmpTo25_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo25_AllocateObjectAfterCurrent
 	bne.s	loc_36FDC
 	st.b	objoff_2B(a0)
 	_move.b	#ObjID_SpikerDrill,id(a1) ; load obj93
@@ -73813,13 +74158,16 @@ Obj95_Init:
 
 ; loc_37152:
 Obj95_NextFireball:
-	jsrto	SingleObjLoad2, JmpTo25_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo25_AllocateObjectAfterCurrent
 	bne.s	loc_371AE
 	addq.b	#1,(a3)
+    if object_size<>$40
+	moveq	#0,d5 ; Clear the high word for the coming division.
+    endif
 	move.w	a1,d5
 	subi.w	#MainCharacter,d5
     if object_size=$40
-	lsr.w	#6,d5
+	lsr.w	#object_size_bits,d5
     else
 	divu.w	#object_size,d5
     endif
@@ -74198,8 +74546,8 @@ loc_374D8:
 
 ; loc_374F4:
 Obj97_DeathDrop:
-	move.w	(Camera_Max_Y_pos_now).w,d0
-	addi.w	#$E0,d0
+	move.w	(Camera_Max_Y_pos).w,d0
+	addi.w	#224,d0
 	cmp.w	y_pos(a0),d0
 	blo.w	JmpTo65_DeleteObject
 	jsrto	ObjectMoveAndFall, JmpTo8_ObjectMoveAndFall
@@ -74209,7 +74557,7 @@ Obj97_DeathDrop:
 ; loc_3750C:
 Obj97_CheckHeadIsAlive:
 	movea.w	objoff_32(a0),a1 ; a1=object
-	cmpi.b	#ObjID_RexonHead,(a1)
+	cmpi.b	#ObjID_RexonHead,id(a1)
 	beq.s	+	; rts
 	move.b	#8,routine(a0)
 	move.w	objoff_2E(a0),d0
@@ -74228,7 +74576,7 @@ word_37528:
 ; loc_37532:
 Obj97_FireProjectile:
 	move.b	#$7F,objoff_2A(a0)
-	jsrto	SingleObjLoad2, JmpTo25_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo25_AllocateObjectAfterCurrent
 	bne.s	++	; rts
 	_move.b	#ObjID_Projectile,id(a1) ; load obj98
 	move.b	#3,mapping_frame(a1)
@@ -74282,7 +74630,7 @@ Obj94_CreateHead:
 	moveq	#4,d6
 
 loc_375CE:
-	jsrto	SingleObjLoad, JmpTo19_SingleObjLoad
+	jsrto	AllocateObject, JmpTo19_AllocateObject
 	bne.s	+	; rts
 	_move.b	#ObjID_RexonHead,id(a1) ; load obj97
 	move.b	render_flags(a0),render_flags(a1)
@@ -74578,7 +74926,7 @@ loc_37834:
 
 loc_37850:
 	st.b	objoff_2A(a0)
-	jsrto	SingleObjLoad2, JmpTo25_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo25_AllocateObjectAfterCurrent
 	bne.s	return_37886
 	_move.b	#ObjID_Projectile,id(a1) ; load obj98
 	move.b	#4,mapping_frame(a1)
@@ -74739,7 +75087,7 @@ return_37A48:
 ; ===========================================================================
 
 loc_37A4A:
-	jsrto	SingleObjLoad2, JmpTo25_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo25_AllocateObjectAfterCurrent
 	bne.s	return_37A80
 	_move.b	#ObjID_TurtloidRider,id(a1) ; load obj9B
 	move.b	#2,mapping_frame(a1)
@@ -74787,7 +75135,7 @@ Obj9C_Main:
 ; ===========================================================================
 
 loc_37ABE:
-	jsrto	SingleObjLoad2, JmpTo25_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo25_AllocateObjectAfterCurrent
 	bne.s	+	; rts
 	_move.b	#ObjID_BalkiryJet,id(a1) ; load obj9C
 	move.b	#6,mapping_frame(a1)
@@ -74804,7 +75152,7 @@ loc_37ABE:
 ; this code is for Obj9A
 
 loc_37AF2:
-	jsrto	SingleObjLoad, JmpTo19_SingleObjLoad
+	jsrto	AllocateObject, JmpTo19_AllocateObject
 	bne.s	+	; rts
 	_move.b	#ObjID_Projectile,id(a1) ; load obj98
 	move.b	#6,mapping_frame(a1)
@@ -74995,7 +75343,7 @@ Obj9D_ThrowingHandLowered:
 ; ===========================================================================
 ; loc_37D22:
 Obj9D_CreateCoconut:
-	jsrto	SingleObjLoad, JmpTo19_SingleObjLoad
+	jsrto	AllocateObject, JmpTo19_AllocateObject
 	bne.s	return_37D74		; branch, if no free slots
 	_move.b	#ObjID_Projectile,id(a1) ; load obj98
 	move.b	#3,mapping_frame(a1)
@@ -75160,7 +75508,7 @@ loc_37EFC:
 	asr.w	#8,d2
 	move.w	y_vel(a1),d3
 	asr.w	#8,d3
-	lea	sub2_x_pos(a0),a2
+	lea	subspr_data(a0),a2
 	move.b	objoff_3A(a1),d0
 	moveq	#$18,d1
 
@@ -75185,7 +75533,7 @@ loc_37F6C:
 ; ===========================================================================
 
 loc_37F74:
-	jsrto	SingleObjLoad, JmpTo19_SingleObjLoad
+	jsrto	AllocateObject, JmpTo19_AllocateObject
 	bne.s	+	; rts
 	_move.b	#ObjID_Crawlton,id(a1) ; load obj9E
 	move.b	render_flags(a0),render_flags(a1)
@@ -75203,7 +75551,7 @@ loc_37F74:
 	move.w	d3,y_pos(a1)
 	move.b	#$80,objoff_14(a1)
 	bset	#4,render_flags(a1)
-	lea	sub2_x_pos(a1),a2
+	lea	subspr_data(a1),a2
 
 	moveq	#6,d6
 -	move.w	d2,(a2)+	; sub?_x_pos
@@ -75547,7 +75895,7 @@ loc_38292:
 	moveq	#7,d6
 
 loc_38296:
-	jsrto	SingleObjLoad2, JmpTo25_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo25_AllocateObjectAfterCurrent
 	bne.s	return_382EE
 	_move.b	#ObjID_ShellcrackerClaw,id(a1) ; load objA0
 	move.b	#$26,subtype(a1) ; <== ObjA0_SubObjData
@@ -75727,7 +76075,7 @@ ObjA2_Main:
 	subq.w	#1,objoff_2A(a0)
 	bmi.s	loc_3851A
 	movea.w	objoff_2C(a0),a1 ; a1=object
-	cmpi.b	#ObjID_Slicer,(a1)
+	cmpi.b	#ObjID_Slicer,id(a1)
 	bne.s	loc_3851A
 	moveq	#0,d0
 	move.b	routine_secondary(a0),d0
@@ -75773,7 +76121,7 @@ ObjA1_LoadPincers:
 	moveq	#1,d6
 
 loc_38546:
-	jsrto	SingleObjLoad2, JmpTo25_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo25_AllocateObjectAfterCurrent
 	bne.s	return_385BA
 	_move.b	#ObjID_SlicerPincers,id(a1) ; load objA2
 	move.b	#$2A,subtype(a1) ; <== ObjA2_SubObjData
@@ -75969,7 +76317,7 @@ loc_38832:
 ; ===========================================================================
 
 loc_3884A:
-	clr.l	mapping_frame(a0)
+	clr.l	mapping_frame(a0) ; Clear mapping_frame, anim_frame, anim, and prev_anim.
 	clr.w	anim_frame_duration(a0)
 	move.b	#3,mapping_frame(a0)
 	jmpto	MarkObjGone, JmpTo39_MarkObjGone
@@ -75985,7 +76333,7 @@ loc_3885C:
 
 loc_38870:
 	addq.b	#2,routine(a0)
-	clr.l	mapping_frame(a0)
+	clr.l	mapping_frame(a0) ; Clear mapping_frame, anim_frame, anim, and prev_anim.
 	clr.w	anim_frame_duration(a0)
 	jmpto	MarkObjGone_P1, JmpTo2_MarkObjGone_P1
 ; ===========================================================================
@@ -76000,7 +76348,7 @@ loc_3888E:
 	move.b	#4,routine(a0)
 	move.w	#$80,objoff_30(a0)
 	andi.b	#$7F,collision_flags(a0)
-	clr.l	mapping_frame(a0)
+	clr.l	mapping_frame(a0) ; Clear mapping_frame, anim_frame, anim, and prev_anim.
 	clr.w	anim_frame_duration(a0)
 	jmpto	MarkObjGone_P1, JmpTo2_MarkObjGone_P1
 ; ===========================================================================
@@ -76310,7 +76658,7 @@ loc_38C14:
 ; ===========================================================================
 
 loc_38C22:
-	jsrto	SingleObjLoad2, JmpTo25_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo25_AllocateObjectAfterCurrent
 	bne.s	++	; rts
 	_move.b	#ObjID_Projectile,id(a1) ; load obj98
 	move.b	#6,mapping_frame(a1)
@@ -76333,7 +76681,7 @@ loc_38C22:
 ; ===========================================================================
 
 loc_38C6E:
-	jsrto	SingleObjLoad2, JmpTo25_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo25_AllocateObjectAfterCurrent
 	bne.s	++	; rts
 	_move.b	#ObjID_Projectile,id(a1) ; load obj98
 	move.b	#6,mapping_frame(a1)
@@ -76401,11 +76749,11 @@ ObjA7_Init:
 	move.w	d0,x_vel(a0)
 	move.w	#$FF,objoff_2A(a0)
 	move.b	#2,objoff_2D(a0)
-	lea	(word_391E0).l,a2
+	lea	(ChildObject_391E0).l,a2
 	bsr.w	LoadChildObject
-	lea	(word_391E4).l,a2
+	lea	(ChildObject_391E4).l,a2
 	bsr.w	LoadChildObject
-	lea	(word_391E8).l,a2
+	lea	(ChildObject_391E8).l,a2
 	bra.w	LoadChildObject
 ; ===========================================================================
 ; loc_38E0C:
@@ -76843,8 +77191,8 @@ loc_39182:
 	tst.b	objoff_30(a0)
 	beq.s	+
 	movea.w	objoff_32(a0),a3
-	move.b	#0,$2A(a3)
-	bset	#1,$22(a3)
+	move.b	#0,obj_control(a3)
+	bset	#1,status(a3)
 +
 	moveq	#0,d6
 	move.b	objoff_2D(a0),d6
@@ -76857,18 +77205,9 @@ loc_39182:
 ; End of subroutine loc_39182
 
 ; ===========================================================================
-word_391E0:
-	dc.w objoff_3E
-	dc.b ObjID_GrabberBox
-	dc.b $3A
-word_391E4:
-	dc.w objoff_3C
-	dc.b ObjID_GrabberLegs
-	dc.b $38
-word_391E8:
-	dc.w objoff_3A
-	dc.b ObjID_GrabberString
-	dc.b $3C
+ChildObject_391E0:	childObjectData objoff_3E, ObjID_GrabberBox, $3A
+ChildObject_391E4:	childObjectData objoff_3C, ObjID_GrabberLegs, $38
+ChildObject_391E8:	childObjectData objoff_3A, ObjID_GrabberString, $3C
 ; off_391EC:
 ObjA7_SubObjData:
 	subObjData ObjA7_ObjA8_ObjA9_Obj98_MapUnc_3921A,make_art_tile(ArtTile_ArtNem_Grabber,1,1),4,4,$10,$B
@@ -77116,7 +77455,7 @@ loc_394A2:
 ; ===========================================================================
 +
 	lea	mapping_frame(a0),a1
-	clr.l	(a1)
+	clr.l	(a1) ; Clear mapping_frame, anim_frame, anim, and prev_anim.
 	clr.w	anim_frame_duration-mapping_frame(a1)
 	move.b	#8,(a1)
 	move.b	#6,collision_flags(a0)
@@ -77138,7 +77477,7 @@ loc_394E0:
 +
 	addq.b	#2,routine(a0)
 	lea	mapping_frame(a0),a1
-	clr.l	(a1)
+	clr.l	(a1) ; Clear mapping_frame, anim_frame, anim, and prev_anim.
 	clr.w	anim_frame_duration-mapping_frame(a1)
 	move.b	#$B,(a1)
 	bsr.w	loc_39526
@@ -77158,7 +77497,7 @@ loc_39516:
 ; ===========================================================================
 
 loc_39526:
-	jsrto	SingleObjLoad2, JmpTo25_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo25_AllocateObjectAfterCurrent
 	bne.s	++	; rts
 	_move.b	#ObjID_Projectile,id(a1) ; load obj98
 	move.b	#$D,mapping_frame(a1)
@@ -77261,13 +77600,13 @@ ObjAF_Init:
 	move.b	#$10,x_radius(a0)
 	move.b	#0,collision_flags(a0)
 	move.b	#8,collision_property(a0)
-	lea	(word_39DC2).l,a2
+	lea	(ChildObject_39DC2).l,a2
 	bsr.w	LoadChildObject
 	move.b	#$E,routine(a1)
-	lea	(word_39DC6).l,a2
+	lea	(ChildObject_39DC6).l,a2
 	bsr.w	LoadChildObject
 	move.b	#$14,routine(a1)
-	lea	(word_39DCA).l,a2
+	lea	(ChildObject_39DCA).l,a2
 	bsr.w	LoadChildObject
 	move.b	#$1A,routine(a1)
 	rts
@@ -77895,18 +78234,9 @@ byte_39D92:
 	dc.b $11,  0,$F0,$10,$FE,  2,$12,  0,  0,$18,  0,  3,$13,  0,$10,$10; 16
 	dc.b   2,  2,$14,  0,$18,  0,  3,  0,$15,  0,$10,$F0,  2,$FE,$16,  0; 32
 	even
-word_39DC2:
-	dc.w objoff_3E
-	dc.b ObjID_MechaSonic
-	dc.b $48
-word_39DC6:
-	dc.w objoff_3C
-	dc.b ObjID_MechaSonic
-	dc.b $48
-word_39DCA:
-	dc.w objoff_3A
-	dc.b ObjID_MechaSonic
-	dc.b $A4
+ChildObject_39DC2:	childObjectData objoff_3E, ObjID_MechaSonic, $48
+ChildObject_39DC6:	childObjectData objoff_3C, ObjID_MechaSonic, $48
+ChildObject_39DCA:	childObjectData objoff_3A, ObjID_MechaSonic, $A4
 ; off_39DCE:
 ObjAF_SubObjData2:
 	subObjData ObjAF_Obj98_MapUnc_39E68,make_art_tile(ArtTile_ArtNem_SilverSonic,1,0),4,4,$10,$1A
@@ -78012,7 +78342,7 @@ ObjB0_Init:
 	lea	(Horiz_Scroll_Buf + 2 * 2 * (9 * 8 + 6)).w,a1
 	lea	Streak_Horizontal_offsets(pc),a2
 	moveq	#0,d0
-	moveq	#$22,d6	; Number of streaks-1
+	moveq	#35-1,d6	; Number of streaks-1
 -	move.b	(a2)+,d0
 	add.w	d0,(a1)
 	addq.w	#2 * 2 * 2,a1	; Advance to next streak 2 pixels down
@@ -78147,11 +78477,11 @@ loc_3A346:
 	bchg	#0,status(a0)
 
     if fixBugs
-	clearRAM Horiz_Scroll_Buf,Horiz_Scroll_Buf_End
+	clearRAM Horiz_Scroll_Buf,Horiz_Scroll_Buf+HorizontalScrollBuffer.len
     else
 	; This clears a lot more than the horizontal scroll buffer, which is $400 bytes.
 	; This is because the loop counter is erroneously set to $400, instead of ($400/4)-1.
-	clearRAM Horiz_Scroll_Buf,Horiz_Scroll_Buf_End+$C04
+	clearRAM Horiz_Scroll_Buf,Horiz_Scroll_Buf+(HorizontalScrollBuffer.len*4+4)
     endif
 
 	; Initialize streak horizontal offsets for Sonic going right.
@@ -78159,7 +78489,7 @@ loc_3A346:
 	lea	(Horiz_Scroll_Buf + 2 * 2 * (9 * 8 + 7)).w,a1
 	lea	Streak_Horizontal_offsets(pc),a2
 	moveq	#0,d0
-	moveq	#$22,d6	; Number of streaks-1
+	moveq	#35-1,d6	; Number of streaks-1
 
 loc_3A38A:
 	move.b	(a2)+,d0
@@ -78241,7 +78571,7 @@ ObjB0_Move_Streaks_Left:
 	; 9 full lines (8 pixels) + 6 pixels, 2-byte interleaved entries for PNT A and PNT B
 	lea	(Horiz_Scroll_Buf + 2 * 2 * (9 * 8 + 6)).w,a1
 
-	move.w	#$22,d6	; Number of streaks-1
+	move.w	#35-1,d6	; Number of streaks-1
 -	subi.w	#$20,(a1)
 	addq.w	#2 * 2 * 2,a1	; Advance to next streak 2 pixels down
 	dbf	d6,-
@@ -78252,7 +78582,7 @@ ObjB0_Move_Streaks_Right:
 	; 9 full lines (8 pixels) + 7 pixels, 2-byte interleaved entries for PNT A and PNT B
 	lea	(Horiz_Scroll_Buf + 2 * 2 * (9 * 8 + 7)).w,a1
 
-	move.w	#$22,d6	; Number of streaks-1
+	move.w	#35-1,d6	; Number of streaks-1
 -	addi.w	#$20,(a1)
 	addq.w	#2 * 2 * 2,a1	; Advance to next streak 2 pixels down
 	dbf	d6,-
@@ -78692,19 +79022,19 @@ ObjB2_Wait_Leader_position:
 	move.w	#$66C,y_pos(a0)
 	lea	(MainCharacter).w,a1 ; a1=character
 	bsr.w	ObjB2_Waiting_animation
-	lea	(word_3AFBC).l,a2
+	lea	(ChildObject_3AFBC).l,a2
 	bsr.w	LoadChildObject
 	move.w	#$3118,x_pos(a1)
 	move.w	#$3F0,y_pos(a1)
-	lea	(word_3AFB8).l,a2
+	lea	(ChildObject_3AFB8).l,a2
 	bsr.w	LoadChildObject
 	move.w	#$3070,x_pos(a1)
 	move.w	#$3B0,y_pos(a1)
-	lea	(word_3AFB8).l,a2
+	lea	(ChildObject_3AFB8).l,a2
 	bsr.w	LoadChildObject
 	move.w	#$3070,x_pos(a1)
 	move.w	#$430,y_pos(a1)
-	lea	(word_3AFC0).l,a2
+	lea	(ChildObject_3AFC0).l,a2
 	bsr.w	LoadChildObject
 	clr.w	x_pos(a1)
 	clr.w	y_pos(a1)
@@ -78801,7 +79131,7 @@ loc_3AB18:
 	clr.w	inertia(a1)
 	bclr	#1,status(a1)
 	bclr	#2,status(a1)
-	move.l	#(1<<24)|(0<<16)|(AniIDSonAni_Wait<<8)|AniIDSonAni_Wait,mapping_frame(a1)
+	move.l	#(1<<24)|(0<<16)|(AniIDSonAni_Wait<<8)|(AniIDSonAni_Wait<<0),mapping_frame(a1)
 	move.w	#$100,anim_frame_duration(a1)
 	move.b	#$13,y_radius(a1)
 	cmpi.w	#2,(Player_mode).w
@@ -78829,15 +79159,15 @@ loc_3AB8A:
 	blo.s	ObjB2_Dock_on_DEZ
 	move.b	#6,(Dynamic_Resize_Routine).w ; => LevEvents_WFZ_Routine4
 	addq.b	#2,routine_secondary(a0)
-	lea	(word_3AFB8).l,a2
+	lea	(ChildObject_3AFB8).l,a2
 	bsr.w	LoadChildObject
 	move.w	#$3090,x_pos(a1)
 	move.w	#$3D0,y_pos(a1)
-	lea	(word_3AFB8).l,a2
+	lea	(ChildObject_3AFB8).l,a2
 	bsr.w	LoadChildObject
 	move.w	#$30C0,x_pos(a1)
 	move.w	#$3F0,y_pos(a1)
-	lea	(word_3AFB8).l,a2
+	lea	(ChildObject_3AFB8).l,a2
 	bsr.w	LoadChildObject
 	move.w	#$3090,x_pos(a1)
 	move.w	#$410,y_pos(a1)
@@ -78911,7 +79241,7 @@ ObjB2_Deactivate_level:
 ; loc_3AC56:
 ObjB2_Waiting_animation:
 	lea	(MainCharacter).w,a1 ; a1=character
-	move.l	#(1<<24)|(0<<16)|(AniIDSonAni_Wait<<8)|AniIDSonAni_Wait,mapping_frame(a1)
+	move.l	#(1<<24)|(0<<16)|(AniIDSonAni_Wait<<8)|(AniIDSonAni_Wait<<0),mapping_frame(a1)
 	move.w	#$100,anim_frame_duration(a1)
 	rts
 ; ===========================================================================
@@ -79228,7 +79558,7 @@ return_3AF32:
 ; ===========================================================================
 ; loc_3AF34:
 ObjB2_Main_WFZ_Start_load_smoke:
-	jsrto	SingleObjLoad2, JmpTo25_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo25_AllocateObjectAfterCurrent
 	bne.s	+
 	_move.b	#ObjID_TornadoSmoke2,id(a1) ; load objC3
 	move.b	#$90,subtype(a1) ; <== ObjC3_SubObjData
@@ -79305,22 +79635,10 @@ Tails_pilot_frames:
 Tails_pilot_frames_end:
 	even
 
-word_3AFB8:
-	dc.w objoff_3E
-	dc.b ObjID_Tornado
-	dc.b $58
-word_3AFBC:
-	dc.w objoff_3C
-	dc.b ObjID_Tornado
-	dc.b $56
-word_3AFC0:
-	dc.w objoff_3A
-	dc.b ObjID_Tornado
-	dc.b $5C
-; seems unused
-	dc.w objoff_3E
-	dc.b ObjID_Tornado
-	dc.b $5A
+ChildObject_3AFB8:	childObjectData objoff_3E, ObjID_Tornado, $58
+ChildObject_3AFBC:	childObjectData objoff_3C, ObjID_Tornado, $56
+ChildObject_3AFC0:	childObjectData objoff_3A, ObjID_Tornado, $5C
+			childObjectData objoff_3E, ObjID_Tornado, $5A	; seems unused
 ; off_3AFC8:
 ObjB2_SubObjData:
 	subObjData ObjB2_MapUnc_3AFF2,make_art_tile(ArtTile_ArtNem_Tornado,0,1),4,4,$60,0
@@ -79831,7 +80149,7 @@ return_3B7F6:
 ; ===========================================================================
 
 loc_3B7F8:
-	jsrto	SingleObjLoad2, JmpTo25_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo25_AllocateObjectAfterCurrent
 	bne.s	+
 	_move.b	#ObjID_VerticalLaser,id(a1) ; load objB7 (huge unused vertical laser!)
 	move.b	#$72,subtype(a1) ; <== ObjB7_SubObjData
@@ -79962,7 +80280,7 @@ loc_3B9C0:
 ; ===========================================================================
 
 loc_3B9D8:
-	jsrto	SingleObjLoad2, JmpTo25_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo25_AllocateObjectAfterCurrent
 	bne.s	+	; rts
 	_move.b	#ObjID_Projectile,id(a1) ; load obj98
 	move.b	#3,mapping_frame(a1)
@@ -80285,7 +80603,7 @@ loc_3BCDE:
 ; ===========================================================================
 
 loc_3BCF8:
-	jsrto	SingleObjLoad2, JmpTo25_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo25_AllocateObjectAfterCurrent
 	bne.s	+	; rts
 	_move.b	#ObjID_SmallMetalPform,id(a1) ; load objBD
 	move.w	x_pos(a0),x_pos(a1)
@@ -80766,7 +81084,7 @@ loc_3C1F4:
 ; ===========================================================================
 
 loc_3C208:
-	jsrto	SingleObjLoad2, JmpTo25_SingleObjLoad2
+	jsrto	AllocateObjectAfterCurrent, JmpTo25_AllocateObjectAfterCurrent
 	bne.s	loc_3C26C
 
 loc_3C20E:
@@ -80972,8 +81290,8 @@ ObjC5_CaseBoundary:
 	move.b	#0,collision_flags(a0)
 	move.b	#8,collision_property(a0)	; Hit points
 	move.w	#$442,d0
-	move.w	d0,(Camera_Max_Y_pos_now).w
 	move.w	d0,(Camera_Max_Y_pos).w
+	move.w	d0,(Camera_Max_Y_pos_target).w
 	move.w	x_pos(a0),d0
 	subi.w	#$60,d0			; Max Left position
 	move.w	d0,objoff_34(a0)
@@ -80993,19 +81311,19 @@ ObjC5_CaseWaitStart:
 ObjC5_CaseStart:
 	addq.b	#2,routine_secondary(a0)
 	move.w	#$40,y_vel(a0)		; Speed at which the laser carrier goes down
-	lea	(ObjC5_LaserWallData).l,a2
+	lea	(ChildObject_ObjC5LaserWall).l,a2
 	bsr.w	LoadChildObject
 	subi.w	#$88,x_pos(a1)		; where to load the left laser wall (x)
 	addi.w	#$60,y_pos(a1)		; left laser wall (y)
-	lea	(ObjC5_LaserWallData).l,a2
+	lea	(ChildObject_ObjC5LaserWall).l,a2
 	bsr.w	LoadChildObject
 	addi.w	#$88,x_pos(a1)		; right laser wall (x)
 	addi.w	#$60,y_pos(a1)		; right laser wall (y)
-	lea	(ObjC5_LaserShooterData).l,a2
+	lea	(ChildObject_ObjC5LaserShooter).l,a2
 	bsr.w	LoadChildObject
-	lea	(ObjC5_PlatformReleaserData).l,a2
+	lea	(ChildObject_ObjC5PlatformReleaser).l,a2
 	bsr.w	LoadChildObject
-	lea	(ObjC5_RobotnikData).l,a2
+	lea	(ChildObject_ObjC5Robotnik).l,a2
 	bsr.w	LoadChildObject
 	move.w	#$5A,objoff_2A(a0)	; How long for the boss music to start playing and the boss to start
 	moveq	#signextendB(MusID_FadeOut),d0
@@ -81123,7 +81441,7 @@ ObjC5_CaseWaitLoadLaser:
 
 ObjC5_CaseLoadLaser:
 	addq.b	#2,routine_secondary(a0)
-	lea	(ObjC5_LaserData).l,a2
+	lea	(ChildObject_ObjC5Laser).l,a2
 	bsr.w	LoadChildObject		; loads laser
 	jmpto	DisplaySprite, JmpTo45_DisplaySprite
 ; ===========================================================================
@@ -81218,8 +81536,8 @@ ObjC5_End:	; play music and change camera speed
 	moveq	#signextendB(MusID_WFZ),d0
 	jsrto	PlayMusic, JmpTo5_PlayMusic
 	move.w	#$720,d0
-	move.w	d0,(Camera_Max_Y_pos_now).w
 	move.w	d0,(Camera_Max_Y_pos).w
+	move.w	d0,(Camera_Max_Y_pos_target).w
 	bsr.w	JmpTo65_DeleteObject
 	addq.w	#4,sp
 	rts
@@ -81356,7 +81674,7 @@ ObjC5_PlatformReleaserLoadP:	; P=Platforms
 	tst.b	objoff_30(a0,d0.w)
 	bne.s	BranchTo8_JmpTo45_DisplaySprite
 	st.b	objoff_30(a0,d0.w)
-	lea	(ObjC5_PlatformData).l,a2
+	lea	(ChildObject_ObjC5Platform).l,a2
 	bsr.w	LoadChildObject
 	move.b	objoff_2E(a0),objoff_2E(a1)
 
@@ -81401,7 +81719,7 @@ ObjC5_PlatformInit:
 	move.b	#7,mapping_frame(a0)
 	move.w	#$100,y_vel(a0)			; Y speed
 	move.w	#$60,objoff_2A(a0)
-	lea	(ObjC5_PlatformHurtData).l,a2	; loads the invisible object that hurts Sonic
+	lea	(ChildObject_ObjC5PlatformHurt).l,a2	; loads the invisible object that hurts Sonic
 	bra.w	LoadChildObject
 ; ===========================================================================
 
@@ -81658,7 +81976,7 @@ ObjC5_RobotnikInit:
 	move.b	#1,anim(a0)
 	move.w	#$2C60,x_pos(a0)
 	move.w	#$4E6,y_pos(a0)
-	lea	(ObjC5_RobotnikPlatformData).l,a2
+	lea	(ChildObject_ObjC5RobotnikPlatform).l,a2
 	bsr.w	LoadChildObject
 	jmpto	DisplaySprite, JmpTo45_DisplaySprite
 ; ===========================================================================
@@ -81750,38 +82068,14 @@ ObjC5_NoHitPointsLeft:	; when the boss is defeated this tells it what to do
 	bclr	#6,status(a0)
 	rts
 ; ===========================================================================
-ObjC5_LaserWallData:
-	dc.w objoff_2A
-	dc.b ObjID_WFZBoss
-	dc.b $94
-ObjC5_PlatformData:
-	dc.w objoff_3E
-	dc.b ObjID_WFZBoss
-	dc.b $98
-ObjC5_PlatformHurtData:
-	dc.w objoff_3C
-	dc.b ObjID_WFZBoss
-	dc.b $9A
-ObjC5_LaserShooterData:
-	dc.w objoff_3C
-	dc.b ObjID_WFZBoss
-	dc.b $9C
-ObjC5_PlatformReleaserData:
-	dc.w objoff_3A
-	dc.b ObjID_WFZBoss
-	dc.b $96
-ObjC5_LaserData:
-	dc.w objoff_3E
-	dc.b ObjID_WFZBoss
-	dc.b $9E
-ObjC5_RobotnikData:
-	dc.w objoff_38
-	dc.b ObjID_WFZBoss
-	dc.b $A0
-ObjC5_RobotnikPlatformData:
-	dc.w objoff_3E
-	dc.b ObjID_WFZBoss
-	dc.b $A2
+ChildObject_ObjC5LaserWall:		childObjectData objoff_2A, ObjID_WFZBoss, $94
+ChildObject_ObjC5Platform:		childObjectData objoff_3E, ObjID_WFZBoss, $98
+ChildObject_ObjC5PlatformHurt:		childObjectData objoff_3C, ObjID_WFZBoss, $9A
+ChildObject_ObjC5LaserShooter:		childObjectData objoff_3C, ObjID_WFZBoss, $9C
+ChildObject_ObjC5PlatformReleaser:	childObjectData objoff_3A, ObjID_WFZBoss, $96
+ChildObject_ObjC5Laser:			childObjectData objoff_3E, ObjID_WFZBoss, $9E
+ChildObject_ObjC5Robotnik:		childObjectData objoff_38, ObjID_WFZBoss, $A0
+ChildObject_ObjC5RobotnikPlatform:	childObjectData objoff_3E, ObjID_WFZBoss, $A2
 
 ; off_3CC80:
 ObjC5_SubObjData:		; Laser Case
@@ -81867,7 +82161,7 @@ ObjC6_State2_States: offsetTable
 ; loc_3CF10:
 ObjC6_State2_State1: ; a1=object (set in loc_3D94C)
 	addq.b	#2,routine_secondary(a0) ; => ObjC6_State2_State2
-	lea	(word_3D0D0).l,a2
+	lea	(ChildObject_3D0D0).l,a2
 	bsr.w	LoadChildObject
 	move.w	#$3F8,x_pos(a1)
 	move.w	#$160,y_pos(a1)
@@ -81948,7 +82242,7 @@ ObjC6_State2_State5:
 ; ===========================================================================
 
 loc_3D00C:
-	lea	(word_3D0D4).l,a2
+	lea	(ChildObject_3D0D4).l,a2
 	bsr.w	LoadChildObject
 	move.b	#$AA,subtype(a1) ; <== ObjC6_SubObjData
 	move.b	#5,mapping_frame(a1)
@@ -82021,14 +82315,8 @@ ObjC6_SubObjData4:
 ; off_3D0C6:
 ObjC6_SubObjData:
 	subObjData ObjC6_MapUnc_3D0EE,make_art_tile(ArtTile_ArtKos_LevelArt,0,0),4,5,4,0
-word_3D0D0:
-	dc.w objoff_3E
-	dc.b ObjID_Eggman
-	dc.b $A8
-word_3D0D4:
-	dc.w objoff_3C
-	dc.b ObjID_Eggman
-	dc.b $AA
+ChildObject_3D0D0:	childObjectData objoff_3E, ObjID_Eggman, $A8
+ChildObject_3D0D4:	childObjectData objoff_3C, ObjID_Eggman, $AA
 ; animation script
 ; off_3D0D8:
 Ani_objC5_objC6:offsetTable
@@ -82834,11 +83122,8 @@ off_3DA34:	offsetTable
 		offsetTableEntry.w return_3DA48	; 2
 ; ===========================================================================
 byte_3DA38:
-	dc.b   0
-	dc.b  $C	; 1
-	dc.b $FF	; 2
-	dc.b $EC	; 3
-	even
+	dc.w   $C
+	dc.w -$14
 ; ===========================================================================
 
 loc_3DA3C:
@@ -83048,11 +83333,8 @@ off_3DBE8:	offsetTable
 		offsetTableEntry.w loc_3DC46	; 8
 ; ===========================================================================
 byte_3DBF2:
-	dc.b   0
-	dc.b   0	; 1
-	dc.b $FF	; 2
-	dc.b $CC	; 3
-	even
+	dc.w    0
+	dc.w -$34
 ; ===========================================================================
 
 loc_3DBF6:
@@ -83063,7 +83345,7 @@ loc_3DBF6:
 
 loc_3DC02:
 	movea.w	(DEZ_Eggman).w,a1
-	btst	#3,$22(a1)
+	btst	#3,status(a1)
 	bne.s	+
 	rts
 ; ---------------------------------------------------------------------------
@@ -83112,11 +83394,8 @@ off_3DC66:	offsetTable
 		offsetTableEntry.w loc_3DC80
 ; ===========================================================================
 byte_3DC70:
-	dc.b   0
-	dc.b $38	; 1
-	dc.b   0	; 2
-	dc.b $18	; 3
-	even
+	dc.w  $38
+	dc.w  $18
 ; ===========================================================================
 
 loc_3DC74:
@@ -83378,11 +83657,8 @@ loc_3DED8:
 	jmpto	DisplaySprite, JmpTo45_DisplaySprite
 ; ===========================================================================
 byte_3DF00:
-	dc.b   0
-	dc.b $38	; 1
-	dc.b $FF	; 2
-	dc.b $EC	; 3
-	even
+	dc.w  $38
+	dc.w -$14
 ; ===========================================================================
 
 loc_3DF04:
@@ -83445,7 +83721,7 @@ ObjC7_FallingPieces:
 ; ===========================================================================
 
 loc_3DFBA:
-	jsr	(SingleObjLoad).l
+	jsr	(AllocateObject).l
 	bne.s	+	; rts
 	_move.b	#ObjID_BossExplosion,id(a1) ; load obj
 	move.w	x_pos(a0),x_pos(a1)
@@ -84478,16 +84754,16 @@ JmpTo45_DisplaySprite ; JmpTo
 	jmp	(DisplaySprite).l
 JmpTo65_DeleteObject ; JmpTo
 	jmp	(DeleteObject).l
-JmpTo19_SingleObjLoad ; JmpTo
-	jmp	(SingleObjLoad).l
+JmpTo19_AllocateObject ; JmpTo
+	jmp	(AllocateObject).l
 JmpTo39_MarkObjGone ; JmpTo
 	jmp	(MarkObjGone).l
 JmpTo6_DeleteObject2 ; JmpTo
 	jmp	(DeleteObject2).l
 JmpTo12_PlaySound ; JmpTo
 	jmp	(PlaySound).l
-JmpTo25_SingleObjLoad2 ; JmpTo
-	jmp	(SingleObjLoad2).l
+JmpTo25_AllocateObjectAfterCurrent ; JmpTo
+	jmp	(AllocateObjectAfterCurrent).l
 JmpTo25_AnimateSprite ; JmpTo
 	jmp	(AnimateSprite).l
 JmpTo_PlaySoundLocal ; JmpTo
@@ -84629,7 +84905,7 @@ loc_3F212:
 ; ===========================================================================
 
 loc_3F220:
-	jsrto	SingleObjLoad, JmpTo20_SingleObjLoad
+	jsrto	AllocateObject, JmpTo20_AllocateObject
 	bne.s	loc_3F272
 	move.w	a1,(a3)+
 
@@ -84680,7 +84956,7 @@ loc_3F2B4:
 	tst.w	objoff_32(a1)
 	beq.s	++	; rts
 	movea.w	objoff_3A(a0),a2 ; a2=object
-	jsr	(SingleObjLoad).l
+	jsr	(AllocateObject).l
 	bne.s	+
 	_move.b	#ObjID_Explosion,id(a1) ; load obj
 	addq.b	#2,routine(a1)
@@ -84704,7 +84980,7 @@ loc_3F2FC:
 	move.w	#$9A,d5
 	moveq	#-$1C,d4
 
--	jsr	(SingleObjLoad).l
+-	jsr	(AllocateObject).l
 	bne.s	+
 	_move.b	#ObjID_Animal,id(a1) ; load obj
 	move.w	x_pos(a0),x_pos(a1)
@@ -84763,7 +85039,7 @@ loc_3F3A8:
 	move.b	(Vint_runcount+3).w,d0
 	andi.b	#7,d0
 	bne.s	loc_3F3F4
-	jsr	(SingleObjLoad).l
+	jsr	(AllocateObject).l
 	bne.s	loc_3F3F4
 	_move.b	#ObjID_Animal,id(a1) ; load obj
 	move.w	x_pos(a0),x_pos(a1)
@@ -84829,8 +85105,8 @@ Obj3E_MapUnc_3F436:	BINCLUDE "mappings/sprite/obj3E.bin"
     if ~~removeJmpTos
 JmpTo66_DeleteObject ; JmpTo
 	jmp	(DeleteObject).l
-JmpTo20_SingleObjLoad ; JmpTo
-	jmp	(SingleObjLoad).l
+JmpTo20_AllocateObject ; JmpTo
+	jmp	(AllocateObject).l
 
 	align 4
     endif
@@ -85289,7 +85565,7 @@ loc_3F88C:
 	bne.s	Hurt_Shield
 	tst.w	d0
 	beq.w	KillCharacter
-	jsr	(SingleObjLoad).l
+	jsr	(AllocateObject).l
 	bne.s	Hurt_Shield
 	_move.b	#ObjID_LostRings,id(a1) ; load obj
 	move.w	x_pos(a0),x_pos(a1)
@@ -85325,7 +85601,7 @@ Hurt_ChkSpikes:
 	move.b	#AniIDSonAni_Hurt2,anim(a0)
 	move.w	#$78,invulnerable_time(a0)
 	move.w	#SndID_Hurt,d0	; load normal damage sound
-	cmpi.b	#ObjID_Spikes,(a2)	; was damage caused by spikes?
+	cmpi.b	#ObjID_Spikes,id(a2)	; was damage caused by spikes?
 	bne.s	Hurt_Sound	; if not, branch
 	move.w	#SndID_HurtBySpikes,d0	; load spikes damage sound
 
@@ -85827,56 +86103,56 @@ AniArt_Load:
 ; Note that Animated_Null is not a valid animation script, so don't pair it up
 ; with anything except Dynamic_Null, or bad things will happen (for example, a bus error exception).
 ; ---------------------------------------------------------------------------
-PLC_DYNANM: zoneOrderedOffsetTable 2,2		; Zone ID
-	zoneOffsetTableEntry.w Dynamic_Normal	; $00
+PLC_DYNANM: zoneOrderedOffsetTable 2,2
+	zoneOffsetTableEntry.w Dynamic_Normal	; EHZ
 	zoneOffsetTableEntry.w Animated_EHZ
 
-	zoneOffsetTableEntry.w Dynamic_Null	; $01
+	zoneOffsetTableEntry.w Dynamic_Null	; Zone 1
 	zoneOffsetTableEntry.w Animated_Null
 
-	zoneOffsetTableEntry.w Dynamic_Null	; $02
+	zoneOffsetTableEntry.w Dynamic_Null	; WZ
 	zoneOffsetTableEntry.w Animated_Null
 
-	zoneOffsetTableEntry.w Dynamic_Null	; $03
+	zoneOffsetTableEntry.w Dynamic_Null	; Zone 3
 	zoneOffsetTableEntry.w Animated_Null
 
-	zoneOffsetTableEntry.w Dynamic_Normal	; $04
+	zoneOffsetTableEntry.w Dynamic_Normal	; MTZ1,2
 	zoneOffsetTableEntry.w Animated_MTZ
 
-	zoneOffsetTableEntry.w Dynamic_Normal	; $05
+	zoneOffsetTableEntry.w Dynamic_Normal	; MTZ3
 	zoneOffsetTableEntry.w Animated_MTZ
 
-	zoneOffsetTableEntry.w Dynamic_Null	; $06
+	zoneOffsetTableEntry.w Dynamic_Null	; WFZ
 	zoneOffsetTableEntry.w Animated_Null
 
-	zoneOffsetTableEntry.w Dynamic_HTZ	; $07
+	zoneOffsetTableEntry.w Dynamic_HTZ	; HTZ
 	zoneOffsetTableEntry.w Animated_HTZ
 
-	zoneOffsetTableEntry.w Dynamic_Normal	; $08
+	zoneOffsetTableEntry.w Dynamic_Normal	; HPZ
 	zoneOffsetTableEntry.w Animated_HPZ
 
-	zoneOffsetTableEntry.w Dynamic_Null	; $09
+	zoneOffsetTableEntry.w Dynamic_Null	; Zone 9
 	zoneOffsetTableEntry.w Animated_Null
 
-	zoneOffsetTableEntry.w Dynamic_Normal	; $0A
+	zoneOffsetTableEntry.w Dynamic_Normal	; OOZ
 	zoneOffsetTableEntry.w Animated_OOZ
 
-	zoneOffsetTableEntry.w Dynamic_Null	; $0B
+	zoneOffsetTableEntry.w Dynamic_Null	; MCZ
 	zoneOffsetTableEntry.w Animated_Null
 
-	zoneOffsetTableEntry.w Dynamic_CNZ	; $0C
+	zoneOffsetTableEntry.w Dynamic_CNZ	; CNZ
 	zoneOffsetTableEntry.w Animated_CNZ
 
-	zoneOffsetTableEntry.w Dynamic_Normal	; $0D
+	zoneOffsetTableEntry.w Dynamic_Normal	; CPZ
 	zoneOffsetTableEntry.w Animated_CPZ
 
-	zoneOffsetTableEntry.w Dynamic_Normal	; $0E
+	zoneOffsetTableEntry.w Dynamic_Normal	; DEZ
 	zoneOffsetTableEntry.w Animated_DEZ
 
-	zoneOffsetTableEntry.w Dynamic_ARZ	; $0F
+	zoneOffsetTableEntry.w Dynamic_ARZ	; ARZ
 	zoneOffsetTableEntry.w Animated_ARZ
 
-	zoneOffsetTableEntry.w Dynamic_Null	; $10
+	zoneOffsetTableEntry.w Dynamic_Null	; SCZ
 	zoneOffsetTableEntry.w Animated_Null
     zoneTableEnd
 ; ===========================================================================
@@ -86583,23 +86859,23 @@ LoadLevelBlocks_2P:
 ; --------------------------------------------------------------------------------------
 ; off_40350:
 AnimPatMaps: zoneOrderedOffsetTable 2,1
-	zoneOffsetTableEntry.w APM_EHZ		;  0
-	zoneOffsetTableEntry.w APM_Null		;  1
-	zoneOffsetTableEntry.w APM_Null		;  2
-	zoneOffsetTableEntry.w APM_Null		;  3
-	zoneOffsetTableEntry.w APM_MTZ		;  4
-	zoneOffsetTableEntry.w APM_MTZ		;  5
-	zoneOffsetTableEntry.w APM_Null		;  6
-	zoneOffsetTableEntry.w APM_EHZ		;  7
-	zoneOffsetTableEntry.w APM_HPZ		;  8
-	zoneOffsetTableEntry.w APM_Null		;  9
-	zoneOffsetTableEntry.w APM_OOZ		; $A
-	zoneOffsetTableEntry.w APM_Null		; $B
-	zoneOffsetTableEntry.w APM_CNZ		; $C
-	zoneOffsetTableEntry.w APM_CPZ		; $D
-	zoneOffsetTableEntry.w APM_DEZ		; $E
-	zoneOffsetTableEntry.w APM_ARZ		; $F
-	zoneOffsetTableEntry.w APM_Null		;$10
+	zoneOffsetTableEntry.w APM_EHZ		; EHZ
+	zoneOffsetTableEntry.w APM_Null		; Zone 1
+	zoneOffsetTableEntry.w APM_Null		; WZ
+	zoneOffsetTableEntry.w APM_Null		; Zone 3
+	zoneOffsetTableEntry.w APM_MTZ		; MTZ1,2
+	zoneOffsetTableEntry.w APM_MTZ		; MTZ3
+	zoneOffsetTableEntry.w APM_Null		; WFZ
+	zoneOffsetTableEntry.w APM_EHZ		; HTZ
+	zoneOffsetTableEntry.w APM_HPZ		; HPZ
+	zoneOffsetTableEntry.w APM_Null		; Zone 9
+	zoneOffsetTableEntry.w APM_OOZ		; OOZ
+	zoneOffsetTableEntry.w APM_Null		; MCZ
+	zoneOffsetTableEntry.w APM_CNZ		; CNZ
+	zoneOffsetTableEntry.w APM_CPZ		; CPZ
+	zoneOffsetTableEntry.w APM_DEZ		; DEZ
+	zoneOffsetTableEntry.w APM_ARZ		; ARZ
+	zoneOffsetTableEntry.w APM_Null		; SCZ
     zoneTableEnd
 
 begin_animpat macro {INTLABEL}
@@ -88284,7 +88560,7 @@ Debug_Index:	offsetTable
 Debug_Init:
 	addq.b	#2,(Debug_placement_mode).w
 	move.w	(Camera_Min_Y_pos).w,(Camera_Min_Y_pos_Debug_Copy).w
-	move.w	(Camera_Max_Y_pos).w,(Camera_Max_Y_pos_Debug_Copy).w
+	move.w	(Camera_Max_Y_pos_target).w,(Camera_Max_Y_pos_Debug_Copy).w
 	cmpi.b	#sky_chase_zone,(Current_Zone).w
 	bne.s	+
 	move.w	#0,(Camera_Min_X_pos).w
@@ -88314,7 +88590,7 @@ Debug_Init:
 	move.b	(Current_Zone).w,d0
 
 .selectlist:
-	lea	(JmpTbl_DbgObjLists).l,a2
+	lea	(DebugObjectLists).l,a2
 	add.w	d0,d0
 	adda.w	(a2,d0.w),a2
 	move.w	(a2)+,d6
@@ -88336,7 +88612,7 @@ Debug_Main:
 	move.b	(Current_Zone).w,d0
 
 .isntlevel:
-	lea	(JmpTbl_DbgObjLists).l,a2
+	lea	(DebugObjectLists).l,a2
 	add.w	d0,d0
 	adda.w	(a2,d0.w),a2
 	move.w	(a2)+,d6
@@ -88399,7 +88675,7 @@ Debug_TimerNotOver:
 	beq.s	.downNotHeld
 	add.l	d1,d2
 	moveq	#0,d0
-	move.w	(Camera_Max_Y_pos).w,d0
+	move.w	(Camera_Max_Y_pos_target).w,d0
 	addi.w	#224-1,d0
 	swap	d0
 	cmp.l	d0,d2
@@ -88456,7 +88732,7 @@ Debug_SpawnObject:
 	btst	#button_C,(Ctrl_1_Press).w
 	beq.s	Debug_ExitDebugMode
 	; Spawn object
-	jsr	(SingleObjLoad).l
+	jsr	(AllocateObject).l
 	bne.s	Debug_ExitDebugMode
 	move.w	x_pos(a0),x_pos(a1)
 	move.w	y_pos(a0),y_pos(a1)
@@ -88496,7 +88772,7 @@ Debug_ExitDebugMode:
 	move.b	#$13,y_radius(a1)
 	move.b	#9,x_radius(a1)
 	move.w	(Camera_Min_Y_pos_Debug_Copy).w,(Camera_Min_Y_pos).w
-	move.w	(Camera_Max_Y_pos_Debug_Copy).w,(Camera_Max_Y_pos).w
+	move.w	(Camera_Max_Y_pos_Debug_Copy).w,(Camera_Max_Y_pos_target).w
 	; useless leftover; this is for S1's special stage
 	cmpi.b	#GameModeID_SpecialStage,(Game_Mode).w	; special stage mode?
 	bne.s	return_41CB6		; if not, branch
@@ -88557,31 +88833,32 @@ LoadDebugObjectSprite:
 ; The jump table goes by level ID, so Metropolis Zone's list is repeated to
 ; account for its third act. Hidden Palace Zone uses Oil Ocean Zone's list.
 ; ---------------------------------------------------------------------------
-JmpTbl_DbgObjLists: zoneOrderedOffsetTable 2,1
-	zoneOffsetTableEntry.w DbgObjList_EHZ	; 0
-	zoneOffsetTableEntry.w DbgObjList_Def	; 1
-	zoneOffsetTableEntry.w DbgObjList_Def	; 2
-	zoneOffsetTableEntry.w DbgObjList_Def	; 3
-	zoneOffsetTableEntry.w DbgObjList_MTZ	; 4
-	zoneOffsetTableEntry.w DbgObjList_MTZ	; 5
-	zoneOffsetTableEntry.w DbgObjList_WFZ	; 6
-	zoneOffsetTableEntry.w DbgObjList_HTZ	; 7
-	zoneOffsetTableEntry.w DbgObjList_HPZ	; 8
-	zoneOffsetTableEntry.w DbgObjList_Def	; 9
-	zoneOffsetTableEntry.w DbgObjList_OOZ	; $A
-	zoneOffsetTableEntry.w DbgObjList_MCZ	; $B
-	zoneOffsetTableEntry.w DbgObjList_CNZ	; $C
-	zoneOffsetTableEntry.w DbgObjList_CPZ	; $D
-	zoneOffsetTableEntry.w DbgObjList_Def	; $E
-	zoneOffsetTableEntry.w DbgObjList_ARZ	; $F
-	zoneOffsetTableEntry.w DbgObjList_SCZ	; $10
+; JmpTbl_DbgObjLists:
+DebugObjectLists: zoneOrderedOffsetTable 2,1
+	zoneOffsetTableEntry.w DbgObjList_EHZ	; EHZ
+	zoneOffsetTableEntry.w DbgObjList_Def	; Zone 1
+	zoneOffsetTableEntry.w DbgObjList_Def	; WZ
+	zoneOffsetTableEntry.w DbgObjList_Def	; Zone 3
+	zoneOffsetTableEntry.w DbgObjList_MTZ	; MTZ1,2
+	zoneOffsetTableEntry.w DbgObjList_MTZ	; MTZ3
+	zoneOffsetTableEntry.w DbgObjList_WFZ	; WFZ
+	zoneOffsetTableEntry.w DbgObjList_HTZ	; HTZ
+	zoneOffsetTableEntry.w DbgObjList_HPZ	; HPZ
+	zoneOffsetTableEntry.w DbgObjList_Def	; Zone 9
+	zoneOffsetTableEntry.w DbgObjList_OOZ	; OOZ
+	zoneOffsetTableEntry.w DbgObjList_MCZ	; MCZ
+	zoneOffsetTableEntry.w DbgObjList_CNZ	; CNZ
+	zoneOffsetTableEntry.w DbgObjList_CPZ	; CPZ
+	zoneOffsetTableEntry.w DbgObjList_Def	; DEZ
+	zoneOffsetTableEntry.w DbgObjList_ARZ	; ARZ
+	zoneOffsetTableEntry.w DbgObjList_SCZ	; SCZ
     zoneTableEnd
 
 ; macro for a debug object list header
 ; must be on the same line as a label that has a corresponding _End label later
 dbglistheader macro {INTLABEL}
 __LABEL__ label *
-	dc.w ((__LABEL___End - __LABEL__ - 2) >> 3)
+	dc.w ((__LABEL___End - __LABEL__ - 2) / 8)
     endm
 
 ; macro to define debug list object data
@@ -88946,23 +89223,23 @@ cur_zone_str := "\{cur_zone_id}"
 ; BEGIN SArt_Ptrs Art_Ptrs_Array[17]
 ; dword_42594: MainLoadBlocks: saArtPtrs:
 LevelArtPointers:
-	levartptrs PLCID_Ehz1,        PLCID_Ehz2,      PalID_EHZ,  ArtKos_EHZ, BM16_EHZ, BM128_EHZ ;   0 ; EHZ  ; EMERALD HILL ZONE
-	levartptrs PLCID_MilesLife2P, PLCID_MilesLife, PalID_EHZ2, ArtKos_EHZ, BM16_EHZ, BM128_EHZ ;   1 ; LEV1 ; LEVEL 1 (UNUSED)
-	levartptrs PLCID_TailsLife2P, PLCID_TailsLife, PalID_WZ,   ArtKos_EHZ, BM16_EHZ, BM128_EHZ ;   2 ; LEV2 ; LEVEL 2 (UNUSED)
-	levartptrs PLCID_Unused1,     PLCID_Unused2,   PalID_EHZ3, ArtKos_EHZ, BM16_EHZ, BM128_EHZ ;   3 ; LEV3 ; LEVEL 3 (UNUSED)
-	levartptrs PLCID_Mtz1,        PLCID_Mtz2,      PalID_MTZ,  ArtKos_MTZ, BM16_MTZ, BM128_MTZ ;   4 ; MTZ  ; METROPOLIS ZONE ACTS 1 & 2
-	levartptrs PLCID_Mtz1,        PLCID_Mtz2,      PalID_MTZ,  ArtKos_MTZ, BM16_MTZ, BM128_MTZ ;   5 ; MTZ3 ; METROPOLIS ZONE ACT 3
-	levartptrs PLCID_Wfz1,        PLCID_Wfz2,      PalID_WFZ,  ArtKos_SCZ, BM16_WFZ, BM128_WFZ ;   6 ; WFZ  ; WING FORTRESS ZONE
-	levartptrs PLCID_Htz1,        PLCID_Htz2,      PalID_HTZ,  ArtKos_EHZ, BM16_EHZ, BM128_EHZ ;   7 ; HTZ  ; HILL TOP ZONE
-	levartptrs PLCID_Hpz1,        PLCID_Hpz2,      PalID_HPZ,  ArtKos_HPZ, BM16_HPZ, BM128_HPZ ;   8 ; HPZ  ; HIDDEN PALACE ZONE (UNUSED)
-	levartptrs PLCID_Unused3,     PLCID_Unused4,   PalID_EHZ4, ArtKos_EHZ, BM16_EHZ, BM128_EHZ ;   9 ; LEV9 ; LEVEL 9 (UNUSED)
-	levartptrs PLCID_Ooz1,        PLCID_Ooz2,      PalID_OOZ,  ArtKos_OOZ, BM16_OOZ, BM128_OOZ ;  $A ; OOZ  ; OIL OCEAN ZONE
-	levartptrs PLCID_Mcz1,        PLCID_Mcz2,      PalID_MCZ,  ArtKos_MCZ, BM16_MCZ, BM128_MCZ ;  $B ; MCZ  ; MYSTIC CAVE ZONE
-	levartptrs PLCID_Cnz1,        PLCID_Cnz2,      PalID_CNZ,  ArtKos_CNZ, BM16_CNZ, BM128_CNZ ;  $C ; CNZ  ; CASINO NIGHT ZONE
-	levartptrs PLCID_Cpz1,        PLCID_Cpz2,      PalID_CPZ,  ArtKos_CPZ, BM16_CPZ, BM128_CPZ ;  $D ; CPZ  ; CHEMICAL PLANT ZONE
-	levartptrs PLCID_Dez1,        PLCID_Dez2,      PalID_DEZ,  ArtKos_CPZ, BM16_CPZ, BM128_CPZ ;  $E ; DEZ  ; DEATH EGG ZONE
-	levartptrs PLCID_Arz1,        PLCID_Arz2,      PalID_ARZ,  ArtKos_ARZ, BM16_ARZ, BM128_ARZ ;  $F ; ARZ  ; AQUATIC RUIN ZONE
-	levartptrs PLCID_Scz1,        PLCID_Scz2,      PalID_SCZ,  ArtKos_SCZ, BM16_WFZ, BM128_WFZ ; $10 ; SCZ  ; SKY CHASE ZONE
+	levartptrs PLCID_Ehz1,        PLCID_Ehz2,      PalID_EHZ,  ArtKos_EHZ, BM16_EHZ, BM128_EHZ ; EHZ    ; EMERALD HILL ZONE
+	levartptrs PLCID_MilesLife2P, PLCID_MilesLife, PalID_EHZ2, ArtKos_EHZ, BM16_EHZ, BM128_EHZ ; Zone 1 ; LEVEL 1 (UNUSED)
+	levartptrs PLCID_TailsLife2P, PLCID_TailsLife, PalID_WZ,   ArtKos_EHZ, BM16_EHZ, BM128_EHZ ; WZ     ; WOOD ZONE (UNUSED)
+	levartptrs PLCID_Unused1,     PLCID_Unused2,   PalID_EHZ3, ArtKos_EHZ, BM16_EHZ, BM128_EHZ ; Zone 3 ; LEVEL 3 (UNUSED)
+	levartptrs PLCID_Mtz1,        PLCID_Mtz2,      PalID_MTZ,  ArtKos_MTZ, BM16_MTZ, BM128_MTZ ; MTZ1,2 ; METROPOLIS ZONE ACTS 1 & 2
+	levartptrs PLCID_Mtz1,        PLCID_Mtz2,      PalID_MTZ,  ArtKos_MTZ, BM16_MTZ, BM128_MTZ ; MTZ3   ; METROPOLIS ZONE ACT 3
+	levartptrs PLCID_Wfz1,        PLCID_Wfz2,      PalID_WFZ,  ArtKos_SCZ, BM16_WFZ, BM128_WFZ ; WFZ    ; WING FORTRESS ZONE
+	levartptrs PLCID_Htz1,        PLCID_Htz2,      PalID_HTZ,  ArtKos_EHZ, BM16_EHZ, BM128_EHZ ; HTZ    ; HILL TOP ZONE
+	levartptrs PLCID_Hpz1,        PLCID_Hpz2,      PalID_HPZ,  ArtKos_HPZ, BM16_HPZ, BM128_HPZ ; HPZ    ; HIDDEN PALACE ZONE (UNUSED)
+	levartptrs PLCID_Unused3,     PLCID_Unused4,   PalID_EHZ4, ArtKos_EHZ, BM16_EHZ, BM128_EHZ ; Zone 9 ; LEVEL 9 (UNUSED)
+	levartptrs PLCID_Ooz1,        PLCID_Ooz2,      PalID_OOZ,  ArtKos_OOZ, BM16_OOZ, BM128_OOZ ; OOZ    ; OIL OCEAN ZONE
+	levartptrs PLCID_Mcz1,        PLCID_Mcz2,      PalID_MCZ,  ArtKos_MCZ, BM16_MCZ, BM128_MCZ ; MCZ    ; MYSTIC CAVE ZONE
+	levartptrs PLCID_Cnz1,        PLCID_Cnz2,      PalID_CNZ,  ArtKos_CNZ, BM16_CNZ, BM128_CNZ ; CNZ    ; CASINO NIGHT ZONE
+	levartptrs PLCID_Cpz1,        PLCID_Cpz2,      PalID_CPZ,  ArtKos_CPZ, BM16_CPZ, BM128_CPZ ; CPZ    ; CHEMICAL PLANT ZONE
+	levartptrs PLCID_Dez1,        PLCID_Dez2,      PalID_DEZ,  ArtKos_CPZ, BM16_CPZ, BM128_CPZ ; DEZ    ; DEATH EGG ZONE
+	levartptrs PLCID_Arz1,        PLCID_Arz2,      PalID_ARZ,  ArtKos_ARZ, BM16_ARZ, BM128_ARZ ; ARZ    ; AQUATIC RUIN ZONE
+	levartptrs PLCID_Scz1,        PLCID_Scz2,      PalID_SCZ,  ArtKos_SCZ, BM16_WFZ, BM128_WFZ ; SCZ    ; SKY CHASE ZONE
 
     if (cur_zone_id<>no_of_zones)&&(MOMPASS=1)
 	message "Warning: Table LevelArtPointers has \{cur_zone_id/1.0} entries, but it should have \{no_of_zones/1.0} entries"
@@ -89148,28 +89425,28 @@ PlrList_Ehz2: plrlistheader
 	plreq ArtTile_ArtNem_HrzntlSprng, ArtNem_HrzntlSprng
 PlrList_Ehz2_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; Miles 1up patch
 ;---------------------------------------------------------------------------------------
 PlrList_MilesLife2P: plrlistheader
 	plreq ArtTile_ArtNem_2p_life_counter, ArtNem_MilesLife
 PlrList_MilesLife2P_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; Miles life counter
 ;---------------------------------------------------------------------------------------
 PlrList_MilesLife: plrlistheader
 	plreq ArtTile_ArtNem_life_counter, ArtNem_MilesLife
 PlrList_MilesLife_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; Tails 1up patch
 ;---------------------------------------------------------------------------------------
 PlrList_TailsLife2P: plrlistheader
 	plreq ArtTile_ArtNem_2p_life_counter, ArtNem_TailsLife
 PlrList_TailsLife2P_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; Tails life counter
 ;---------------------------------------------------------------------------------------
 PlrList_TailsLife: plrlistheader
@@ -89268,20 +89545,20 @@ PlrList_Htz2: plrlistheader
 	plreq ArtTile_ArtNem_HtzValveBarrier, ArtNem_HtzValveBarrier
 PlrList_Htz2_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; HPZ Primary
 ;---------------------------------------------------------------------------------------
 PlrList_Hpz1: ;plrlistheader
 ;	plreq ArtTile_ArtNem_WaterSurface, ArtNem_WaterSurface
 ;PlrList_Hpz1_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; HPZ Secondary
 ;---------------------------------------------------------------------------------------
 PlrList_Hpz2: ;plrlistheader
 ;PlrList_Hpz2_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; OOZ Primary
 ;---------------------------------------------------------------------------------------
 PlrList_Ooz1: plrlistheader
@@ -89296,7 +89573,7 @@ PlrList_Ooz1: plrlistheader
 	plreq ArtTile_ArtNem_LaunchBall, ArtNem_LaunchBall
 PlrList_Ooz1_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; OOZ Secondary
 ;---------------------------------------------------------------------------------------
 PlrList_Ooz2: plrlistheader
@@ -89314,7 +89591,7 @@ PlrList_Ooz2: plrlistheader
 	plreq ArtTile_ArtNem_Octus, ArtNem_Octus
 PlrList_Ooz2_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; MCZ Primary
 ;---------------------------------------------------------------------------------------
 PlrList_Mcz1: plrlistheader
@@ -89326,7 +89603,7 @@ PlrList_Mcz1: plrlistheader
 	plreq ArtTile_ArtNem_Crawlton, ArtNem_Crawlton
 PlrList_Mcz1_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; MCZ Secondary
 ;---------------------------------------------------------------------------------------
 PlrList_Mcz2: plrlistheader
@@ -89338,7 +89615,7 @@ PlrList_Mcz2: plrlistheader
 	plreq ArtTile_ArtNem_HrzntlSprng, ArtNem_HrzntlSprng
 PlrList_Mcz2_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; CNZ Primary
 ;---------------------------------------------------------------------------------------
 PlrList_Cnz1: plrlistheader
@@ -89354,7 +89631,7 @@ PlrList_Cnz1: plrlistheader
 	plreq ArtTile_ArtNem_CNZMiniBumper, ArtNem_CNZMiniBumper
 PlrList_Cnz1_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; CNZ Secondary
 ;---------------------------------------------------------------------------------------
 PlrList_Cnz2: plrlistheader
@@ -89366,7 +89643,7 @@ PlrList_Cnz2: plrlistheader
 	plreq ArtTile_ArtNem_HrzntlSprng, ArtNem_HrzntlSprng
 PlrList_Cnz2_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; CPZ Primary
 ;---------------------------------------------------------------------------------------
 PlrList_Cpz1: plrlistheader
@@ -89381,7 +89658,7 @@ PlrList_Cpz1: plrlistheader
 	plreq ArtTile_ArtNem_CPZMetalBlock, ArtNem_CPZMetalBlock
 PlrList_Cpz1_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; CPZ Secondary
 ;---------------------------------------------------------------------------------------
 PlrList_Cpz2: plrlistheader
@@ -89394,14 +89671,14 @@ PlrList_Cpz2: plrlistheader
 	plreq ArtTile_ArtNem_HrzntlSprng, ArtNem_HrzntlSprng
 PlrList_Cpz2_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; DEZ Primary
 ;---------------------------------------------------------------------------------------
 PlrList_Dez1: plrlistheader
 	plreq ArtTile_ArtNem_ConstructionStripes_1, ArtNem_ConstructionStripes
 PlrList_Dez1_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; DEZ Secondary
 ;---------------------------------------------------------------------------------------
 PlrList_Dez2: plrlistheader
@@ -89412,7 +89689,7 @@ PlrList_Dez2: plrlistheader
 	plreq ArtTile_ArtNem_RobotnikLower, ArtNem_RobotnikLower
 PlrList_Dez2_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; ARZ Primary
 ;---------------------------------------------------------------------------------------
 PlrList_Arz1: plrlistheader
@@ -89422,7 +89699,7 @@ PlrList_Arz1: plrlistheader
 	plreq ArtTile_ArtNem_ArrowAndShooter, ArtNem_ArrowAndShooter
 PlrList_Arz1_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; ARZ Secondary
 ;---------------------------------------------------------------------------------------
 PlrList_Arz2: plrlistheader
@@ -89436,14 +89713,14 @@ PlrList_Arz2: plrlistheader
 	plreq ArtTile_ArtNem_HrzntlSprng, ArtNem_HrzntlSprng
 PlrList_Arz2_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; SCZ Primary
 ;---------------------------------------------------------------------------------------
 PlrList_Scz1: plrlistheader
 	plreq ArtTile_ArtNem_Tornado, ArtNem_Tornado
 PlrList_Scz1_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; SCZ Secondary
 ;---------------------------------------------------------------------------------------
 PlrList_Scz2: plrlistheader
@@ -89455,7 +89732,7 @@ PlrList_Scz2: plrlistheader
 	plreq ArtTile_ArtNem_Nebula, ArtNem_Nebula
 PlrList_Scz2_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; Sonic end of level results screen
 ;---------------------------------------------------------------------------------------
 PlrList_Results: plrlistheader
@@ -89465,14 +89742,14 @@ PlrList_Results: plrlistheader
 	plreq ArtTile_ArtNem_Perfect, ArtNem_Perfect
 PlrList_Results_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; End of level signpost
 ;---------------------------------------------------------------------------------------
 PlrList_Signpost: plrlistheader
 	plreq ArtTile_ArtNem_Signpost, ArtNem_Signpost
 PlrList_Signpost_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; CPZ Boss
 ;---------------------------------------------------------------------------------------
 PlrList_CpzBoss: plrlistheader
@@ -89483,7 +89760,7 @@ PlrList_CpzBoss: plrlistheader
 	plreq ArtTile_ArtNem_FieryExplosion, ArtNem_FieryExplosion
 PlrList_CpzBoss_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; EHZ Boss
 ;---------------------------------------------------------------------------------------
 PlrList_EhzBoss: plrlistheader
@@ -89493,7 +89770,7 @@ PlrList_EhzBoss: plrlistheader
 	plreq ArtTile_ArtNem_FieryExplosion, ArtNem_FieryExplosion
 PlrList_EhzBoss_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; HTZ Boss
 ;---------------------------------------------------------------------------------------
 PlrList_HtzBoss: plrlistheader
@@ -89503,7 +89780,7 @@ PlrList_HtzBoss: plrlistheader
 	plreq ArtTile_ArtNem_BossSmoke_2, ArtNem_BossSmoke
 PlrList_HtzBoss_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; ARZ Boss
 ;---------------------------------------------------------------------------------------
 PlrList_ArzBoss: plrlistheader
@@ -89512,7 +89789,7 @@ PlrList_ArzBoss: plrlistheader
 	plreq ArtTile_ArtNem_FieryExplosion, ArtNem_FieryExplosion
 PlrList_ArzBoss_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; MCZ Boss
 ;---------------------------------------------------------------------------------------
 PlrList_MczBoss: plrlistheader
@@ -89521,7 +89798,7 @@ PlrList_MczBoss: plrlistheader
 	plreq ArtTile_ArtNem_FieryExplosion, ArtNem_FieryExplosion
 PlrList_MczBoss_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; CNZ Boss
 ;---------------------------------------------------------------------------------------
 PlrList_CnzBoss: plrlistheader
@@ -89530,7 +89807,7 @@ PlrList_CnzBoss: plrlistheader
 	plreq ArtTile_ArtNem_FieryExplosion, ArtNem_FieryExplosion
 PlrList_CnzBoss_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; MTZ Boss
 ;---------------------------------------------------------------------------------------
 PlrList_MtzBoss: plrlistheader
@@ -89540,7 +89817,7 @@ PlrList_MtzBoss: plrlistheader
 	plreq ArtTile_ArtNem_FieryExplosion, ArtNem_FieryExplosion
 PlrList_MtzBoss_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; OOZ Boss
 ;---------------------------------------------------------------------------------------
 PlrList_OozBoss: plrlistheader
@@ -89548,29 +89825,29 @@ PlrList_OozBoss: plrlistheader
 	plreq ArtTile_ArtNem_FieryExplosion, ArtNem_FieryExplosion
 PlrList_OozBoss_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; Fiery Explosion
 ;---------------------------------------------------------------------------------------
 PlrList_FieryExplosion: plrlistheader
 	plreq ArtTile_ArtNem_FieryExplosion, ArtNem_FieryExplosion
 PlrList_FieryExplosion_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; Death Egg
 ;---------------------------------------------------------------------------------------
 PlrList_DezBoss: plrlistheader
 	plreq ArtTile_ArtNem_DEZBoss, ArtNem_DEZBoss
 PlrList_DezBoss_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; EHZ Animals
 ;---------------------------------------------------------------------------------------
 PlrList_EhzAnimals: plrlistheader
 	plreq ArtTile_ArtNem_Animal_1, ArtNem_Squirrel
-	plreq ArtTile_ArtNem_Animal_2, ArtNem_Bird
+	plreq ArtTile_ArtNem_Animal_2, ArtNem_Flicky
 PlrList_EhzAnimals_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; MCZ Animals
 ;---------------------------------------------------------------------------------------
 PlrList_MczAnimals: plrlistheader
@@ -89578,19 +89855,19 @@ PlrList_MczAnimals: plrlistheader
 	plreq ArtTile_ArtNem_Animal_2, ArtNem_Chicken
 PlrList_MczAnimals_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; HTZ/MTZ/WFZ animals
 ;---------------------------------------------------------------------------------------
 PlrList_HtzAnimals:
 PlrList_MtzAnimals:
 PlrList_WfzAnimals: plrlistheader
-	plreq ArtTile_ArtNem_Animal_1, ArtNem_Beaver
+	plreq ArtTile_ArtNem_Animal_1, ArtNem_Monkey
 	plreq ArtTile_ArtNem_Animal_2, ArtNem_Eagle
 PlrList_HtzAnimals_End
 PlrList_MtzAnimals_End
 PlrList_WfzAnimals_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; DEZ Animals
 ;---------------------------------------------------------------------------------------
 PlrList_DezAnimals: plrlistheader
@@ -89598,7 +89875,7 @@ PlrList_DezAnimals: plrlistheader
 	plreq ArtTile_ArtNem_Animal_2, ArtNem_Chicken
 PlrList_DezAnimals_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; HPZ animals
 ;---------------------------------------------------------------------------------------
 PlrList_HpzAnimals: plrlistheader
@@ -89606,7 +89883,7 @@ PlrList_HpzAnimals: plrlistheader
 	plreq ArtTile_ArtNem_Animal_2, ArtNem_Seal
 PlrList_HpzAnimals_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; OOZ Animals
 ;---------------------------------------------------------------------------------------
 PlrList_OozAnimals: plrlistheader
@@ -89614,7 +89891,7 @@ PlrList_OozAnimals: plrlistheader
 	plreq ArtTile_ArtNem_Animal_2, ArtNem_Seal
 PlrList_OozAnimals_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; SCZ Animals
 ;---------------------------------------------------------------------------------------
 PlrList_SczAnimals: plrlistheader
@@ -89622,15 +89899,15 @@ PlrList_SczAnimals: plrlistheader
 	plreq ArtTile_ArtNem_Animal_2, ArtNem_Chicken
 PlrList_SczAnimals_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; CNZ Animals
 ;---------------------------------------------------------------------------------------
 PlrList_CnzAnimals: plrlistheader
 	plreq ArtTile_ArtNem_Animal_1, ArtNem_Bear
-	plreq ArtTile_ArtNem_Animal_2, ArtNem_Bird
+	plreq ArtTile_ArtNem_Animal_2, ArtNem_Flicky
 PlrList_CnzAnimals_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; CPZ Animals
 ;---------------------------------------------------------------------------------------
 PlrList_CpzAnimals: plrlistheader
@@ -89638,15 +89915,15 @@ PlrList_CpzAnimals: plrlistheader
 	plreq ArtTile_ArtNem_Animal_2, ArtNem_Eagle
 PlrList_CpzAnimals_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; ARZ Animals
 ;---------------------------------------------------------------------------------------
 PlrList_ArzAnimals: plrlistheader
 	plreq ArtTile_ArtNem_Animal_1, ArtNem_Penguin
-	plreq ArtTile_ArtNem_Animal_2, ArtNem_Bird
+	plreq ArtTile_ArtNem_Animal_2, ArtNem_Flicky
 PlrList_ArzAnimals_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; Special Stage
 ;---------------------------------------------------------------------------------------
 PlrList_SpecialStage: plrlistheader
@@ -89665,14 +89942,14 @@ PlrList_SpecialStage: plrlistheader
 	plreq ArtTile_ArtNem_SpecialTailsText, ArtNem_SpecialTailsText
 PlrList_SpecialStage_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; Special Stage Bombs
 ;---------------------------------------------------------------------------------------
 PlrList_SpecStageBombs: plrlistheader
 	plreq ArtTile_ArtNem_SpecialBomb, ArtNem_SpecialBomb
 PlrList_SpecStageBombs_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; WFZ Boss
 ;---------------------------------------------------------------------------------------
 PlrList_WfzBoss: plrlistheader
@@ -89683,7 +89960,7 @@ PlrList_WfzBoss: plrlistheader
 	plreq ArtTile_ArtNem_FieryExplosion, ArtNem_FieryExplosion
 PlrList_WfzBoss_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; Tornado
 ;---------------------------------------------------------------------------------------
 PlrList_Tornado: plrlistheader
@@ -89692,21 +89969,21 @@ PlrList_Tornado: plrlistheader
 	plreq ArtTile_ArtNem_Clouds, ArtNem_Clouds
 PlrList_Tornado_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; Capsule/Egg Prison
 ;---------------------------------------------------------------------------------------
 PlrList_Capsule: plrlistheader
 	plreq ArtTile_ArtNem_Capsule, ArtNem_Capsule
 PlrList_Capsule_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; Normal explosion
 ;---------------------------------------------------------------------------------------
 PlrList_Explosion: plrlistheader
 	plreq ArtTile_ArtNem_Explosion, ArtNem_Explosion
 PlrList_Explosion_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue
+; PATTERN LOAD REQUEST LIST
 ; Tails end of level results screen
 ;---------------------------------------------------------------------------------------
 PlrList_ResultsTails: plrlistheader
@@ -89738,14 +90015,14 @@ PlrList_ResultsTails_Dup_End
 	plreq ArtTile_ArtNem_HrzntlSprng, ArtNem_HrzntlSprng
 PlrList_Arz2_Dup_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue (duplicate)
+; PATTERN LOAD REQUEST LIST (duplicate)
 ; SCZ Primary
 ;---------------------------------------------------------------------------------------
 PlrList_Scz1_Dup: plrlistheader
 	plreq ArtTile_ArtNem_Tornado, ArtNem_Tornado
 PlrList_Scz1_Dup_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue (duplicate)
+; PATTERN LOAD REQUEST LIST (duplicate)
 ; SCZ Secondary
 ;---------------------------------------------------------------------------------------
 PlrList_Scz2_Dup: plrlistheader
@@ -89757,7 +90034,7 @@ PlrList_Scz2_Dup: plrlistheader
 	plreq ArtTile_ArtNem_Nebula, ArtNem_Nebula
 PlrList_Scz2_Dup_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue (duplicate)
+; PATTERN LOAD REQUEST LIST (duplicate)
 ; Sonic end of level results screen
 ;---------------------------------------------------------------------------------------
 PlrList_Results_Dup: plrlistheader
@@ -89767,14 +90044,14 @@ PlrList_Results_Dup: plrlistheader
 	plreq ArtTile_ArtNem_Perfect, ArtNem_Perfect
 PlrList_Results_Dup_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue (duplicate)
+; PATTERN LOAD REQUEST LIST (duplicate)
 ; End of level signpost
 ;---------------------------------------------------------------------------------------
 PlrList_Signpost_Dup: plrlistheader
 	plreq ArtTile_ArtNem_Signpost, ArtNem_Signpost
 PlrList_Signpost_Dup_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue (duplicate)
+; PATTERN LOAD REQUEST LIST (duplicate)
 ; CPZ Boss
 ;---------------------------------------------------------------------------------------
 PlrList_CpzBoss_Dup: plrlistheader
@@ -89785,7 +90062,7 @@ PlrList_CpzBoss_Dup: plrlistheader
 	plreq ArtTile_ArtNem_FieryExplosion, ArtNem_FieryExplosion
 PlrList_CpzBoss_Dup_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue (duplicate)
+; PATTERN LOAD REQUEST LIST (duplicate)
 ; EHZ Boss
 ;---------------------------------------------------------------------------------------
 PlrList_EhzBoss_Dup: plrlistheader
@@ -89795,7 +90072,7 @@ PlrList_EhzBoss_Dup: plrlistheader
 	plreq ArtTile_ArtNem_FieryExplosion, ArtNem_FieryExplosion
 PlrList_EhzBoss_Dup_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue (duplicate)
+; PATTERN LOAD REQUEST LIST (duplicate)
 ; HTZ Boss
 ;---------------------------------------------------------------------------------------
 PlrList_HtzBoss_Dup: plrlistheader
@@ -89805,7 +90082,7 @@ PlrList_HtzBoss_Dup: plrlistheader
 	plreq ArtTile_ArtNem_BossSmoke_2, ArtNem_BossSmoke
 PlrList_HtzBoss_Dup_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue (duplicate)
+; PATTERN LOAD REQUEST LIST (duplicate)
 ; ARZ Boss
 ;---------------------------------------------------------------------------------------
 PlrList_ArzBoss_Dup: plrlistheader
@@ -89814,7 +90091,7 @@ PlrList_ArzBoss_Dup: plrlistheader
 	plreq ArtTile_ArtNem_FieryExplosion, ArtNem_FieryExplosion
 PlrList_ArzBoss_Dup_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue (duplicate)
+; PATTERN LOAD REQUEST LIST (duplicate)
 ; MCZ Boss
 ;---------------------------------------------------------------------------------------
 PlrList_MczBoss_Dup: plrlistheader
@@ -89823,7 +90100,7 @@ PlrList_MczBoss_Dup: plrlistheader
 	plreq ArtTile_ArtNem_FieryExplosion, ArtNem_FieryExplosion
 PlrList_MczBoss_Dup_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue (duplicate)
+; PATTERN LOAD REQUEST LIST (duplicate)
 ; CNZ Boss
 ;---------------------------------------------------------------------------------------
 PlrList_CnzBoss_Dup: plrlistheader
@@ -89832,7 +90109,7 @@ PlrList_CnzBoss_Dup: plrlistheader
 	plreq ArtTile_ArtNem_FieryExplosion, ArtNem_FieryExplosion
 PlrList_CnzBoss_Dup_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue (duplicate)
+; PATTERN LOAD REQUEST LIST (duplicate)
 ; MTZ Boss
 ;---------------------------------------------------------------------------------------
 PlrList_MtzBoss_Dup: plrlistheader
@@ -89842,7 +90119,7 @@ PlrList_MtzBoss_Dup: plrlistheader
 	plreq ArtTile_ArtNem_FieryExplosion, ArtNem_FieryExplosion
 PlrList_MtzBoss_Dup_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue (duplicate)
+; PATTERN LOAD REQUEST LIST (duplicate)
 ; OOZ Boss
 ;---------------------------------------------------------------------------------------
 PlrList_OozBoss_Dup: plrlistheader
@@ -89850,29 +90127,29 @@ PlrList_OozBoss_Dup: plrlistheader
 	plreq ArtTile_ArtNem_FieryExplosion, ArtNem_FieryExplosion
 PlrList_OozBoss_Dup_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue (duplicate)
+; PATTERN LOAD REQUEST LIST (duplicate)
 ; Fiery Explosion
 ;---------------------------------------------------------------------------------------
 PlrList_FieryExplosion_Dup: plrlistheader
 	plreq ArtTile_ArtNem_FieryExplosion, ArtNem_FieryExplosion
 PlrList_FieryExplosion_Dup_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue (duplicate)
+; PATTERN LOAD REQUEST LIST (duplicate)
 ; Death Egg
 ;---------------------------------------------------------------------------------------
 PlrList_DezBoss_Dup: plrlistheader
 	plreq ArtTile_ArtNem_DEZBoss, ArtNem_DEZBoss
 PlrList_DezBoss_Dup_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue (duplicate)
+; PATTERN LOAD REQUEST LIST (duplicate)
 ; EHZ Animals
 ;---------------------------------------------------------------------------------------
 PlrList_EhzAnimals_Dup: plrlistheader
 	plreq ArtTile_ArtNem_Animal_1, ArtNem_Squirrel
-	plreq ArtTile_ArtNem_Animal_2, ArtNem_Bird
+	plreq ArtTile_ArtNem_Animal_2, ArtNem_Flicky
 PlrList_EhzAnimals_Dup_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue (duplicate)
+; PATTERN LOAD REQUEST LIST (duplicate)
 ; MCZ Animals
 ;---------------------------------------------------------------------------------------
 PlrList_MczAnimals_Dup: plrlistheader
@@ -89880,19 +90157,19 @@ PlrList_MczAnimals_Dup: plrlistheader
 	plreq ArtTile_ArtNem_Animal_2, ArtNem_Chicken
 PlrList_MczAnimals_Dup_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue (duplicate)
+; PATTERN LOAD REQUEST LIST (duplicate)
 ; HTZ/MTZ/WFZ animals
 ;---------------------------------------------------------------------------------------
 PlrList_HtzAnimals_Dup:
 PlrList_MtzAnimals_Dup:
 PlrList_WfzAnimals_Dup: plrlistheader
-	plreq ArtTile_ArtNem_Animal_1, ArtNem_Beaver
+	plreq ArtTile_ArtNem_Animal_1, ArtNem_Monkey
 	plreq ArtTile_ArtNem_Animal_2, ArtNem_Eagle
 PlrList_HtzAnimals_Dup_End
 PlrList_MtzAnimals_Dup_End
 PlrList_WfzAnimals_Dup_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue (duplicate)
+; PATTERN LOAD REQUEST LIST (duplicate)
 ; DEZ Animals
 ;---------------------------------------------------------------------------------------
 PlrList_DezAnimals_Dup: plrlistheader
@@ -89900,7 +90177,7 @@ PlrList_DezAnimals_Dup: plrlistheader
 	plreq ArtTile_ArtNem_Animal_2, ArtNem_Chicken
 PlrList_DezAnimals_Dup_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue (duplicate)
+; PATTERN LOAD REQUEST LIST (duplicate)
 ; HPZ animals
 ;---------------------------------------------------------------------------------------
 PlrList_HpzAnimals_Dup: plrlistheader
@@ -89908,7 +90185,7 @@ PlrList_HpzAnimals_Dup: plrlistheader
 	plreq ArtTile_ArtNem_Animal_2, ArtNem_Seal
 PlrList_HpzAnimals_Dup_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue (duplicate)
+; PATTERN LOAD REQUEST LIST (duplicate)
 ; OOZ Animals
 ;---------------------------------------------------------------------------------------
 PlrList_OozAnimals_Dup: plrlistheader
@@ -89916,7 +90193,7 @@ PlrList_OozAnimals_Dup: plrlistheader
 	plreq ArtTile_ArtNem_Animal_2, ArtNem_Seal
 PlrList_OozAnimals_Dup_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue (duplicate)
+; PATTERN LOAD REQUEST LIST (duplicate)
 ; SCZ Animals
 ;---------------------------------------------------------------------------------------
 PlrList_SczAnimals_Dup: plrlistheader
@@ -89924,15 +90201,15 @@ PlrList_SczAnimals_Dup: plrlistheader
 	plreq ArtTile_ArtNem_Animal_2, ArtNem_Chicken
 PlrList_SczAnimals_Dup_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue (duplicate)
+; PATTERN LOAD REQUEST LIST (duplicate)
 ; CNZ Animals
 ;---------------------------------------------------------------------------------------
 PlrList_CnzAnimals_Dup: plrlistheader
 	plreq ArtTile_ArtNem_Animal_1, ArtNem_Bear
-	plreq ArtTile_ArtNem_Animal_2, ArtNem_Bird
+	plreq ArtTile_ArtNem_Animal_2, ArtNem_Flicky
 PlrList_CnzAnimals_Dup_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue (duplicate)
+; PATTERN LOAD REQUEST LIST (duplicate)
 ; CPZ Animals
 ;---------------------------------------------------------------------------------------
 PlrList_CpzAnimals_Dup: plrlistheader
@@ -89940,15 +90217,15 @@ PlrList_CpzAnimals_Dup: plrlistheader
 	plreq ArtTile_ArtNem_Animal_2, ArtNem_Eagle
 PlrList_CpzAnimals_Dup_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue (duplicate)
+; PATTERN LOAD REQUEST LIST (duplicate)
 ; ARZ Animals
 ;---------------------------------------------------------------------------------------
 PlrList_ArzAnimals_Dup: plrlistheader
 	plreq ArtTile_ArtNem_Animal_1, ArtNem_Penguin
-	plreq ArtTile_ArtNem_Animal_2, ArtNem_Bird
+	plreq ArtTile_ArtNem_Animal_2, ArtNem_Flicky
 PlrList_ArzAnimals_Dup_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue (duplicate)
+; PATTERN LOAD REQUEST LIST (duplicate)
 ; Special Stage
 ;---------------------------------------------------------------------------------------
 PlrList_SpecialStage_Dup: plrlistheader
@@ -89967,14 +90244,14 @@ PlrList_SpecialStage_Dup: plrlistheader
 	plreq ArtTile_ArtNem_SpecialTailsText, ArtNem_SpecialTailsText
 PlrList_SpecialStage_Dup_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue (duplicate)
+; PATTERN LOAD REQUEST LIST (duplicate)
 ; Special Stage Bombs
 ;---------------------------------------------------------------------------------------
 PlrList_SpecStageBombs_Dup: plrlistheader
 	plreq ArtTile_ArtNem_SpecialBomb, ArtNem_SpecialBomb
 PlrList_SpecStageBombs_Dup_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue (duplicate)
+; PATTERN LOAD REQUEST LIST (duplicate)
 ; WFZ Boss
 ;---------------------------------------------------------------------------------------
 PlrList_WfzBoss_Dup: plrlistheader
@@ -89985,7 +90262,7 @@ PlrList_WfzBoss_Dup: plrlistheader
 	plreq ArtTile_ArtNem_FieryExplosion, ArtNem_FieryExplosion
 PlrList_WfzBoss_Dup_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue (duplicate)
+; PATTERN LOAD REQUEST LIST (duplicate)
 ; Tornado
 ;---------------------------------------------------------------------------------------
 PlrList_Tornado_Dup: plrlistheader
@@ -89994,21 +90271,21 @@ PlrList_Tornado_Dup: plrlistheader
 	plreq ArtTile_ArtNem_Clouds, ArtNem_Clouds
 PlrList_Tornado_Dup_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue (duplicate)
+; PATTERN LOAD REQUEST LIST (duplicate)
 ; Capsule/Egg Prison
 ;---------------------------------------------------------------------------------------
 PlrList_Capsule_Dup: plrlistheader
 	plreq ArtTile_ArtNem_Capsule, ArtNem_Capsule
 PlrList_Capsule_Dup_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue (duplicate)
+; PATTERN LOAD REQUEST LIST (duplicate)
 ; Normal explosion
 ;---------------------------------------------------------------------------------------
 PlrList_Explosion_Dup: plrlistheader
 	plreq ArtTile_ArtNem_Explosion, ArtNem_Explosion
 PlrList_Explosion_Dup_End
 ;---------------------------------------------------------------------------------------
-; Pattern load queue (duplicate)
+; PATTERN LOAD REQUEST LIST (duplicate)
 ; Tails end of level results screen
 ;---------------------------------------------------------------------------------------
 PlrList_ResultsTails_Dup: plrlistheader
@@ -90022,78 +90299,47 @@ PlrList_ResultsTails_Dup_End
 
 
 ;---------------------------------------------------------------------------------------
-; Curve and resistance mapping
+; Collision Data
 ;---------------------------------------------------------------------------------------
-ColCurveMap:	BINCLUDE	"collision/Curve and resistance mapping.bin"
+ColCurveMap:		BINCLUDE	"collision/Curve and resistance mapping.bin"
 	even
-;--------------------------------------------------------------------------------------
-; Collision arrays
-;--------------------------------------------------------------------------------------
-ColArray:	BINCLUDE	"collision/Collision array 1.bin"
-ColArray2:	BINCLUDE	"collision/Collision array 2.bin"
+ColArrayVertical:	BINCLUDE	"collision/Collision array - Vertical.bin"
+ColArrayHorizontal:	BINCLUDE	"collision/Collision array - Horizontal.bin"
 	even
-;---------------------------------------------------------------------------------------
-; EHZ and HTZ primary 16x16 collision index (Kosinski compression)
+
+; These are all compressed in the Kosinski format.
 ColP_EHZHTZ:	BINCLUDE	"collision/EHZ and HTZ primary 16x16 collision index.bin"
 	even
-;---------------------------------------------------------------------------------------
-; EHZ and HTZ secondary 16x16 collision index (Kosinski compression)
 ColS_EHZHTZ:	BINCLUDE	"collision/EHZ and HTZ secondary 16x16 collision index.bin"
 	even
-;---------------------------------------------------------------------------------------
-; MTZ primary 16x16 collision index (Kosinski compression)
+ColP_WZ:	;BINCLUDE	"collision/WZ primary 16x16 collision index.bin"
+	;even
 ColP_MTZ:	BINCLUDE	"collision/MTZ primary 16x16 collision index.bin"
 	even
-;---------------------------------------------------------------------------------------
-; HPZ primary 16x16 collision index (Kosinski compression)
 ColP_HPZ:	;BINCLUDE	"collision/HPZ primary 16x16 collision index.bin"
 	;even
-;---------------------------------------------------------------------------------------
-; HPZ secondary 16x16 collision index (Kosinski compression)
 ColS_HPZ:	;BINCLUDE	"collision/HPZ secondary 16x16 collision index.bin"
 	;even
-;---------------------------------------------------------------------------------------
-; OOZ primary 16x16 collision index (Kosinski compression)
 ColP_OOZ:	BINCLUDE	"collision/OOZ primary 16x16 collision index.bin"
 	even
-;---------------------------------------------------------------------------------------
-; MCZ primary 16x16 collision index (Kosinski compression)
 ColP_MCZ:	BINCLUDE	"collision/MCZ primary 16x16 collision index.bin"
 	even
-;---------------------------------------------------------------------------------------
-; CNZ primary 16x16 collision index (Kosinski compression)
 ColP_CNZ:	BINCLUDE	"collision/CNZ primary 16x16 collision index.bin"
 	even
-;---------------------------------------------------------------------------------------
-; CNZ secondary 16x16 collision index (Kosinski compression)
 ColS_CNZ:	BINCLUDE	"collision/CNZ secondary 16x16 collision index.bin"
 	even
-;---------------------------------------------------------------------------------------
-; CPZ and DEZ primary 16x16 collision index (Kosinski compression)
 ColP_CPZDEZ:	BINCLUDE	"collision/CPZ and DEZ primary 16x16 collision index.bin"
 	even
-;---------------------------------------------------------------------------------------
-; CPZ and DEZ secondary 16x16 collision index (Kosinski compression)
 ColS_CPZDEZ:	BINCLUDE	"collision/CPZ and DEZ secondary 16x16 collision index.bin"
 	even
-;---------------------------------------------------------------------------------------
-; ARZ primary 16x16 collision index (Kosinski compression)
 ColP_ARZ:	BINCLUDE	"collision/ARZ primary 16x16 collision index.bin"
 	even
-;---------------------------------------------------------------------------------------
-; ARZ secondary 16x16 collision index (Kosinski compression)
 ColS_ARZ:	BINCLUDE	"collision/ARZ secondary 16x16 collision index.bin"
 	even
-;---------------------------------------------------------------------------------------
-; WFZ/SCZ primary 16x16 collision index (Kosinski compression)
 ColP_WFZSCZ:	BINCLUDE	"collision/WFZ and SCZ primary 16x16 collision index.bin"
 	even
-;---------------------------------------------------------------------------------------
-; WFZ/SCZ secondary 16x16 collision index (Kosinski compression)
 ColS_WFZSCZ:	BINCLUDE	"collision/WFZ and SCZ secondary 16x16 collision index.bin"
 	even
-;---------------------------------------------------------------------------------------
-
 ColP_Invalid:
 
 
@@ -90105,124 +90351,101 @@ ColP_Invalid:
 ; respectively.
 ;---------------------------------------------------------------------------------------
 Off_Level: zoneOrderedOffsetTable 2,2
-	zoneOffsetTableEntry.w Level_EHZ1
-	zoneOffsetTableEntry.w Level_EHZ2	; 1
-	zoneOffsetTableEntry.w Level_EHZ1	; 2
-	zoneOffsetTableEntry.w Level_EHZ1	; 3
-	zoneOffsetTableEntry.w Level_EHZ1	; 4
-	zoneOffsetTableEntry.w Level_EHZ1	; 5
-	zoneOffsetTableEntry.w Level_EHZ1	; 6
-	zoneOffsetTableEntry.w Level_EHZ1	; 7
-	zoneOffsetTableEntry.w Level_MTZ1	; 8
-	zoneOffsetTableEntry.w Level_MTZ2	; 9
-	zoneOffsetTableEntry.w Level_MTZ3	; 10
-	zoneOffsetTableEntry.w Level_MTZ3	; 11
-	zoneOffsetTableEntry.w Level_WFZ	; 12
-	zoneOffsetTableEntry.w Level_WFZ	; 13
-	zoneOffsetTableEntry.w Level_HTZ1	; 14
-	zoneOffsetTableEntry.w Level_HTZ2	; 15
-	zoneOffsetTableEntry.w Level_HPZ1	; 16
-	zoneOffsetTableEntry.w Level_HPZ1	; 17
-	zoneOffsetTableEntry.w Level_EHZ1	; 18
-	zoneOffsetTableEntry.w Level_EHZ1	; 19
-	zoneOffsetTableEntry.w Level_OOZ1	; 20
-	zoneOffsetTableEntry.w Level_OOZ2	; 21
-	zoneOffsetTableEntry.w Level_MCZ1	; 22
-	zoneOffsetTableEntry.w Level_MCZ2	; 23
-	zoneOffsetTableEntry.w Level_CNZ1	; 24
-	zoneOffsetTableEntry.w Level_CNZ2	; 25
-	zoneOffsetTableEntry.w Level_CPZ1	; 26
-	zoneOffsetTableEntry.w Level_CPZ2	; 27
-	zoneOffsetTableEntry.w Level_DEZ	; 28
-	zoneOffsetTableEntry.w Level_DEZ	; 29
-	zoneOffsetTableEntry.w Level_ARZ1	; 30
-	zoneOffsetTableEntry.w Level_ARZ2	; 31
-	zoneOffsetTableEntry.w Level_SCZ	; 32
-	zoneOffsetTableEntry.w Level_SCZ	; 33
+	; EHZ
+	zoneOffsetTableEntry.w Level_EHZ1	; Act 1
+	zoneOffsetTableEntry.w Level_EHZ2	; Act 2
+	; Zone 1
+	zoneOffsetTableEntry.w Level_Invalid	; Act 1
+	zoneOffsetTableEntry.w Level_Invalid	; Act 2
+	; WZ
+	zoneOffsetTableEntry.w Level_Invalid	; Act 1
+	zoneOffsetTableEntry.w Level_Invalid	; Act 2
+	; Zone 3
+	zoneOffsetTableEntry.w Level_Invalid	; Act 1
+	zoneOffsetTableEntry.w Level_Invalid	; Act 2
+	; MTZ
+	zoneOffsetTableEntry.w Level_MTZ1	; Act 1
+	zoneOffsetTableEntry.w Level_MTZ2	; Act 2
+	; MTZ
+	zoneOffsetTableEntry.w Level_MTZ3	; Act 3
+	zoneOffsetTableEntry.w Level_MTZ3	; Act 4
+	; WFZ
+	zoneOffsetTableEntry.w Level_WFZ	; Act 1
+	zoneOffsetTableEntry.w Level_WFZ	; Act 2
+	; HTZ
+	zoneOffsetTableEntry.w Level_HTZ1	; Act 1
+	zoneOffsetTableEntry.w Level_HTZ2	; Act 2
+	; HPZ
+	zoneOffsetTableEntry.w Level_HPZ1	; Act 1
+	zoneOffsetTableEntry.w Level_HPZ1	; Act 2
+	; Zone 9
+	zoneOffsetTableEntry.w Level_Invalid	; Act 1
+	zoneOffsetTableEntry.w Level_Invalid	; Act 2
+	; OOZ
+	zoneOffsetTableEntry.w Level_OOZ1	; Act 1
+	zoneOffsetTableEntry.w Level_OOZ2	; Act 2
+	; MCZ
+	zoneOffsetTableEntry.w Level_MCZ1	; Act 1
+	zoneOffsetTableEntry.w Level_MCZ2	; Act 2
+	; CNZ
+	zoneOffsetTableEntry.w Level_CNZ1	; Act 1
+	zoneOffsetTableEntry.w Level_CNZ2	; Act 2
+	; CPZ
+	zoneOffsetTableEntry.w Level_CPZ1	; Act 1
+	zoneOffsetTableEntry.w Level_CPZ2	; Act 2
+	; DEZ
+	zoneOffsetTableEntry.w Level_DEZ	; Act 1
+	zoneOffsetTableEntry.w Level_DEZ	; Act 2
+	; ARZ
+	zoneOffsetTableEntry.w Level_ARZ1	; Act 1
+	zoneOffsetTableEntry.w Level_ARZ2	; Act 2
+	; SCZ
+	zoneOffsetTableEntry.w Level_SCZ	; Act 1
+	zoneOffsetTableEntry.w Level_SCZ	; Act 2
     zoneTableEnd
-;---------------------------------------------------------------------------------------
-; EHZ act 1 level layout (Kosinski compression)
+
+; These are all compressed in the Kosinski format.
+Level_Invalid:
 Level_EHZ1:	BINCLUDE	"level/layout/EHZ_1.bin"
 	even
-;---------------------------------------------------------------------------------------
-; EHZ act 2 level layout (Kosinski compression)
 Level_EHZ2:	BINCLUDE	"level/layout/EHZ_2.bin"
 	even
-;---------------------------------------------------------------------------------------
-; MTZ act 1 level layout (Kosinski compression)
 Level_MTZ1:	BINCLUDE	"level/layout/MTZ_1.bin"
 	even
-;---------------------------------------------------------------------------------------
-; MTZ act 2 level layout (Kosinski compression)
 Level_MTZ2:	BINCLUDE	"level/layout/MTZ_2.bin"
 	even
-;---------------------------------------------------------------------------------------
-; MTZ act 3 level layout (Kosinski compression)
 Level_MTZ3:	BINCLUDE	"level/layout/MTZ_3.bin"
 	even
-;---------------------------------------------------------------------------------------
-; WFZ level layout (Kosinski compression)
 Level_WFZ:	BINCLUDE	"level/layout/WFZ.bin"
 	even
-;---------------------------------------------------------------------------------------
-; HTZ act 1 level layout (Kosinski compression)
 Level_HTZ1:	BINCLUDE	"level/layout/HTZ_1.bin"
 	even
-;---------------------------------------------------------------------------------------
-; HTZ act 2 level layout (Kosinski compression)
 Level_HTZ2:	BINCLUDE	"level/layout/HTZ_2.bin"
 	even
-;---------------------------------------------------------------------------------------
-; HPZ act 1 level layout (Kosinski compression)
 Level_HPZ1:	;BINCLUDE	"level/layout/HPZ_1.bin"
 	;even
-;---------------------------------------------------------------------------------------
-; OOZ act 1 level layout (Kosinski compression)
 Level_OOZ1:	BINCLUDE	"level/layout/OOZ_1.bin"
 	even
-;---------------------------------------------------------------------------------------
-; OOZ act 2 level layout (Kosinski compression)
 Level_OOZ2:	BINCLUDE	"level/layout/OOZ_2.bin"
 	even
-;---------------------------------------------------------------------------------------
-; MCZ act 1 level layout (Kosinski compression)
 Level_MCZ1:	BINCLUDE	"level/layout/MCZ_1.bin"
 	even
-;---------------------------------------------------------------------------------------
-; MCZ act 2 level layout (Kosinski compression)
 Level_MCZ2:	BINCLUDE	"level/layout/MCZ_2.bin"
 	even
-;---------------------------------------------------------------------------------------
-; CNZ act 1 level layout (Kosinski compression)
 Level_CNZ1:	BINCLUDE	"level/layout/CNZ_1.bin"
 	even
-;---------------------------------------------------------------------------------------
-; CNZ act 2 level layout (Kosinski compression)
 Level_CNZ2:	BINCLUDE	"level/layout/CNZ_2.bin"
 	even
-;---------------------------------------------------------------------------------------
-; CPZ act 1 level layout (Kosinski compression)
 Level_CPZ1:	BINCLUDE	"level/layout/CPZ_1.bin"
 	even
-;---------------------------------------------------------------------------------------
-; CPZ act 2 level layout (Kosinski compression)
 Level_CPZ2:	BINCLUDE	"level/layout/CPZ_2.bin"
 	even
-;---------------------------------------------------------------------------------------
-; DEZ level layout (Kosinski compression)
 Level_DEZ:	BINCLUDE	"level/layout/DEZ.bin"
 	even
-;---------------------------------------------------------------------------------------
-; ARZ act 1 level layout (Kosinski compression)
 Level_ARZ1:	BINCLUDE	"level/layout/ARZ_1.bin"
 	even
-
-;---------------------------------------------------------------------------------------
-; ARZ act 2 level layout (Kosinski compression)
 Level_ARZ2:	BINCLUDE	"level/layout/ARZ_2.bin"
 	even
-;---------------------------------------------------------------------------------------
-; SCZ level layout (Kosinski compression)
 Level_SCZ:	BINCLUDE	"level/layout/SCZ.bin"
 	even
 
@@ -90230,1043 +90453,530 @@ Level_SCZ:	BINCLUDE	"level/layout/SCZ.bin"
 
 
 ;---------------------------------------------------------------------------------------
-; Uncompressed art
-; Animated flowers in EHZ and HTZ ; ArtUnc_49714: ArtUnc_49794: ArtUnc_49814: ArtUnc_49894:
+; Animated Level Art
 ;---------------------------------------------------------------------------------------
+; EHZ and HTZ
 ArtUnc_Flowers1:	BINCLUDE	"art/uncompressed/EHZ and HTZ flowers - 1.bin"
 ArtUnc_Flowers2:	BINCLUDE	"art/uncompressed/EHZ and HTZ flowers - 2.bin"
 ArtUnc_Flowers3:	BINCLUDE	"art/uncompressed/EHZ and HTZ flowers - 3.bin"
 ArtUnc_Flowers4:	BINCLUDE	"art/uncompressed/EHZ and HTZ flowers - 4.bin"
-;---------------------------------------------------------------------------------------
-; Uncompressed art
-; Pulsing thing against checkered backing from EHZ ; ArtUnc_49914:
 ArtUnc_EHZPulseBall:	BINCLUDE	"art/uncompressed/Pulsing ball against checkered background (EHZ).bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (192 blocks)
-; Dynamically reloaded cliffs in background from HTZ ; ArtNem_49A14: ArtUnc_HTZCliffs:
 ArtNem_HTZCliffs:	BINCLUDE	"art/nemesis/Dynamically reloaded cliffs in HTZ background.bin"
 	even
-;---------------------------------------------------------------------------------------
-; Uncompressed art
-; Dynamically reloaded clouds in background from HTZ ; ArtUnc_4A33E:
 ArtUnc_HTZClouds:	BINCLUDE	"art/uncompressed/Background clouds (HTZ).bin"
-;---------------------------------------------------------------------------------------
-; Uncompressed art
-; Spinning metal cylinder patterns in MTZ ; ArtUnc_4A73E:
+
+; MTZ
 ArtUnc_MTZCylinder:	BINCLUDE	"art/uncompressed/Spinning metal cylinder (MTZ).bin"
-;---------------------------------------------------------------------------------------
-; Uncompressed art
-; Lava patterns in MTZ and HTZ  ; ArtUnc_4B73E:
-ArtUnc_Lava:	BINCLUDE	"art/uncompressed/Lava.bin"
-;---------------------------------------------------------------------------------------
-; Uncompressed art
-; Animated section of MTZ background ; ArtUnc_4BD3E:
+ArtUnc_Lava:		BINCLUDE	"art/uncompressed/Lava.bin"
 ArtUnc_MTZAnimBack:	BINCLUDE	"art/uncompressed/Animated section of MTZ background.bin"
-;---------------------------------------------------------------------------------------
-; Uncompressed art
-; Pulsing orb in HPZ
+
+; HPZ
 ArtUnc_HPZPulseOrb:	;BINCLUDE	"art/uncompressed/Pulsing orb (HPZ).bin"
-;---------------------------------------------------------------------------------------
-; Uncompressed art
-; Pulsing ball in OOZ   ; ArtUnc_4BF7E:
+
+; OOZ
 ArtUnc_OOZPulseBall:	BINCLUDE	"art/uncompressed/Pulsing ball (OOZ).bin"
-;---------------------------------------------------------------------------------------
-; Uncompressed art
-; Square rotating around ball in OOZ ; ArtUnc_4C0FE: ArtUnc_4C2FE:
 ArtUnc_OOZSquareBall1:	BINCLUDE	"art/uncompressed/Square rotating around ball in OOZ - 1.bin"
 ArtUnc_OOZSquareBall2:	BINCLUDE	"art/uncompressed/Square rotating around ball in OOZ - 2.bin"
-;---------------------------------------------------------------------------------------
-; Uncompressed art
-; Oil in OOZ    ; ArtUnc_4C4FE: ArtUnc_4CCFE:
-ArtUnc_Oil1:	BINCLUDE	"art/uncompressed/Oil - 1.bin"
-ArtUnc_Oil2:	BINCLUDE	"art/uncompressed/Oil - 2.bin"
-;---------------------------------------------------------------------------------------
-; Uncompressed art
-; Flipping foreground section in CNZ ; ArtUnc_4D4FE:
+ArtUnc_Oil1:		BINCLUDE	"art/uncompressed/Oil - 1.bin"
+ArtUnc_Oil2:		BINCLUDE	"art/uncompressed/Oil - 2.bin"
+
+; CNZ
 ArtUnc_CNZFlipTiles:	BINCLUDE	"art/uncompressed/Flipping foreground section (CNZ).bin"
-;---------------------------------------------------------------------------------------
-; Uncompressed art
-; Bonus pictures for slots in CNZ ; ArtUnc_4EEFE:
 ArtUnc_CNZSlotPics:	BINCLUDE	"art/uncompressed/Slot pictures.bin"
-;---------------------------------------------------------------------------------------
-; Uncompressed art
-; Animated background section in CPZ and DEZ ; ArtUnc_4FAFE:
 ArtUnc_CPZAnimBack:	BINCLUDE	"art/uncompressed/Animated background section (CPZ and DEZ).bin"
-;---------------------------------------------------------------------------------------
-; Uncompressed art
-; Waterfall patterns from ARZ   ; ArtUnc_4FCFE: ArtUnc_4FDFE: ArtUnc_4FEFE:
+
+; ARZ
 ArtUnc_Waterfall1:	BINCLUDE	"art/uncompressed/ARZ waterfall patterns - 1.bin"
 ArtUnc_Waterfall2:	BINCLUDE	"art/uncompressed/ARZ waterfall patterns - 2.bin"
 ArtUnc_Waterfall3:	BINCLUDE	"art/uncompressed/ARZ waterfall patterns - 3.bin"
+
 ;---------------------------------------------------------------------------------------
-; Uncompressed art
-; Patterns for Sonic  ; ArtUnc_50000:
-;---------------------------------------------------------------------------------------
-	align $20
-ArtUnc_Sonic:	BINCLUDE	"art/uncompressed/Sonic's art.bin"
-;---------------------------------------------------------------------------------------
-; Uncompressed art
-; Patterns for Tails  ; ArtUnc_64320:
+; Player Assets
 ;---------------------------------------------------------------------------------------
 	align $20
-ArtUnc_Tails:	BINCLUDE	"art/uncompressed/Tails's art.bin"
-;--------------------------------------------------------------------------------------
-; Sprite Mappings
-; Sonic			; MapUnc_6FBE0: SprTbl_Sonic:
-;--------------------------------------------------------------------------------------
-MapUnc_Sonic:	BINCLUDE	"mappings/sprite/Sonic.bin"
-;--------------------------------------------------------------------------------------
-; Sprite Dynamic Pattern Reloading
-; Sonic DPLCs   		; MapRUnc_714E0:
-;--------------------------------------------------------------------------------------
+ArtUnc_Sonic:			BINCLUDE	"art/uncompressed/Sonic's art.bin"
+	align $20
+ArtUnc_Tails:			BINCLUDE	"art/uncompressed/Tails's art.bin"
+
+MapUnc_Sonic:			BINCLUDE	"mappings/sprite/Sonic.bin"
 ; WARNING: the build script needs editing if you rename this label
 ;          or if you move Sonic's running frame to somewhere else than frame $2D
-MapRUnc_Sonic:	BINCLUDE	"mappings/spriteDPLC/Sonic.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (32 blocks)
-; Shield			; ArtNem_71D8E:
-ArtNem_Shield:	BINCLUDE	"art/nemesis/Shield.bin"
+MapRUnc_Sonic:			BINCLUDE	"mappings/spriteDPLC/Sonic.bin"
+
+ArtNem_Shield:			BINCLUDE	"art/nemesis/Shield.bin"
 	even
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (34 blocks)
-; Invincibility stars		; ArtNem_71F14:
 ArtNem_Invincible_stars:	BINCLUDE	"art/nemesis/Invincibility stars.bin"
 	even
-;--------------------------------------------------------------------------------------
-; Uncompressed art
-; Splash in water and dust from skidding	; ArtUnc_71FFC:
-ArtUnc_SplashAndDust:	BINCLUDE	"art/uncompressed/Splash and skid dust.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (14 blocks)
-; Super Sonic stars		; ArtNem_7393C:
+ArtUnc_SplashAndDust:		BINCLUDE	"art/uncompressed/Splash and skid dust.bin"
+
 ArtNem_SuperSonic_stars:	BINCLUDE	"art/nemesis/Super Sonic stars.bin"
 	even
-;--------------------------------------------------------------------------------------
-; Sprite Mappings
-; Tails			; MapUnc_739E2:
-;--------------------------------------------------------------------------------------
-MapUnc_Tails:	BINCLUDE	"mappings/sprite/Tails.bin"
-;--------------------------------------------------------------------------------------
-; Sprite Dynamic Pattern Reloading
-; Tails DPLCs	; MapRUnc_7446C:
-;--------------------------------------------------------------------------------------
-MapRUnc_Tails:	BINCLUDE	"mappings/spriteDPLC/Tails.bin"
-;-------------------------------------------------------------------------------------
-; Nemesis compressed art (127 blocks)
-; "SEGA" Patterns	; ArtNem_74876:
-	even
-ArtNem_SEGA:	BINCLUDE	"art/nemesis/SEGA.bin"
-;-------------------------------------------------------------------------------------
-; Nemesis compressed art (9 blocks)
-; Shaded blocks from intro	; ArtNem_74CF6:
-	even
-ArtNem_IntroTrails:	BINCLUDE	"art/nemesis/Shaded blocks from intro.bin"
+MapUnc_Tails:			BINCLUDE	"mappings/sprite/Tails.bin"
+
+MapRUnc_Tails:			BINCLUDE	"mappings/spriteDPLC/Tails.bin"
+
 ;---------------------------------------------------------------------------------------
-; Enigma compressed art mappings
-; "SEGA" mappings		; MapEng_74D0E:
-	even
-MapEng_SEGA:	BINCLUDE	"mappings/misc/SEGA mappings.bin"
+; Sega Screen Assets
 ;---------------------------------------------------------------------------------------
-; Enigma compressed art mappings
-; Mappings for title screen background	; ArtNem_74DC6:
+ArtNem_SEGA:			BINCLUDE	"art/nemesis/SEGA.bin"
 	even
-MapEng_TitleScreen:	BINCLUDE	"mappings/misc/Mappings for title screen background.bin"
-;--------------------------------------------------------------------------------------
-; Enigma compressed art mappings
-; Mappings for title screen background (smaller part, water/horizon)	; MapEng_74E3A:
+ArtNem_IntroTrails:		BINCLUDE	"art/nemesis/Shaded blocks from intro.bin"
 	even
-MapEng_TitleBack:	BINCLUDE	"mappings/misc/Mappings for title screen background 2.bin"
+MapEng_SEGA:			BINCLUDE	"mappings/misc/SEGA mappings.bin"
+	even
+
 ;---------------------------------------------------------------------------------------
-; Enigma compressed art mappings
-; "Sonic the Hedgehog 2" title screen logo mappings	; MapEng_74E86:
-	even
-MapEng_TitleLogo:	BINCLUDE	"mappings/misc/Sonic the Hedgehog 2 title screen logo mappings.bin"
+; Title Screen Assets
 ;---------------------------------------------------------------------------------------
-; Nemesis compressed art (336 blocks)
-; Main patterns from title screen	; ArtNem_74F6C:
+MapEng_TitleScreen:		BINCLUDE	"mappings/misc/Mappings for title screen background.bin"
 	even
-ArtNem_Title:	BINCLUDE	"art/nemesis/Main patterns from title screen.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (674 blocks)
-; Sonic and Tails from title screen	; ArtNem_7667A:
+MapEng_TitleBack:		BINCLUDE	"mappings/misc/Mappings for title screen background 2.bin" ; title screen background (smaller part, water/horizon)
 	even
-ArtNem_TitleSprites:	BINCLUDE	"art/nemesis/Sonic and Tails from title screen.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (10 blocks)
-; A few menu patterns	; ArtNem_78CBC:
+MapEng_TitleLogo:		BINCLUDE	"mappings/misc/Sonic the Hedgehog 2 title screen logo mappings.bin"
 	even
-ArtNem_MenuJunk:	BINCLUDE	"art/nemesis/A few menu blocks.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (16 blocks)
-; Button			ArtNem_78DAC:
+ArtNem_Title:			BINCLUDE	"art/nemesis/Main patterns from title screen.bin"
 	even
-ArtNem_Button:	BINCLUDE	"art/nemesis/Button.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (20 blocks)
-; Vertical Spring		ArtNem_78E84:
+ArtNem_TitleSprites:		BINCLUDE	"art/nemesis/Sonic and Tails from title screen.bin"
 	even
-ArtNem_VrtclSprng:	BINCLUDE	"art/nemesis/Vertical spring.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (12 blocks)
-; Horizontal spring		ArtNem_78FA0:
+ArtNem_MenuJunk:		BINCLUDE	"art/nemesis/A few menu blocks.bin"
 	even
-ArtNem_HrzntlSprng:	BINCLUDE	"art/nemesis/Horizontal spring.bin"
+
 ;---------------------------------------------------------------------------------------
-; Nemesis compressed art (32 blocks)
-; Diagonal spring		ArtNem_7906A:
+; General Level Assets
+;---------------------------------------------------------------------------------------
+ArtNem_Button:			BINCLUDE	"art/nemesis/Button.bin"
 	even
-ArtNem_DignlSprng:	BINCLUDE	"art/nemesis/Diagonal spring.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (24 blocks)
-; Score, Rings, Time patterns	ArtNem_7923E:
+ArtNem_VrtclSprng:		BINCLUDE	"art/nemesis/Vertical spring.bin"
 	even
-ArtNem_HUD:	BINCLUDE	"art/nemesis/HUD.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (12 blocks)
-; Sonic lives counter		ArtNem_79346:
+ArtNem_HrzntlSprng:		BINCLUDE	"art/nemesis/Horizontal spring.bin"
+	even
+ArtNem_DignlSprng:		BINCLUDE	"art/nemesis/Diagonal spring.bin"
+	even
+ArtNem_HUD:			BINCLUDE	"art/nemesis/HUD.bin" ; Score, Rings, Time
 	even
 ArtNem_Sonic_life_counter:	BINCLUDE	"art/nemesis/Sonic lives counter.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (14 blocks)
-; Ring				ArtNem_7945C:
 	even
-ArtNem_Ring:	BINCLUDE	"art/nemesis/Ring.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (60 blocks)
-; Monitors and contents		ArtNem_79550:
+ArtNem_Ring:			BINCLUDE	"art/nemesis/Ring.bin"
 	even
-ArtNem_Powerups:	BINCLUDE	"art/nemesis/Monitor and contents.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (8 blocks)
-; Spikes			7995C:
+ArtNem_Powerups:		BINCLUDE	"art/nemesis/Monitor and contents.bin"
 	even
-ArtNem_Spikes:	BINCLUDE	"art/nemesis/Spikes.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (18 blocks)
-; Numbers			799AC:
+ArtNem_Spikes:			BINCLUDE	"art/nemesis/Spikes.bin"
 	even
-ArtNem_Numbers:	BINCLUDE	"art/nemesis/Numbers.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (16 blocks)
-; Star pole			79A86:
+ArtNem_Numbers:			BINCLUDE	"art/nemesis/Numbers.bin"
 	even
-ArtNem_Checkpoint:	BINCLUDE	"art/nemesis/Star pole.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (78 blocks)
-; Signpost		; ArtNem_79BDE:
+ArtNem_Checkpoint:		BINCLUDE	"art/nemesis/Star pole.bin"
 	even
-ArtNem_Signpost:	BINCLUDE	"art/nemesis/Signpost.bin"
-;---------------------------------------------------------------------------------------
-; Uncompressed art
-; Signpost		; ArtUnc_7A18A:
-; Yep, it's in the ROM twice: once compressed and once uncompressed
+ArtNem_Signpost:		BINCLUDE	"art/nemesis/Signpost.bin" ; For one-player mode.
 	even
-ArtUnc_Signpost:	BINCLUDE	"art/uncompressed/Signpost.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (28 blocks)
-; Lever spring		; ArtNem_7AB4A:
+ArtUnc_Signpost:		BINCLUDE	"art/uncompressed/Signpost.bin" ; For two-player mode.
 	even
-ArtNem_LeverSpring:	BINCLUDE	"art/nemesis/Lever spring.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (8 blocks)
-; Long horizontal spike		; ArtNem_7AC9A:
+ArtNem_LeverSpring:		BINCLUDE	"art/nemesis/Lever spring.bin"
 	even
-ArtNem_HorizSpike:	BINCLUDE	"art/nemesis/Long horizontal spike.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (24 blocks)
-; Bubble thing from underwater	; ArtNem_7AD16:
+ArtNem_HorizSpike:		BINCLUDE	"art/nemesis/Long horizontal spike.bin"
 	even
-ArtNem_BigBubbles:	BINCLUDE	"art/nemesis/Bubble generator.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (10 blocks)
-; Bubbles from character	7AEE2:
+ArtNem_BigBubbles:		BINCLUDE	"art/nemesis/Bubble generator.bin" ; Bubble from underwater
 	even
-ArtNem_Bubbles:	BINCLUDE	"art/nemesis/Bubbles.bin"
-;---------------------------------------------------------------------------------------
-; Uncompressed art
-; Countdown text for drowning	; ArtUnc_7AF80:
+ArtNem_Bubbles:			BINCLUDE	"art/nemesis/Bubbles.bin" ; Bubbles from character
 	even
-ArtUnc_Countdown:	BINCLUDE	"art/uncompressed/Numbers for drowning countdown.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (34 blocks)
-; Game/Time over text		7B400:
+ArtUnc_Countdown:		BINCLUDE	"art/uncompressed/Numbers for drowning countdown.bin"
 	even
-ArtNem_Game_Over:	BINCLUDE	"art/nemesis/Game and Time Over text.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (68 blocks)
-; Explosion			7B592:
+ArtNem_Game_Over:		BINCLUDE	"art/nemesis/Game and Time Over text.bin"
 	even
-ArtNem_Explosion:	BINCLUDE	"art/nemesis/Explosion.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (12 blocks)
-; Miles life counter	; ArtNem_7B946:
+ArtNem_Explosion:		BINCLUDE	"art/nemesis/Explosion.bin"
 	even
-; ArtUnc_MilesLife:
-ArtNem_MilesLife:	BINCLUDE	"art/nemesis/Miles life counter.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (49 blocks)
-; Egg prison		; ArtNem_7BA32:
+ArtNem_MilesLife:		BINCLUDE	"art/nemesis/Miles life counter.bin"
 	even
-ArtNem_Capsule:	BINCLUDE	"art/nemesis/Egg Prison.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (36 blocks)
-; Tails on the continue screen (nagging Sonic)	; ArtNem_7BDBE:
+ArtNem_Capsule:			BINCLUDE	"art/nemesis/Egg Prison.bin"
 	even
-ArtNem_ContinueTails:	BINCLUDE	"art/nemesis/Tails on continue screen.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (12 blocks)
-; Sonic extra continue icon	; ArtNem_7C0AA:
+ArtNem_ContinueTails:		BINCLUDE	"art/nemesis/Tails on continue screen.bin"
 	even
-ArtNem_MiniSonic:	BINCLUDE	"art/nemesis/Sonic continue.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (12 blocks)
-; Tails life counter		; ArtNem_7C20C:
+ArtNem_MiniSonic:		BINCLUDE	"art/nemesis/Sonic continue.bin"
 	even
-ArtNem_TailsLife:	BINCLUDE	"art/nemesis/Tails life counter.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (12 blocks)
-; Tails extra continue icon	; ArtNem_7C2F2:
+ArtNem_TailsLife:		BINCLUDE	"art/nemesis/Tails life counter.bin"
 	even
-ArtNem_MiniTails:	BINCLUDE	"art/nemesis/Tails continue.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (88 blocks)
-; Standard font		; ArtNem_7C43A:
+ArtNem_MiniTails:		BINCLUDE	"art/nemesis/Tails continue.bin"
 	even
-ArtNem_FontStuff:	BINCLUDE	"art/nemesis/Standard font.bin"
+
 ;---------------------------------------------------------------------------------------
-; Nemesis compressed art (38 blocks)
-; 1P/2P wins text from 2P mode		; ArtNem_7C9AE:
-	even
-ArtNem_1P2PWins:	BINCLUDE	"art/nemesis/1P and 2P wins text from 2P mode.bin"
+; Menu Assets
 ;---------------------------------------------------------------------------------------
-; Enigma compressed art mappings
-; Sonic/Miles animated background mappings	; MapEng_7CB80:
+ArtNem_FontStuff:		BINCLUDE	"art/nemesis/Standard font.bin"
 	even
-MapEng_MenuBack:	BINCLUDE	"mappings/misc/Sonic and Miles animated background.bin"
-;---------------------------------------------------------------------------------------
-; Uncompressed art
-; Sonic/Miles animated background patterns	; ArtUnc_7CD2C:
+ArtNem_1P2PWins:		BINCLUDE	"art/nemesis/1P and 2P wins text from 2P mode.bin"
 	even
-ArtUnc_MenuBack:	BINCLUDE	"art/uncompressed/Sonic and Miles animated background.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (94 blocks)
-; Title card patterns		; ArtNem_7D22C:
+MapEng_MenuBack:		BINCLUDE	"mappings/misc/Sonic and Miles animated background.bin"
 	even
-ArtNem_TitleCard:	BINCLUDE	"art/nemesis/Title card.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (92 blocks)
-; Alphabet for font using large broken letters	; ArtNem_7D58A:
+ArtUnc_MenuBack:		BINCLUDE	"art/uncompressed/Sonic and Miles animated background.bin"
 	even
-ArtNem_TitleCard2:	BINCLUDE	"art/nemesis/Font using large broken letters.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (21 blocks)
-; A menu box with a shadow	; ArtNem_7D990:
+ArtNem_TitleCard:		BINCLUDE	"art/nemesis/Title card.bin"
 	even
-ArtNem_MenuBox:	BINCLUDE	"art/nemesis/A menu box with a shadow.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (170 blocks)
-; Pictures in level preview box in level select		; ArtNem_7DA10:
+ArtNem_TitleCard2:		BINCLUDE	"art/nemesis/Font using large broken letters.bin"
 	even
-ArtNem_LevelSelectPics:	BINCLUDE	"art/nemesis/Pictures in level preview box from level select.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (68 blocks)
-; Text for Sonic or Tails Got Through Act and Bonus/Perfect	; ArtNem_7E86A:
+ArtNem_MenuBox:			BINCLUDE	"art/nemesis/A menu box with a shadow.bin"
 	even
-ArtNem_ResultsText:	BINCLUDE	"art/nemesis/End of level results text.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (72 blocks)
-; Text for end of special stage, along with patterns for 3 emeralds.	; ArtNem_7EB58:
+ArtNem_LevelSelectPics:		BINCLUDE	"art/nemesis/Pictures in level preview box from level select.bin"
+	even
+ArtNem_ResultsText:		BINCLUDE	"art/nemesis/End of level results text.bin" ; Text for Sonic or Tails Got Through Act and Bonus/Perfect
 	even
 ArtNem_SpecialStageResults:	BINCLUDE	"art/nemesis/Special stage results screen art and some emeralds.bin"
+	even
+ArtNem_Perfect:			BINCLUDE	"art/nemesis/Perfect text.bin"
+	even
+
 ;---------------------------------------------------------------------------------------
-; Nemesis compressed art (14 blocks)
-; "Perfect" text	; ArtNem_7EEBE:
-	even
-ArtNem_Perfect:	BINCLUDE	"art/nemesis/Perfect text.bin"
+; Small Animal Assets
 ;---------------------------------------------------------------------------------------
-; Nemesis compressed art (16 blocks)
-; Flicky		; ArtNem_7EF60:
+ArtNem_Flicky:			BINCLUDE	"art/nemesis/Flicky.bin"
 	even
-ArtNem_Bird:	BINCLUDE	"art/nemesis/Flicky.bin"
+ArtNem_Squirrel:		BINCLUDE	"art/nemesis/Squirrel.bin" ; Ricky
+	even
+ArtNem_Mouse:			BINCLUDE	"art/nemesis/Mouse.bin"    ; Micky
+	even
+ArtNem_Chicken:			BINCLUDE	"art/nemesis/Chicken.bin"  ; Cucky
+	even
+ArtNem_Monkey:			BINCLUDE	"art/nemesis/Monkey.bin"   ; Wocky
+	even
+ArtNem_Eagle:			BINCLUDE	"art/nemesis/Eagle.bin"    ; Locky
+	even
+ArtNem_Pig:			BINCLUDE	"art/nemesis/Pig.bin"      ; Picky
+	even
+ArtNem_Seal:			BINCLUDE	"art/nemesis/Seal.bin"     ; Rocky
+	even
+ArtNem_Penguin:			BINCLUDE	"art/nemesis/Penguin.bin"  ; Pecky
+	even
+ArtNem_Turtle:			BINCLUDE	"art/nemesis/Turtle.bin"   ; Tocky
+	even
+ArtNem_Bear:			BINCLUDE	"art/nemesis/Bear.bin"     ; Becky
+	even
+ArtNem_Rabbit:			BINCLUDE	"art/nemesis/Rabbit.bin"   ; Pocky
+	even
+
 ;---------------------------------------------------------------------------------------
-; Nemesis compressed art (20 blocks)
-; Squirrel		; ArtNem_7F0A2:
-	even
-ArtNem_Squirrel:	BINCLUDE	"art/nemesis/Squirrel.bin"
+; WFZ Assets
 ;---------------------------------------------------------------------------------------
-; Nemesis compressed art (16 blocks)
-; Mouse			; ArtNem_7F206:
+ArtNem_WfzSwitch:		BINCLUDE	"art/nemesis/WFZ boss chamber switch.bin" ; Rivet thing that you bust to get inside the ship
 	even
-ArtNem_Mouse:	BINCLUDE	"art/nemesis/Mouse.bin"
+ArtNem_BreakPanels:		BINCLUDE	"art/nemesis/Breakaway panels from WFZ.bin"
+	even
+
 ;---------------------------------------------------------------------------------------
-; Nemesis compressed art (16 blocks)
-; Chicken		; ArtNem_7F340:
-	even
-ArtNem_Chicken:	BINCLUDE	"art/nemesis/Chicken.bin"
+; OOZ Assets
 ;---------------------------------------------------------------------------------------
-; Nemesis compressed art (20 blocks)
-; Beaver		; ArtNem_7F4A2:
+ArtNem_SpikyThing:		BINCLUDE	"art/nemesis/Spiked ball from OOZ.bin"
 	even
-ArtNem_Beaver:	BINCLUDE	"art/nemesis/Beaver.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (16 blocks)
-; Some bird		; ArtNem_7F5E2:
-	even
-ArtNem_Eagle:	BINCLUDE	"art/nemesis/Penguin.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (10 blocks)
-; Pig			; ArtNem_7F710:
-	even
-ArtNem_Pig:	BINCLUDE	"art/nemesis/Pig.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (14 blocks)
-; Seal			; ArtNem_7F846:
-	even
-ArtNem_Seal:	BINCLUDE	"art/nemesis/Seal.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (18 blocks)
-; Penguin		; ArtNem_7F962:
-	even
-ArtNem_Penguin:	BINCLUDE	"art/nemesis/Penguin 2.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (20 blocks)
-; Turtle		; ArtNem_7FADE:
-	even
-ArtNem_Turtle:	BINCLUDE	"art/nemesis/Turtle.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (20 blocks)
-; Bear			; ArtNem_7FC90:
-	even
-ArtNem_Bear:	BINCLUDE	"art/nemesis/Bear.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (18 blocks)
-; Splats		; ArtNem_7FDD2:
-	even
-ArtNem_Rabbit:	BINCLUDE	"art/nemesis/Rabbit.bin"
-;---------------------------------------------------------------------------------------
-; Nemesis compressed art (4 blocks)
-; Rivet thing that you bust to get inside ship at the end of WFZ	; ArtNem_7FF2A:
-	even
-ArtNem_WfzSwitch:	BINCLUDE	"art/nemesis/WFZ boss chamber switch.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (15 blocks)
-; Breakaway panels in WFZ	; ArtNem_7FF98:
-	even
-ArtNem_BreakPanels:	BINCLUDE	"art/nemesis/Breakaway panels from WFZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (32 blocks)
-; Spiked thing from OOZ		; ArtNem_8007C:
-	even
-ArtNem_SpikyThing:	BINCLUDE	"art/nemesis/Spiked ball from OOZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (6 blocks)
-; Green platform over the burners in OOZ	; ArtNem_80274:
-	even
-ArtNem_BurnerLid:	BINCLUDE	"art/nemesis/Burner Platform from OOZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (4 blocks)
-; Striped blocks from OOZ	; ArtNem_8030A:
+ArtNem_BurnerLid:		BINCLUDE	"art/nemesis/Burner Platform from OOZ.bin"
 	even
 ArtNem_StripedBlocksVert:	BINCLUDE	"art/nemesis/Striped blocks from CPZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (16 blocks)
-; Oil splashing into oil in OOZ	; ArtNem_80376:
 	even
-ArtNem_Oilfall:	BINCLUDE	"art/nemesis/Cascading oil hitting oil from OOZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (13 blocks)
-; Cascading oil from OOZ	; ArtNem_804F2:
+ArtNem_Oilfall:			BINCLUDE	"art/nemesis/Cascading oil hitting oil from OOZ.bin"
 	even
-ArtNem_Oilfall2:	BINCLUDE	"art/nemesis/Cascading oil from OOZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (20 blocks)
-; Ball thing (unused?) from OOZ	; ArtNem_805C0:
+ArtNem_Oilfall2:		BINCLUDE	"art/nemesis/Cascading oil from OOZ.bin"
 	even
-ArtNem_BallThing:	BINCLUDE	"art/nemesis/Ball on spring from OOZ (beta holdovers).bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (53 blocks)
-; Spinball from OOZ	; ArtNem_806E0:
+ArtNem_BallThing:		BINCLUDE	"art/nemesis/Ball on spring from OOZ (beta holdovers).bin"
 	even
-ArtNem_LaunchBall:	BINCLUDE	"art/nemesis/Transporter ball from OOZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (40 blocks)
-; Collapsing platform from OOZ	; ArtNem_809D0:
+ArtNem_LaunchBall:		BINCLUDE	"art/nemesis/Transporter ball from OOZ.bin"
 	even
-ArtNem_OOZPlatform:	BINCLUDE	"art/nemesis/OOZ collapsing platform.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (30 blocks)
-; Diagonal and vertical weird spring from OOZ	; ArtNem_80C64:
+ArtNem_OOZPlatform:		BINCLUDE	"art/nemesis/OOZ collapsing platform.bin"
 	even
-ArtNem_PushSpring:	BINCLUDE	"art/nemesis/Push spring from OOZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (28 blocks)
-; Swinging platform from OOZ	; ArtNem_80E26:
+ArtNem_PushSpring:		BINCLUDE	"art/nemesis/Push spring from OOZ.bin"
 	even
-ArtNem_OOZSwingPlat:	BINCLUDE	"art/nemesis/Swinging platform from OOZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (4 blocks)
-; 4 stripy blocks from OOZ	; ArtNem_81048:
+ArtNem_OOZSwingPlat:		BINCLUDE	"art/nemesis/Swinging platform from OOZ.bin"
 	even
 ArtNem_StripedBlocksHoriz:	BINCLUDE	"art/nemesis/4 stripy blocks from OOZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (24 blocks)
-; Raising platform from OOZ	; ArtNem_810B8:
 	even
-ArtNem_OOZElevator:	BINCLUDE	"art/nemesis/Rising platform from OOZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (30 blocks)
-; Fan in OOZ		; ArtNem_81254:
+ArtNem_OOZElevator:		BINCLUDE	"art/nemesis/Rising platform from OOZ.bin"
 	even
-ArtNem_OOZFanHoriz:	BINCLUDE	"art/nemesis/Fan from OOZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (18 blocks)
-; Green flame thing that shoots platform up in OOZ	; ArtNem_81514:
+ArtNem_OOZFanHoriz:		BINCLUDE	"art/nemesis/Fan from OOZ.bin"
 	even
-ArtNem_OOZBurn:	BINCLUDE	"art/nemesis/Green flame from OOZ burners.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (4 blocks)
-; Patterns for appearing and disappearing string of platforms in CNZ	; ArtNem_81600:
+ArtNem_OOZBurn:			BINCLUDE	"art/nemesis/Green flame from OOZ burners.bin"
 	even
-ArtNem_CNZSnake:	BINCLUDE	"art/nemesis/Caterpiller platforms from CNZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (4 blocks)
-; Spikey ball from pokie in CNZ		; ArtNem_81668:
+
+;---------------------------------------------------------------------------------------
+; CNZ Assets
+;---------------------------------------------------------------------------------------
+ArtNem_CNZSnake:		BINCLUDE	"art/nemesis/Caterpiller platforms from CNZ.bin" ; Patterns for appearing and disappearing string of platforms
 	even
-ArtNem_CNZBonusSpike:	BINCLUDE	"art/nemesis/Spikey ball from CNZ slots.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (16 blocks)
-; Moving cube from either CNZ or CPZ	; ArtNem_816C8:
+ArtNem_CNZBonusSpike:		BINCLUDE	"art/nemesis/Spikey ball from CNZ slots.bin"
 	even
-ArtNem_BigMovingBlock:	BINCLUDE	"art/nemesis/Moving block from CNZ and CPZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (4 blocks)
-; Elevator in CNZ		; ArtNem_817B4:
+ArtNem_BigMovingBlock:		BINCLUDE	"art/nemesis/Moving block from CNZ and CPZ.bin"
 	even
-ArtNem_CNZElevator:	BINCLUDE	"art/nemesis/CNZ elevator.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (12 blocks)
-; Bars from pokies in CNZ	; ArtNem_81826:
+ArtNem_CNZElevator:		BINCLUDE	"art/nemesis/CNZ elevator.bin"
 	even
-ArtNem_CNZCage:	BINCLUDE	"art/nemesis/CNZ slot machine bars.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (6 blocks)
-; Hexagonal bumper in CNZ	; ArtNem_81894:
+ArtNem_CNZCage:			BINCLUDE	"art/nemesis/CNZ slot machine bars.bin"
 	even
-ArtNem_CNZHexBumper:	BINCLUDE	"art/nemesis/Hexagonal bumper from CNZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (24 blocks)
-; Normal round bumper from CNZ	; ArtNem_8191E:
+ArtNem_CNZHexBumper:		BINCLUDE	"art/nemesis/Hexagonal bumper from CNZ.bin"
 	even
-ArtNem_CNZRoundBumper:	BINCLUDE	"art/nemesis/Round bumper from CNZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (32 blocks)
-; Diagonal spring from CNZ that you charge up	; ArtNem_81AB0:
+ArtNem_CNZRoundBumper:		BINCLUDE	"art/nemesis/Round bumper from CNZ.bin"
 	even
-ArtNem_CNZDiagPlunger:	BINCLUDE	"art/nemesis/Diagonal impulse spring from CNZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (18 blocks)
-; Vertical red spring		; ArtNem_81C96:
+ArtNem_CNZDiagPlunger:		BINCLUDE	"art/nemesis/Diagonal impulse spring from CNZ.bin"
 	even
-ArtNem_CNZVertPlunger:	BINCLUDE	"art/nemesis/Vertical impulse spring.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (28 blocks)
-; Weird blocks from CNZ that you hit 3 times to get rid of	; ArtNem_81DCC:
+ArtNem_CNZVertPlunger:		BINCLUDE	"art/nemesis/Vertical impulse spring.bin"
 	even
-ArtNem_CNZMiniBumper:	BINCLUDE	"art/nemesis/Drop target from CNZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (52 blocks)
-; Flippers from CNZ	; ArtNem_81EF2:
+ArtNem_CNZMiniBumper:		BINCLUDE	"art/nemesis/Drop target from CNZ.bin" ; Weird blocks that you hit 3 times to get rid of
 	even
-ArtNem_CNZFlipper:	BINCLUDE	"art/nemesis/Flippers.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (16 blocks)
-; Large moving platform from CPZ	; ArtNem_82216:
+ArtNem_CNZFlipper:		BINCLUDE	"art/nemesis/Flippers.bin"
 	even
-ArtNem_CPZElevator:	BINCLUDE	"art/nemesis/Large moving platform from CNZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (24 blocks)
-; Top of water in HPZ and CPZ	; ArtNem_82364:
+ArtNem_CPZElevator:		BINCLUDE	"art/nemesis/Large moving platform from CNZ.bin"
 	even
-ArtNem_WaterSurface:	BINCLUDE	"art/nemesis/Top of water in HPZ and CNZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (4 blocks)
-; Booster things in CPZ		; ArtNem_824D4:
+
+;---------------------------------------------------------------------------------------
+; CPZ Assets
+;---------------------------------------------------------------------------------------
+ArtNem_WaterSurface:		BINCLUDE	"art/nemesis/Top of water in HPZ and CNZ.bin"
 	even
-ArtNem_CPZBooster:	BINCLUDE	"art/nemesis/Speed booster from CPZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (4 blocks)
-; CPZ droplet chain enemy	; ArtNem_8253C:
+ArtNem_CPZBooster:		BINCLUDE	"art/nemesis/Speed booster from CPZ.bin"
 	even
-ArtNem_CPZDroplet:	BINCLUDE	"art/nemesis/CPZ worm enemy.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (33 blocks)
-; CPZ metal things (girder, cylinders)	; ArtNem_825AE:
+ArtNem_CPZDroplet:		BINCLUDE	"art/nemesis/CPZ worm enemy.bin"
 	even
-ArtNem_CPZMetalThings:	BINCLUDE	"art/nemesis/CPZ metal things.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (4 blocks)
-; CPZ metal block		; ArtNem_827B8:
+ArtNem_CPZMetalThings:		BINCLUDE	"art/nemesis/CPZ metal things.bin" ; Girder, cylinders
 	even
-ArtNem_CPZMetalBlock:	BINCLUDE	"art/nemesis/CPZ large moving platform blocks.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (8 blocks)
-; Yellow and black stripy tiles from DEZ	; ArtNem_827F8:
+ArtNem_CPZMetalBlock:		BINCLUDE	"art/nemesis/CPZ large moving platform blocks.bin"
 	even
 ArtNem_ConstructionStripes:	BINCLUDE	"art/nemesis/Stripy blocks from CPZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (48 blocks)
-; Yellow flipping platforms and stuff CPZ	; ArtNem_82864:
 	even
-ArtNem_CPZAnimatedBits:	BINCLUDE	"art/nemesis/Small yellow moving platform from CPZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (24 blocks)
-; Moving block from CPZ		; ArtNem_82A46:
+ArtNem_CPZAnimatedBits:		BINCLUDE	"art/nemesis/Small yellow moving platform from CPZ.bin"
 	even
-ArtNem_CPZStairBlock:	BINCLUDE	"art/nemesis/Moving block from CPZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (32 blocks)
-; Spring that covers tube in CPZ	; ArtNem_82C06:
+ArtNem_CPZStairBlock:		BINCLUDE	"art/nemesis/Moving block from CPZ.bin"
 	even
-ArtNem_CPZTubeSpring:	BINCLUDE	"art/nemesis/CPZ spintube exit cover.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (16 blocks)
-; Top of water in ARZ		; ArtNem_82E02:
+ArtNem_CPZTubeSpring:		BINCLUDE	"art/nemesis/CPZ spintube exit cover.bin"
 	even
-ArtNem_WaterSurface2:	BINCLUDE	"art/nemesis/Top of water in ARZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (7 blocks)
-; Leaves from ARZ	; ArtNem_82EE8:
+
+;---------------------------------------------------------------------------------------
+; ARZ Assets
+;---------------------------------------------------------------------------------------
+ArtNem_WaterSurface2:		BINCLUDE	"art/nemesis/Top of water in ARZ.bin"
 	even
-ArtNem_Leaves:	BINCLUDE	"art/nemesis/Leaves in ARZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (17 blocks)
-; Arrow shooter and arrow from ARZ	; ArtNem_82F74:
+ArtNem_Leaves:			BINCLUDE	"art/nemesis/Leaves in ARZ.bin"
 	even
-ArtNem_ArrowAndShooter:	BINCLUDE	"art/nemesis/Arrow shooter and arrow from ARZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (8 blocks)
-; One way barrier from ARZ (unused?)	; ArtNem_830D2:
+ArtNem_ArrowAndShooter:		BINCLUDE	"art/nemesis/Arrow shooter and arrow from ARZ.bin"
 	even
-ArtNem_ARZBarrierThing:	BINCLUDE	"art/nemesis/One way barrier from ARZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (28 blocks)
-; Buzz bomber			; ArtNem_8316A:
+ArtNem_ARZBarrierThing:		BINCLUDE	"art/nemesis/One way barrier from ARZ.bin" ; Unused
 	even
-ArtNem_Buzzer:	BINCLUDE	"art/nemesis/Buzzer enemy.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (58 blocks)
-; Octopus badnik from OOZ	; ArtNem_8336A:
+
+;---------------------------------------------------------------------------------------
+; EHZ Badnik Assets (Part 1) (Why is this split?)
+;---------------------------------------------------------------------------------------
+ArtNem_Buzzer:			BINCLUDE	"art/nemesis/Buzzer enemy.bin"
 	even
-ArtNem_Octus:	BINCLUDE	"art/nemesis/Octopus badnik from OOZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (56 blocks)
-; Flying badnik from OOZ	; ArtNem_8368A:
+
+;---------------------------------------------------------------------------------------
+; OOZ Badnik Assets
+;---------------------------------------------------------------------------------------
+ArtNem_Octus:			BINCLUDE	"art/nemesis/Octopus badnik from OOZ.bin"
 	even
-ArtNem_Aquis:	BINCLUDE	"art/nemesis/Seahorse from OOZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (22 blocks)
-; Fish badnik from EHZ		; ArtNem_839EA:	ArtNem_Pirahna:
+ArtNem_Aquis:			BINCLUDE	"art/nemesis/Seahorse from OOZ.bin"
 	even
-ArtNem_Masher:	BINCLUDE	"art/nemesis/EHZ Pirahna badnik.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (96 blocks)
-; Robotnik's main ship		; ArtNem_83BF6:
+
+;---------------------------------------------------------------------------------------
+; EHZ Badnik Assets (Part 2) (Why?)
+;---------------------------------------------------------------------------------------
+ArtNem_Masher:			BINCLUDE	"art/nemesis/EHZ Pirahna badnik.bin"
 	even
-ArtNem_Eggpod:	BINCLUDE	"art/nemesis/Eggpod.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (111 blocks)
-; CPZ Boss			; ArtNem_84332:
+
+;---------------------------------------------------------------------------------------
+; Boss Assets
+;---------------------------------------------------------------------------------------
+ArtNem_Eggpod:			BINCLUDE	"art/nemesis/Eggpod.bin" ; Robotnik's main ship
 	even
-ArtNem_CPZBoss:	BINCLUDE	"art/nemesis/CPZ boss.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (100 blocks)
-; Large explosion		; ArtNem_84890:
+ArtNem_CPZBoss:			BINCLUDE	"art/nemesis/CPZ boss.bin"
 	even
-ArtNem_FieryExplosion:	BINCLUDE	"art/nemesis/Large explosion.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (8 blocks)
-; Horizontal jet		; ArtNem_84F18:
+ArtNem_FieryExplosion:		BINCLUDE	"art/nemesis/Large explosion.bin"
 	even
-ArtNem_EggpodJets:	BINCLUDE	"art/nemesis/Horizontal jet.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (16 blocks)
-; Smoke trail from CPZ and HTZ bosses	; ArtNem_84F96:
+ArtNem_EggpodJets:		BINCLUDE	"art/nemesis/Horizontal jet.bin"
 	even
-ArtNem_BossSmoke:	BINCLUDE	"art/nemesis/Smoke trail from CPZ and HTZ bosses.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (128 blocks)
-; EHZ Boss	; ArtNem_8507C:
+ArtNem_BossSmoke:		BINCLUDE	"art/nemesis/Smoke trail from CPZ and HTZ bosses.bin"
 	even
-ArtNem_EHZBoss:	BINCLUDE	"art/nemesis/EHZ boss.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (20 blocks)
-; Helicopter blades for EHZ boss	; ArtNem_85868:
+ArtNem_EHZBoss:			BINCLUDE	"art/nemesis/EHZ boss.bin"
 	even
-ArtNem_EggChoppers:	BINCLUDE	"art/nemesis/Chopper blades for EHZ boss.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (107 blocks)
-; HTZ boss			; ArtNem_8595C:
+ArtNem_EggChoppers:		BINCLUDE	"art/nemesis/Chopper blades for EHZ boss.bin"
 	even
-ArtNem_HTZBoss:	BINCLUDE	"art/nemesis/HTZ boss.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (166 blocks)
-; ARZ boss			; ArtNem_86128:
+ArtNem_HTZBoss:			BINCLUDE	"art/nemesis/HTZ boss.bin"
 	even
-ArtNem_ARZBoss:	BINCLUDE	"art/nemesis/ARZ boss.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (204 blocks)
-; MCZ boss			; ArtNem_86B6E:
+ArtNem_ARZBoss:			BINCLUDE	"art/nemesis/ARZ boss.bin"
 	even
-ArtNem_MCZBoss:	BINCLUDE	"art/nemesis/MCZ boss.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (133 blocks)
-; CNZ boss			; ArtNem_87AAC:
+ArtNem_MCZBoss:			BINCLUDE	"art/nemesis/MCZ boss.bin"
 	even
-ArtNem_CNZBoss:	BINCLUDE	"art/nemesis/CNZ boss.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (181 blocks)
-; OOZ boss			; ArtNem_882D6:
+ArtNem_CNZBoss:			BINCLUDE	"art/nemesis/CNZ boss.bin"
 	even
-ArtNem_OOZBoss:	BINCLUDE	"art/nemesis/OOZ boss.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (124 blocks)
-; MTZ boss			; ArtNem_88DA6:
+ArtNem_OOZBoss:			BINCLUDE	"art/nemesis/OOZ boss.bin"
 	even
-ArtNem_MTZBoss:	BINCLUDE	"art/nemesis/MTZ boss.bin"
-;--------------------------------------------------------------------------------------
-; Uncompressed art (8 blocks)
-; Falling rocks and stalactites from MCZ	; ArtUnc_894E4:
+ArtNem_MTZBoss:			BINCLUDE	"art/nemesis/MTZ boss.bin"
 	even
-ArtUnc_FallingRocks:	BINCLUDE	"art/uncompressed/Falling rocks and stalactites from MCZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (9 blocks)
-; Blowfly from ARZ	; ArtNem_895E4:
+ArtUnc_FallingRocks:		BINCLUDE	"art/uncompressed/Falling rocks and stalactites from MCZ.bin"
 	even
-ArtNem_Whisp:	BINCLUDE	"art/nemesis/Blowfly from ARZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (50 blocks)
-; Grounder from ARZ	; ArtNem_8970E:
+
+;---------------------------------------------------------------------------------------
+; ARZ Badnik Assets
+;---------------------------------------------------------------------------------------
+ArtNem_Whisp:			BINCLUDE	"art/nemesis/Blowfly from ARZ.bin"
 	even
-ArtNem_Grounder:	BINCLUDE	"art/nemesis/Grounder from ARZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (24 blocks)
-; Fish from ARZ		; ArtNem_89B9A:
+ArtNem_Grounder:		BINCLUDE	"art/nemesis/Grounder from ARZ.bin"
 	even
-ArtNem_ChopChop:	BINCLUDE	"art/nemesis/Shark from ARZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (19 blocks)
-; Lava snake from HTZ		89DEC: ArtNem_HtzRexxon:
+ArtNem_ChopChop:		BINCLUDE	"art/nemesis/Shark from ARZ.bin"
 	even
-ArtNem_Rexon:	BINCLUDE	"art/nemesis/Rexxon (lava snake) from HTZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (20 blocks)
-; Enemy with spike cone on top from HTZ		89FAA:	ArtNem_HtzDriller:
+
+;---------------------------------------------------------------------------------------
+; HTZ Badnik Assets
+;---------------------------------------------------------------------------------------
+ArtNem_Rexon:			BINCLUDE	"art/nemesis/Rexxon (lava snake) from HTZ.bin"
 	even
-ArtNem_Spiker:	BINCLUDE	"art/nemesis/Driller badnik from HTZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (28 blocks)
-; Bomber badnik from SCZ	; ArtNem_8A142:
+ArtNem_Spiker:			BINCLUDE	"art/nemesis/Driller badnik from HTZ.bin"
 	even
-ArtNem_Nebula:	BINCLUDE	"art/nemesis/Bomber badnik from SCZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (57 blocks)
-; Turtle badnik from SCZ	; ArtNem_8A362:
+
+;---------------------------------------------------------------------------------------
+; SCZ Badnik Assets
+;---------------------------------------------------------------------------------------
+ArtNem_Nebula:			BINCLUDE	"art/nemesis/Bomber badnik from SCZ.bin"
 	even
-ArtNem_Turtloid:	BINCLUDE	"art/nemesis/Turtle badnik from SCZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (38 blocks)
-; Coconuts monkey badnik from EHZ
+ArtNem_Turtloid:		BINCLUDE	"art/nemesis/Turtle badnik from SCZ.bin"
 	even
-ArtNem_Coconuts:	BINCLUDE	"art/nemesis/Coconuts badnik from EHZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (10 blocks)
-; Snake badnik from MCZ		; ArtNem_8AB36:
+
+;---------------------------------------------------------------------------------------
+; EHZ Badnik Assets (Part 3) (WTF???)
+;---------------------------------------------------------------------------------------
+ArtNem_Coconuts:		BINCLUDE	"art/nemesis/Coconuts badnik from EHZ.bin"
 	even
-ArtNem_Crawlton:	BINCLUDE	"art/nemesis/Snake badnik from MCZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (20 blocks)
-; Firefly from MCZ		; ArtNem_8AC5E:
+
+;---------------------------------------------------------------------------------------
+; MCZ Badnik Assets
+;---------------------------------------------------------------------------------------
+ArtNem_Crawlton:		BINCLUDE	"art/nemesis/Snake badnik from MCZ.bin"
 	even
-ArtNem_Flasher:	BINCLUDE	"art/nemesis/Firefly from MCZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (32 blocks)
-; Praying mantis badnik from MTZ	8AD80:
+ArtNem_Flasher:			BINCLUDE	"art/nemesis/Firefly from MCZ.bin"
 	even
-ArtNem_MtzMantis:	BINCLUDE	"art/nemesis/Praying mantis badnik from MTZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (36 blocks)
-; Crab badnik from MTZ			8B058:
+
+;---------------------------------------------------------------------------------------
+; MTZ Badnik Assets
+;---------------------------------------------------------------------------------------
+ArtNem_MtzMantis:		BINCLUDE	"art/nemesis/Praying mantis badnik from MTZ.bin"
 	even
-ArtNem_Shellcracker:	BINCLUDE	"art/nemesis/Shellcracker badnik from MTZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (15 blocks)
-; Exploding star badnik from MTZ	8B300:
+ArtNem_Shellcracker:		BINCLUDE	"art/nemesis/Shellcracker badnik from MTZ.bin"
 	even
-ArtNem_MtzSupernova:	BINCLUDE	"art/nemesis/Exploding star badnik from MTZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (32 blocks)
-; Weird crawling badnik from CPZ	; ArtNem_8B430:
+ArtNem_MtzSupernova:		BINCLUDE	"art/nemesis/Exploding star badnik from MTZ.bin"
 	even
-ArtNem_Spiny:	BINCLUDE	"art/nemesis/Weird crawling badnik from CPZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (45 blocks)
-; Spider badnik from CPZ 	ArtNem_8B6B4:
+
+;---------------------------------------------------------------------------------------
+; CPZ Badnik Assets
+;---------------------------------------------------------------------------------------
+ArtNem_Spiny:			BINCLUDE	"art/nemesis/Weird crawling badnik from CPZ.bin"
 	even
-ArtNem_Grabber:	BINCLUDE	"art/nemesis/Spider badnik from CPZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (26 blocks)
-; Chicken badnik from WFZ		8B9DC:
+ArtNem_Grabber:			BINCLUDE	"art/nemesis/Spider badnik from CPZ.bin"
 	even
-ArtNem_WfzScratch:	BINCLUDE	"art/nemesis/Scratch from WFZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (25 blocks)
-; Jet like badnik from SCZ		8BC16:
+
+;---------------------------------------------------------------------------------------
+; WFZ Badnik Assets
+;---------------------------------------------------------------------------------------
+ArtNem_WfzScratch:		BINCLUDE	"art/nemesis/Scratch from WFZ.bin" ; Chicken badnik
 	even
-ArtNem_Balkrie:	BINCLUDE	"art/nemesis/Balkrie (jet badnik) from SCZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (217 blocks)
-; Silver Sonic			; ArtNem_8BE12:
+ArtNem_Balkrie:			BINCLUDE	"art/nemesis/Balkrie (jet badnik) from SCZ.bin" ; This SCZ badnik is here for some reason.
 	even
-ArtNem_SilverSonic:	BINCLUDE	"art/nemesis/Silver Sonic.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (79 blocks)
-; The Tornado			8CC44:
+
+;---------------------------------------------------------------------------------------
+; WFZ/DEZ Assets
+; It seems that these were haphazardly thrown together instead of neatly-split like the
+; other zones' assets.
+;---------------------------------------------------------------------------------------
+ArtNem_SilverSonic:		BINCLUDE	"art/nemesis/Silver Sonic.bin"
 	even
-ArtNem_Tornado:	BINCLUDE	"art/nemesis/The Tornado.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (24 blocks)
-; Wall turret from WFZ		8D1A0:
+ArtNem_Tornado:			BINCLUDE	"art/nemesis/The Tornado.bin" ; Sonic's plane.
 	even
-ArtNem_WfzWallTurret:	BINCLUDE	"art/nemesis/Wall turret from WFZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (20 blocks)
-; Hook on chain in WFZ		8D388:
+ArtNem_WfzWallTurret:		BINCLUDE	"art/nemesis/Wall turret from WFZ.bin"
 	even
-ArtNem_WfzHook:	BINCLUDE	"art/nemesis/Hook on chain from WFZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (54 blocks)
-; Retracting platform from WFZ		8D540:
+ArtNem_WfzHook:			BINCLUDE	"art/nemesis/Hook on chain from WFZ.bin"
 	even
-ArtNem_WfzGunPlatform:	BINCLUDE	"art/nemesis/Retracting platform from WFZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (16 blocks)
-; Wheel for belt in WFZ		8D7D8:
+ArtNem_WfzGunPlatform:		BINCLUDE	"art/nemesis/Retracting platform from WFZ.bin"
 	even
 ArtNem_WfzConveyorBeltWheel:	BINCLUDE	"art/nemesis/Wheel for belt in WFZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (12 blocks)
-; Moving platform in WFZ	8D96E:
 	even
 ArtNem_WfzFloatingPlatform:	BINCLUDE	"art/nemesis/Moving platform from WFZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (12 blocks)
-; Giant unused vertical red laser in WFZ	8DA6E:
 	even
-ArtNem_WfzVrtclLazer:	BINCLUDE	"art/nemesis/Unused vertical laser in WFZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (18 blocks)
-; Clouds			8DAFC:
+ArtNem_WfzVrtclLazer:		BINCLUDE	"art/nemesis/Unused vertical laser in WFZ.bin"
 	even
-ArtNem_Clouds:	BINCLUDE	"art/nemesis/Clouds.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (10 blocks)
-; Red horizontal laser in WFZ		8DC42:
+ArtNem_Clouds:			BINCLUDE	"art/nemesis/Clouds.bin"
 	even
-ArtNem_WfzHrzntlLazer:	BINCLUDE	"art/nemesis/Red horizontal laser from WFZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (5 blocks)
-; Catapult that shoots Sonic across quickly in WFZ	8DCA2:
+ArtNem_WfzHrzntlLazer:		BINCLUDE	"art/nemesis/Red horizontal laser from WFZ.bin"
 	even
 ArtNem_WfzLaunchCatapult:	BINCLUDE	"art/nemesis/Catapult that shoots Sonic to the side from WFZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (12 blocks)
-; Rising platforms on belt from WFZ	8DD0C:
 	even
-ArtNem_WfzBeltPlatform:	BINCLUDE	"art/nemesis/Platform on belt in WFZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (12 blocks)
-; Unused badnik in WFZ		8DDF6:
+ArtNem_WfzBeltPlatform:		BINCLUDE	"art/nemesis/Platform on belt in WFZ.bin"
 	even
-ArtNem_WfzUnusedBadnik:	BINCLUDE	"art/nemesis/Unused badnik from WFZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (4 blocks)
-; Vertical spinning blades from WFZ	8DEB8:
+ArtNem_WfzUnusedBadnik:		BINCLUDE	"art/nemesis/Unused badnik from WFZ.bin" ; This is not grouped with the zone's badniks, suggesting that it's not a badnik at all.
 	even
-ArtNem_WfzVrtclPrpllr:	BINCLUDE	"art/nemesis/Vertical spinning blades in WFZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (29 blocks)
-; Horizontal spinning blades from WFZ		8DEE8:
+ArtNem_WfzVrtclPrpllr:		BINCLUDE	"art/nemesis/Vertical spinning blades in WFZ.bin"
 	even
-ArtNem_WfzHrzntlPrpllr:	BINCLUDE	"art/nemesis/Horizontal spinning blades in WFZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (12 blocks)
-; Platforms that tilt in WFZ		8E010:
+ArtNem_WfzHrzntlPrpllr:		BINCLUDE	"art/nemesis/Horizontal spinning blades in WFZ.bin"
 	even
 ArtNem_WfzTiltPlatforms:	BINCLUDE	"art/nemesis/Tilting plaforms in WFZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (8 blocks)
-; Thrust from Robotnic's getaway ship in WFZ		8E0C4:
 	even
-ArtNem_WfzThrust:	BINCLUDE	"art/nemesis/Thrust from Robotnik's getaway ship in WFZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (117 blocks)
-; Laser boss from WFZ	; ArtNem_8E138:
+ArtNem_WfzThrust:		BINCLUDE	"art/nemesis/Thrust from Robotnik's getaway ship in WFZ.bin"
 	even
-ArtNem_WFZBoss:	BINCLUDE	"art/nemesis/WFZ boss.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (24 blocks)
-; Robotnik's head	; ArtNem_8E886:
+ArtNem_WFZBoss:			BINCLUDE	"art/nemesis/WFZ boss.bin"
 	even
-ArtNem_RobotnikUpper:	BINCLUDE	"art/nemesis/Robotnik's head.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (76 blocks)
-; Robotnik		; ArtNem_8EA5A:
+ArtNem_RobotnikUpper:		BINCLUDE	"art/nemesis/Robotnik's head.bin"
 	even
-ArtNem_RobotnikRunning:	BINCLUDE	"art/nemesis/Robotnik.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (28 blocks)
-; Robotnik's lower half	; ArtNem_8EE52:
+ArtNem_RobotnikRunning:		BINCLUDE	"art/nemesis/Robotnik.bin"
 	even
-ArtNem_RobotnikLower:	BINCLUDE	"art/nemesis/Robotnik's lover half.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (8 blocks)
-; Window in back that Robotnic looks through in DEZ	; ArtNem_8EF96:
+ArtNem_RobotnikLower:		BINCLUDE	"art/nemesis/Robotnik's lower half.bin"
 	even
-ArtNem_DEZWindow:	BINCLUDE	"art/nemesis/Window in back that Robotnik looks through in DEZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (327 blocks)
-; Eggrobo		; ArtNem_8F024:
+ArtNem_DEZWindow:		BINCLUDE	"art/nemesis/Window in back that Robotnik looks through in DEZ.bin"
 	even
-ArtNem_DEZBoss:	BINCLUDE	"art/nemesis/Eggrobo.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (42 blocks)
-; Bouncer badnik from CNZ	; ArtNem_901A4:
+ArtNem_DEZBoss:			BINCLUDE	"art/nemesis/Eggrobo.bin"
 	even
-ArtNem_Crawl:	BINCLUDE	"art/nemesis/Bouncer badnik from CNZ.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (26 blocks)
-; Rocket thruster for Tornado	; ArtNem_90520:
+; This last-minute badnik addition was mistakenly included with the WFZ/DEZ assets instead of in its own 'CNZ Badnik Assets' section.
+ArtNem_Crawl:			BINCLUDE	"art/nemesis/Bouncer badnik from CNZ.bin"
 	even
-ArtNem_TornadoThruster:	BINCLUDE	"art/nemesis/Rocket thruster for Tornado.bin"
-;--------------------------------------------------------------------------------------
-; Enigma compressed sprite mappings
-; Frame 1 of end of game sequence	; MapEng_906E0:
+ArtNem_TornadoThruster:		BINCLUDE	"art/nemesis/Rocket thruster for Tornado.bin"
 	even
-MapEng_Ending1:	BINCLUDE	"mappings/misc/End of game sequence frame 1.bin"
-;--------------------------------------------------------------------------------------
-; Enigma compressed sprite mappings
-; Frame 2 of end of game sequence	; MapEng_906F8:
+
+;---------------------------------------------------------------------------------------
+; Ending Assets
+;---------------------------------------------------------------------------------------
+MapEng_Ending1:			BINCLUDE	"mappings/misc/End of game sequence frame 1.bin"
 	even
-MapEng_Ending2:	BINCLUDE	"mappings/misc/End of game sequence frame 2.bin"
-;--------------------------------------------------------------------------------------
-; Enigma compressed sprite mappings
-; Frame 3 of end of game sequence	; MapEng_90722:
+MapEng_Ending2:			BINCLUDE	"mappings/misc/End of game sequence frame 2.bin"
 	even
-MapEng_Ending3:	BINCLUDE	"mappings/misc/End of game sequence frame 3.bin"
-;--------------------------------------------------------------------------------------
-; Enigma compressed sprite mappings
-; Frame 4 of end of game sequence	; MapEng_9073C:
+MapEng_Ending3:			BINCLUDE	"mappings/misc/End of game sequence frame 3.bin"
 	even
-MapEng_Ending4:	BINCLUDE	"mappings/misc/End of game sequence frame 4.bin"
-;--------------------------------------------------------------------------------------
-; Enigma compressed sprite mappings
-; Closeup of Tails flying plane in ending sequence	; MapEng_9076E:
+MapEng_Ending4:			BINCLUDE	"mappings/misc/End of game sequence frame 4.bin"
 	even
 MapEng_EndingTailsPlane:	BINCLUDE	"mappings/misc/Closeup of Tails flying plane in ending sequence.bin"
-;--------------------------------------------------------------------------------------
-; Enigma compressed sprite mappings
-; Closeup of Sonic flying plane in ending sequence	; MapEng_907C0:
 	even
 MapEng_EndingSonicPlane:	BINCLUDE	"mappings/misc/Closeup of Sonic flying plane in ending sequence.bin"
-;--------------------------------------------------------------------------------------
-; Enigma compressed sprite mappings
-; Strange unused mappings (duplicate of MapEng_EndGameLogo)
 	even
-; MapEng_9082A:
-	BINCLUDE	"mappings/misc/Strange unused mappings 1 - 1.bin"
-;--------------------------------------------------------------------------------------
-; Enigma compressed sprite mappings
-; Strange unused mappings (same as above)
+; Strange unused mappings (duplicates of MapEng_EndGameLogo)
+				BINCLUDE	"mappings/misc/Sonic 2 end of game logo.bin"
 	even
-; MapEng_90852:
-	BINCLUDE	"mappings/misc/Strange unused mappings 1 - 2.bin"
-;--------------------------------------------------------------------------------------
-; Enigma compressed sprite mappings
-; Strange unused mappings (same as above)
+				BINCLUDE	"mappings/misc/Sonic 2 end of game logo.bin"
 	even
-; MapEng_9087A:
-	BINCLUDE	"mappings/misc/Strange unused mappings 1 - 3.bin"
-;--------------------------------------------------------------------------------------
-; Enigma compressed sprite mappings
-; Strange unused mappings (same as above)
+				BINCLUDE	"mappings/misc/Sonic 2 end of game logo.bin"
 	even
-; MapEng_908A2:
-	BINCLUDE	"mappings/misc/Strange unused mappings 1 - 4.bin"
-;--------------------------------------------------------------------------------------
-; Enigma compressed sprite mappings
-; Strange unused mappings (same as above)
+				BINCLUDE	"mappings/misc/Sonic 2 end of game logo.bin"
 	even
-; MapEng_908CA:
-	BINCLUDE	"mappings/misc/Strange unused mappings 1 - 5.bin"
-;--------------------------------------------------------------------------------------
-; Enigma compressed sprite mappings
-; Strange unused mappings (same as above)
+				BINCLUDE	"mappings/misc/Sonic 2 end of game logo.bin"
 	even
-; MapEng_908F2:
-	BINCLUDE	"mappings/misc/Strange unused mappings 1 - 6.bin"
-;--------------------------------------------------------------------------------------
-; Enigma compressed sprite mappings
-; Strange unused mappings (same as above)
+				BINCLUDE	"mappings/misc/Sonic 2 end of game logo.bin"
 	even
-; MapEng_9091A:
-	BINCLUDE	"mappings/misc/Strange unused mappings 1 - 7.bin"
-;--------------------------------------------------------------------------------------
-; Enigma compressed sprite mappings
-; Strange unused mappings (same as above)
+				BINCLUDE	"mappings/misc/Sonic 2 end of game logo.bin"
 	even
-; MapEng_90942:
-	BINCLUDE	"mappings/misc/Strange unused mappings 1 - 8.bin"
-;--------------------------------------------------------------------------------------
-; Enigma compressed sprite mappings
-; Strange unused mappings (same as above)
+				BINCLUDE	"mappings/misc/Sonic 2 end of game logo.bin"
 	even
-; MapEng_9096A:
-	BINCLUDE	"mappings/misc/Strange unused mappings 2.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (363 blocks)
-; Movie sequence at end of game		; ArtNem_90992:
+				BINCLUDE	"mappings/misc/Sonic 2 end of game logo.bin"
 	even
-ArtNem_EndingPics:	BINCLUDE	"art/nemesis/Movie sequence at end of game.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (127 blocks)
-; Final image of Tornado with it and Sonic facing screen	; ArtNem_91F3C:
+
+ArtNem_EndingPics:		BINCLUDE	"art/nemesis/Movie sequence at end of game.bin"
 	even
 ArtNem_EndingFinalTornado:	BINCLUDE	"art/nemesis/Final image of Tornado with it and Sonic facing screen.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (109 blocks)
-; Mini pictures of Tornado in final ending sequence	; ArtNem_927E0:
 	even
 ArtNem_EndingMiniTornado:	BINCLUDE	"art/nemesis/Small pictures of Tornado in final ending sequence.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (135 blocks)
-; Mini pictures of Sonic and final image of Sonic
 	even
-ArtNem_EndingSonic:	BINCLUDE	"art/nemesis/Small pictures of Sonic and final image of Sonic.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (117 blocks)
-; Mini pictures of Sonic and final image of Sonic in Super Sonic mode	; ArtNem_93848:
+ArtNem_EndingSonic:		BINCLUDE	"art/nemesis/Small pictures of Sonic and final image of Sonic.bin"
 	even
 ArtNem_EndingSuperSonic:	BINCLUDE	"art/nemesis/Small pictures of Sonic and final image of Sonic in Super Sonic mode.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (181 blocks)
-; Final image of Tails		; ArtNem_93F3C:
 	even
-ArtNem_EndingTails:	BINCLUDE	"art/nemesis/Final image of Tails.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (72 blocks)
-; Sonic the Hedgehog 2 image at end of credits	; ArtNem_94B28:
+ArtNem_EndingTails:		BINCLUDE	"art/nemesis/Final image of Tails.bin"
 	even
-ArtNem_EndingTitle:	BINCLUDE	"art/nemesis/Sonic the Hedgehog 2 image at end of credits.bin"
+ArtNem_EndingTitle:		BINCLUDE	"art/nemesis/Sonic the Hedgehog 2 image at end of credits.bin"
+	even
 
 
 ; >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -91317,418 +91027,184 @@ ArtNem_EndingTitle:	BINCLUDE	"art/nemesis/Sonic the Hedgehog 2 image at end of c
 ; As noted earlier, each element of the table provides 'i' for blockMapTable[i][j].
 ; */
 
-;----------------------------------------------------------------------------------
-; EHZ 16x16 block mappings (Kosinski compression) ; was: (Kozinski compression)
+; All of these are compressed in the Kosinski format.
+
 BM16_EHZ:	BINCLUDE	"mappings/16x16/EHZ.bin"
-;-----------------------------------------------------------------------------------
-; EHZ/HTZ main level patterns (Kosinski compression)
-; ArtKoz_95C24:
 ArtKos_EHZ:	BINCLUDE	"art/kosinski/EHZ_HTZ.bin"
-;-----------------------------------------------------------------------------------
-; HTZ 16x16 block mappings (Kosinski compression)
 BM16_HTZ:	BINCLUDE	"mappings/16x16/HTZ.bin"
-;-----------------------------------------------------------------------------------
-; HTZ pattern suppliment to EHZ level patterns (Kosinski compression)
-; ArtKoz_98AB4:
-ArtKos_HTZ:	BINCLUDE	"art/kosinski/HTZ_Supp.bin"
-;-----------------------------------------------------------------------------------
-; EHZ/HTZ 128x128 block mappings (Kosinski compression)
+ArtKos_HTZ:	BINCLUDE	"art/kosinski/HTZ_Supp.bin" ; HTZ pattern suppliment to EHZ level patterns
 BM128_EHZ:	BINCLUDE	"mappings/128x128/EHZ_HTZ.bin"
-;-----------------------------------------------------------------------------------
-; MTZ 16x16 block mappings (Kosinski compression)
+
 BM16_MTZ:	BINCLUDE	"mappings/16x16/MTZ.bin"
-;-----------------------------------------------------------------------------------
-; MTZ main level patterns (Kosinski compression)
-; ArtKoz_9DB64:
 ArtKos_MTZ:	BINCLUDE	"art/kosinski/MTZ.bin"
-;-----------------------------------------------------------------------------------
-; MTZ 128x128 block mappings (Kosinski compression)
 BM128_MTZ:	BINCLUDE	"mappings/128x128/MTZ.bin"
-;-----------------------------------------------------------------------------------
-; HPZ 16x16 block mappings (Kosinski compression)
+
 BM16_HPZ:	;BINCLUDE	"mappings/16x16/HPZ.bin"
-;-----------------------------------------------------------------------------------
-; HPZ main level patterns (Kosinski compression)
 ArtKos_HPZ:	;BINCLUDE	"art/kosinski/HPZ.bin"
-;-----------------------------------------------------------------------------------
-; HPZ 128x128 block mappings (Kosinski compression)
 BM128_HPZ:	;BINCLUDE	"mappings/128x128/HPZ.bin"
-;-----------------------------------------------------------------------------------
-; OOZ 16x16 block mappings (Kosinski compression)
+
 BM16_OOZ:	BINCLUDE	"mappings/16x16/OOZ.bin"
-;-----------------------------------------------------------------------------------
-; OOZ main level patterns (Kosinski compression)
-; ArtKoz_A4204:
 ArtKos_OOZ:	BINCLUDE	"art/kosinski/OOZ.bin"
-;-----------------------------------------------------------------------------------
-; OOZ 128x128 block mappings (Kosinski compression)
 BM128_OOZ:	BINCLUDE	"mappings/128x128/OOZ.bin"
-;-----------------------------------------------------------------------------------
-; MCZ 16x16 block mappings (Kosinski compression)
+
 BM16_MCZ:	BINCLUDE	"mappings/16x16/MCZ.bin"
-;-----------------------------------------------------------------------------------
-; MCZ main level patterns (Kosinski compression)
-; ArtKoz_A9D74:
 ArtKos_MCZ:	BINCLUDE	"art/kosinski/MCZ.bin"
-;-----------------------------------------------------------------------------------
-; MCZ 128x128 block mappings (Kosinski compression)
 BM128_MCZ:	BINCLUDE	"mappings/128x128/MCZ.bin"
-;-----------------------------------------------------------------------------------
-; CNZ 16x16 block mappings (Kosinski compression)
+
 BM16_CNZ:	BINCLUDE	"mappings/16x16/CNZ.bin"
-;-----------------------------------------------------------------------------------
-; CNZ main level patterns (Kosinski compression)
-; ArtKoz_B0894:
 ArtKos_CNZ:	BINCLUDE	"art/kosinski/CNZ.bin"
-;-----------------------------------------------------------------------------------
-; CNZ 128x128 block mappings (Kosinski compression)
 BM128_CNZ:	BINCLUDE	"mappings/128x128/CNZ.bin"
-;-----------------------------------------------------------------------------------
-; CPZ/DEZ 16x16 block mappings (Kosinski compression)
+
 BM16_CPZ:	BINCLUDE	"mappings/16x16/CPZ_DEZ.bin"
-;-----------------------------------------------------------------------------------
-; CPZ/DEZ main level patterns (Kosinski compression)
-; ArtKoz_B6174:
 ArtKos_CPZ:	BINCLUDE	"art/kosinski/CPZ_DEZ.bin"
-;-----------------------------------------------------------------------------------
-; CPZ/DEZ 128x128 block mappings (Kosinski compression)
 BM128_CPZ:	BINCLUDE	"mappings/128x128/CPZ_DEZ.bin"
-;-----------------------------------------------------------------------------------
-; ARZ 16x16 block mappings (Kosinski compression)
+
 ; This file contains $320 blocks, overflowing the 'Block_table' buffer. This causes
 ; 'TempArray_LayerDef' to be overwritten with (empty) block data.
 ; If only 'fixBugs' could fix this...
 BM16_ARZ:	BINCLUDE	"mappings/16x16/ARZ.bin"
-;-----------------------------------------------------------------------------------
-; ARZ main level patterns (Kosinski compression)
-; ArtKoz_BCC24:
 ArtKos_ARZ:	BINCLUDE	"art/kosinski/ARZ.bin"
-;-----------------------------------------------------------------------------------
-; ARZ 128x128 block mappings (Kosinski compression)
 BM128_ARZ:	BINCLUDE	"mappings/128x128/ARZ.bin"
-;-----------------------------------------------------------------------------------
-; WFZ/SCZ 16x16 block mappings (Kosinski compression)
+
 BM16_WFZ:	BINCLUDE	"mappings/16x16/WFZ_SCZ.bin"
-;-----------------------------------------------------------------------------------
-; WFZ/SCZ main level patterns (Kosinski compression)
-; ArtKoz_C5004:
 ArtKos_SCZ:	BINCLUDE	"art/kosinski/WFZ_SCZ.bin"
-;-----------------------------------------------------------------------------------
-; WFZ pattern suppliment to SCZ tiles (Kosinski compression)
-; ArtKoz_C7EC4:
-ArtKos_WFZ:	BINCLUDE	"art/kosinski/WFZ_Supp.bin"
-;-----------------------------------------------------------------------------------
-; WFZ/SCZ 128x128 block mappings (Kosinski compression)
+ArtKos_WFZ:	BINCLUDE	"art/kosinski/WFZ_Supp.bin" ; WFZ pattern suppliment to SCZ tiles
 BM128_WFZ:	BINCLUDE	"mappings/128x128/WFZ_SCZ.bin"
 
 ; >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 ;-----------------------------------------------------------------------------------
+; Special Stage Assets
+;-----------------------------------------------------------------------------------
+
+;-----------------------------------------------------------------------------------
 ; Exit curve + slope up
 ;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_CA904:
-MapSpec_Rise1:	BINCLUDE	"mappings/special stage/Slope up - Frame 1.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_CADA8:
-MapSpec_Rise2:	BINCLUDE	"mappings/special stage/Slope up - Frame 2.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_CB376:
-MapSpec_Rise3:	BINCLUDE	"mappings/special stage/Slope up - Frame 3.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_CB92E:
-MapSpec_Rise4:	BINCLUDE	"mappings/special stage/Slope up - Frame 4.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_CBF92:
-MapSpec_Rise5:	BINCLUDE	"mappings/special stage/Slope up - Frame 5.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_CC5BE:
-MapSpec_Rise6:	BINCLUDE	"mappings/special stage/Slope up - Frame 6.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_CCC7A:
-MapSpec_Rise7:	BINCLUDE	"mappings/special stage/Slope up - Frame 7.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_CD282:
-MapSpec_Rise8:	BINCLUDE	"mappings/special stage/Slope up - Frame 8.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_CD7C0:
-MapSpec_Rise9:	BINCLUDE	"mappings/special stage/Slope up - Frame 9.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_CDD44:
-MapSpec_Rise10:	BINCLUDE	"mappings/special stage/Slope up - Frame 10.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_CE2BE:
-MapSpec_Rise11:	BINCLUDE	"mappings/special stage/Slope up - Frame 11.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_CE7DE:
-MapSpec_Rise12:	BINCLUDE	"mappings/special stage/Slope up - Frame 12.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_CEC52:
-MapSpec_Rise13:	BINCLUDE	"mappings/special stage/Slope up - Frame 13.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_CF0BC:
-MapSpec_Rise14:	BINCLUDE	"mappings/special stage/Slope up - Frame 14.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_CF580:
-MapSpec_Rise15:	BINCLUDE	"mappings/special stage/Slope up - Frame 15.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_CFA00:
-MapSpec_Rise16:	BINCLUDE	"mappings/special stage/Slope up - Frame 16.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_CFE4A:
-MapSpec_Rise17:	BINCLUDE	"mappings/special stage/Slope up - Frame 17.bin"
+MapSpec_Rise1:		BINCLUDE	"mappings/special stage/Slope up - Frame 1.bin"
+MapSpec_Rise2:		BINCLUDE	"mappings/special stage/Slope up - Frame 2.bin"
+MapSpec_Rise3:		BINCLUDE	"mappings/special stage/Slope up - Frame 3.bin"
+MapSpec_Rise4:		BINCLUDE	"mappings/special stage/Slope up - Frame 4.bin"
+MapSpec_Rise5:		BINCLUDE	"mappings/special stage/Slope up - Frame 5.bin"
+MapSpec_Rise6:		BINCLUDE	"mappings/special stage/Slope up - Frame 6.bin"
+MapSpec_Rise7:		BINCLUDE	"mappings/special stage/Slope up - Frame 7.bin"
+MapSpec_Rise8:		BINCLUDE	"mappings/special stage/Slope up - Frame 8.bin"
+MapSpec_Rise9:		BINCLUDE	"mappings/special stage/Slope up - Frame 9.bin"
+MapSpec_Rise10:		BINCLUDE	"mappings/special stage/Slope up - Frame 10.bin"
+MapSpec_Rise11:		BINCLUDE	"mappings/special stage/Slope up - Frame 11.bin"
+MapSpec_Rise12:		BINCLUDE	"mappings/special stage/Slope up - Frame 12.bin"
+MapSpec_Rise13:		BINCLUDE	"mappings/special stage/Slope up - Frame 13.bin"
+MapSpec_Rise14:		BINCLUDE	"mappings/special stage/Slope up - Frame 14.bin"
+MapSpec_Rise15:		BINCLUDE	"mappings/special stage/Slope up - Frame 15.bin"
+MapSpec_Rise16:		BINCLUDE	"mappings/special stage/Slope up - Frame 16.bin"
+MapSpec_Rise17:		BINCLUDE	"mappings/special stage/Slope up - Frame 17.bin"
 
 ;-----------------------------------------------------------------------------------
 ; Straight path
 ;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_D028C:
 MapSpec_Straight1:	BINCLUDE	"mappings/special stage/Straight path - Frame 1.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_D090A:
 MapSpec_Straight2:	BINCLUDE	"mappings/special stage/Straight path - Frame 2.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_D0EA6:
 MapSpec_Straight3:	BINCLUDE	"mappings/special stage/Straight path - Frame 3.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_D1400:
 MapSpec_Straight4:	BINCLUDE	"mappings/special stage/Straight path - Frame 4.bin"
 
 ;-----------------------------------------------------------------------------------
 ; Exit curve + slope down
 ;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_D19FC:
-MapSpec_Drop1:	BINCLUDE	"mappings/special stage/Slope down - Frame 1.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_D1EAC:
-MapSpec_Drop2:	BINCLUDE	"mappings/special stage/Slope down - Frame 2.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_D23AE:
-MapSpec_Drop3:	BINCLUDE	"mappings/special stage/Slope down - Frame 3.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_D27C6:
-MapSpec_Drop4:	BINCLUDE	"mappings/special stage/Slope down - Frame 4.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_D2C14:
-MapSpec_Drop5:	BINCLUDE	"mappings/special stage/Slope down - Frame 5.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_D3092:
-MapSpec_Drop6:	BINCLUDE	"mappings/special stage/Slope down - Frame 6.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_D3522:
-MapSpec_Drop7:	BINCLUDE	"mappings/special stage/Slope down - Frame 7.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_D39EC:
-MapSpec_Drop8:	BINCLUDE	"mappings/special stage/Slope down - Frame 8.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_D3F78:
-MapSpec_Drop9:	BINCLUDE	"mappings/special stage/Slope down - Frame 9.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_D4660:
-MapSpec_Drop10:	BINCLUDE	"mappings/special stage/Slope down - Frame 10.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_D4DA6:
-MapSpec_Drop11:	BINCLUDE	"mappings/special stage/Slope down - Frame 11.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_D53FC:
-MapSpec_Drop12:	BINCLUDE	"mappings/special stage/Slope down - Frame 12.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_D5958:
-MapSpec_Drop13:	BINCLUDE	"mappings/special stage/Slope down - Frame 13.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_D5F02:
-MapSpec_Drop14:	BINCLUDE	"mappings/special stage/Slope down - Frame 14.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_D6596:
-MapSpec_Drop15:	BINCLUDE	"mappings/special stage/Slope down - Frame 15.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_D6BAA:
-MapSpec_Drop16:	BINCLUDE	"mappings/special stage/Slope down - Frame 16.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_D702E:
-MapSpec_Drop17:	BINCLUDE	"mappings/special stage/Slope down - Frame 17.bin"
+MapSpec_Drop1:		BINCLUDE	"mappings/special stage/Slope down - Frame 1.bin"
+MapSpec_Drop2:		BINCLUDE	"mappings/special stage/Slope down - Frame 2.bin"
+MapSpec_Drop3:		BINCLUDE	"mappings/special stage/Slope down - Frame 3.bin"
+MapSpec_Drop4:		BINCLUDE	"mappings/special stage/Slope down - Frame 4.bin"
+MapSpec_Drop5:		BINCLUDE	"mappings/special stage/Slope down - Frame 5.bin"
+MapSpec_Drop6:		BINCLUDE	"mappings/special stage/Slope down - Frame 6.bin"
+MapSpec_Drop7:		BINCLUDE	"mappings/special stage/Slope down - Frame 7.bin"
+MapSpec_Drop8:		BINCLUDE	"mappings/special stage/Slope down - Frame 8.bin"
+MapSpec_Drop9:		BINCLUDE	"mappings/special stage/Slope down - Frame 9.bin"
+MapSpec_Drop10:		BINCLUDE	"mappings/special stage/Slope down - Frame 10.bin"
+MapSpec_Drop11:		BINCLUDE	"mappings/special stage/Slope down - Frame 11.bin"
+MapSpec_Drop12:		BINCLUDE	"mappings/special stage/Slope down - Frame 12.bin"
+MapSpec_Drop13:		BINCLUDE	"mappings/special stage/Slope down - Frame 13.bin"
+MapSpec_Drop14:		BINCLUDE	"mappings/special stage/Slope down - Frame 14.bin"
+MapSpec_Drop15:		BINCLUDE	"mappings/special stage/Slope down - Frame 15.bin"
+MapSpec_Drop16:		BINCLUDE	"mappings/special stage/Slope down - Frame 16.bin"
+MapSpec_Drop17:		BINCLUDE	"mappings/special stage/Slope down - Frame 17.bin"
 
 ;-----------------------------------------------------------------------------------
 ; Curved path
 ;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_D749C:
 MapSpec_Turning1:	BINCLUDE	"mappings/special stage/Curve right - Frame 1.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_D7912:
 MapSpec_Turning2:	BINCLUDE	"mappings/special stage/Curve right - Frame 2.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_D7DAA:
 MapSpec_Turning3:	BINCLUDE	"mappings/special stage/Curve right - Frame 3.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_D8250:
 MapSpec_Turning4:	BINCLUDE	"mappings/special stage/Curve right - Frame 4.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_D85F8:
 MapSpec_Turning5:	BINCLUDE	"mappings/special stage/Curve right - Frame 5.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings ; MapSpec_D89EC:
 MapSpec_Turning6:	BINCLUDE	"mappings/special stage/Curve right - Frame 6.bin"
 
 ;-----------------------------------------------------------------------------------
 ; Exit curve
 ;-----------------------------------------------------------------------------------
-; Special stage tube mappings
-; Exit curve  ; MapSpec_D8E24:
 MapSpec_Unturn1:	BINCLUDE	"mappings/special stage/Curve right - Frame 7.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings
-; Exit curve  ; MapSpec_D92B6:
 MapSpec_Unturn2:	BINCLUDE	"mappings/special stage/Curve right - Frame 8.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings
-; Exit curve  ; MapSpec_D9778:
 MapSpec_Unturn3:	BINCLUDE	"mappings/special stage/Curve right - Frame 9.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings
-; Exit curve  ; MapSpec_D9B80:
 MapSpec_Unturn4:	BINCLUDE	"mappings/special stage/Curve right - Frame 10.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings
-; Exit curve  ; MapSpec_DA016:
 MapSpec_Unturn5:	BINCLUDE	"mappings/special stage/Curve right - Frame 11.bin"
 
 ;-----------------------------------------------------------------------------------
 ; Enter curve
 ;-----------------------------------------------------------------------------------
-; Special stage tube mappings
-; Begin curve right ; MapSpec_DA4CE:
-MapSpec_Turn1:	BINCLUDE	"mappings/special stage/Begin curve right - Frame 1.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings
-; Begin curve right ; MapSpec_DAB20:
-MapSpec_Turn2:	BINCLUDE	"mappings/special stage/Begin curve right - Frame 2.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings
-; Begin curve right ; MapSpec_DB086:
-MapSpec_Turn3:	BINCLUDE	"mappings/special stage/Begin curve right - Frame 3.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings
-; Begin curve right ; MapSpec_DB5AE:
-MapSpec_Turn4:	BINCLUDE	"mappings/special stage/Begin curve right - Frame 4.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings
-; Begin curve right ; MapSpec_DBB62:
-MapSpec_Turn5:	BINCLUDE	"mappings/special stage/Begin curve right - Frame 5.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings
-; Begin curve right ; MapSpec_DC154:
-MapSpec_Turn6:	BINCLUDE	"mappings/special stage/Begin curve right - Frame 6.bin"
-;-----------------------------------------------------------------------------------
-; Special stage tube mappings
-; Begin curve right ; MapSpec_DC5E8:
-MapSpec_Turn7:	BINCLUDE	"mappings/special stage/Begin curve right - Frame 7.bin"
+MapSpec_Turn1:		BINCLUDE	"mappings/special stage/Begin curve right - Frame 1.bin"
+MapSpec_Turn2:		BINCLUDE	"mappings/special stage/Begin curve right - Frame 2.bin"
+MapSpec_Turn3:		BINCLUDE	"mappings/special stage/Begin curve right - Frame 3.bin"
+MapSpec_Turn4:		BINCLUDE	"mappings/special stage/Begin curve right - Frame 4.bin"
+MapSpec_Turn5:		BINCLUDE	"mappings/special stage/Begin curve right - Frame 5.bin"
+MapSpec_Turn6:		BINCLUDE	"mappings/special stage/Begin curve right - Frame 6.bin"
+MapSpec_Turn7:		BINCLUDE	"mappings/special stage/Begin curve right - Frame 7.bin"
 
 ;--------------------------------------------------------------------------------------
-; Kosinski compressed art
 ; Special stage level patterns
 ; Note: Only one line of each tile is stored in this archive. The other 7 lines are
 ;  the same as this one line, so to get the full tiles, each line needs to be
 ;  duplicated 7 times over.					; ArtKoz_DCA38:
 ;--------------------------------------------------------------------------------------
-ArtKos_Special:	BINCLUDE	"art/kosinski/SpecStag.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (127 blocks)
-; Background patterns for special stage		; ArtNem_DCD68:
+ArtKos_Special:			BINCLUDE	"art/kosinski/SpecStag.bin"
 	even
-ArtNem_SpecialBack:	BINCLUDE	"art/nemesis/Background art for special stage.bin"
-;--------------------------------------------------------------------------------------
-; Enigma compressed tile mappings
-; Main background mappings for special stage	; MapEng_DD1DE:
+
+ArtNem_SpecialBack:		BINCLUDE	"art/nemesis/Background art for special stage.bin"
 	even
-MapEng_SpecialBack:	BINCLUDE	"mappings/misc/Main background mappings for special stage.bin"
-;--------------------------------------------------------------------------------------
-; Enigma compressed tile mappings
-; Lower background mappings for special stage	; MapEng_DD30C:
+MapEng_SpecialBack:		BINCLUDE	"mappings/misc/Main background mappings for special stage.bin"
 	even
 MapEng_SpecialBackBottom:	BINCLUDE	"mappings/misc/Lower background mappings for special stage.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (62 blocks)
-; Sonic/Miles and number text from special stage	; ArtNem_DD48A:
 	even
-ArtNem_SpecialHUD:	BINCLUDE	"art/nemesis/Sonic and Miles number text from special stage.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (48 blocks)
-; "Start" and checkered flag patterns in special stage	; ArtNem_DD790:
+ArtNem_SpecialHUD:		BINCLUDE	"art/nemesis/Sonic and Miles number text from special stage.bin"
 	even
-ArtNem_SpecialStart:	BINCLUDE	"art/nemesis/Start text from special stage.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (37 blocks)
-; Stars in special stage	; ArtNem_DD8CE:
+ArtNem_SpecialStart:		BINCLUDE	"art/nemesis/Start text from special stage.bin" ; Also includes checkered flag
 	even
-ArtNem_SpecialStars:	BINCLUDE	"art/nemesis/Stars in special stage.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (13 blocks)
-; Text for most of the "Player VS Player" message in 2P special stage	; ArtNem_DD9C8:
+ArtNem_SpecialStars:		BINCLUDE	"art/nemesis/Stars in special stage.bin"
 	even
 ArtNem_SpecialPlayerVSPlayer:	BINCLUDE	"art/nemesis/Special stage Player VS Player text.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (104 blocks)
-; Ring patterns in special stage	; ArtNem_DDA7E:
 	even
-ArtNem_SpecialRings:	BINCLUDE	"art/nemesis/Special stage ring art.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (38 blocks)
-; Horizontal shadow patterns in special stage	; ArtNem_DDFA4:
+ArtNem_SpecialRings:		BINCLUDE	"art/nemesis/Special stage ring art.bin"
 	even
 ArtNem_SpecialFlatShadow:	BINCLUDE	"art/nemesis/Horizontal shadow from special stage.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (58 blocks)
-; Diagonal shadow patterns in special stage	; ArtNem_DE05A:
 	even
 ArtNem_SpecialDiagShadow:	BINCLUDE	"art/nemesis/Diagonal shadow from special stage.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (25 blocks)
-; Vertical shadow patterns in special stage	; ArtNem_DE120:
 	even
 ArtNem_SpecialSideShadow:	BINCLUDE	"art/nemesis/Vertical shadow from special stage.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (48 blocks)
-; Explosion patterns in special stage	; ArtNem_DE188:
 	even
 ArtNem_SpecialExplosion:	BINCLUDE	"art/nemesis/Explosion from special stage.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (80 blocks)
-; Bomb patterns in special stage	; ArtNem_DE4BC:
 	even
-ArtNem_SpecialBomb:	BINCLUDE	"art/nemesis/Bomb from special stage.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (46 blocks)
-; Emerald patterns in special stage	; ArtNem_DE8AC:
+ArtNem_SpecialBomb:		BINCLUDE	"art/nemesis/Bomb from special stage.bin"
 	even
-ArtNem_SpecialEmerald:	BINCLUDE	"art/nemesis/Emerald from special stage.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (99 blocks)
-; Text for the messages and thumbs up/down icon in special stage	; ArtNem_DEAF4:
+ArtNem_SpecialEmerald:		BINCLUDE	"art/nemesis/Emerald from special stage.bin"
 	even
-ArtNem_SpecialMessages:	BINCLUDE	"art/nemesis/Special stage messages and icons.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (851 blocks)
-; Sonic and Tails animation frames from special stage
-; [fixBugs] In this file, Tails' arms are tan instead of orange.
-; Art for Obj09 and Obj10 and Obj88	; ArtNem_DEEAE:
+ArtNem_SpecialMessages:		BINCLUDE	"art/nemesis/Special stage messages and icons.bin"
 	even
-ArtNem_SpecialSonicAndTails:	BINCLUDE	"art/nemesis/Sonic and Tails animation frames in special stage.bin"
-;--------------------------------------------------------------------------------------
-; Nemesis compressed art (5 blocks)
-; "Tails" patterns from special stage	; ArtNem_E247E:
+ArtNem_SpecialSonicAndTails:	BINCLUDE	"art/nemesis/Sonic and Tails animation frames in special stage.bin" ; [fixBugs] In this file, Tails' arms are tan instead of orange.
 	even
 ArtNem_SpecialTailsText:	BINCLUDE	"art/nemesis/Tails text patterns from special stage.bin"
-
-;--------------------------------------------------------------------------------------
-; Special stage object perspective data (Kosinski compression)	; MiscKoz_E24FE:
-;--------------------------------------------------------------------------------------
+	even
 MiscKoz_SpecialPerspective:	BINCLUDE	"misc/Special stage object perspective data (Kosinski compression).bin"
-;--------------------------------------------------------------------------------------
-; Special stage level layout (Nemesis compression)	; MiscNem_E34EE: MiscKoz_SpecialLevelLayout:
-;--------------------------------------------------------------------------------------
 	even
 MiscNem_SpecialLevelLayout:	BINCLUDE	"misc/Special stage level layouts (Nemesis compression).bin"
-;--------------------------------------------------------------------------------------
-; Special stage object location list (Kosinski compression)	; MiscKoz_E35F2:
-;--------------------------------------------------------------------------------------
+	even
 MiscKoz_SpecialObjectLocations:	BINCLUDE	"misc/Special stage object location lists (Kosinski compression).bin"
+	even
 
 ;--------------------------------------------------------------------------------------
 ; Filler (free space) (unnecessary; could be replaced with "even")
@@ -91744,48 +91220,65 @@ MiscKoz_SpecialObjectLocations:	BINCLUDE	"misc/Special stage object location lis
 ;  associated zone.
 ;--------------------------------------------------------------------------------------
 Off_Rings: zoneOrderedOffsetTable 2,2
-	zoneOffsetTableEntry.w  Rings_EHZ_1	; 0  $00
-	zoneOffsetTableEntry.w  Rings_EHZ_2	; 1
-	zoneOffsetTableEntry.w  Rings_Lev1_1	; 2  $01
-	zoneOffsetTableEntry.w  Rings_Lev1_2	; 3
-	zoneOffsetTableEntry.w  Rings_Lev2_1	; 4  $02
-	zoneOffsetTableEntry.w  Rings_Lev2_2	; 5
-	zoneOffsetTableEntry.w  Rings_Lev3_1	; 6  $03
-	zoneOffsetTableEntry.w  Rings_Lev3_2	; 7
-	zoneOffsetTableEntry.w  Rings_MTZ_1	; 8  $04
-	zoneOffsetTableEntry.w  Rings_MTZ_2	; 9
-	zoneOffsetTableEntry.w  Rings_MTZ_3	; 10 $05
-	zoneOffsetTableEntry.w  Rings_MTZ_4	; 11
-	zoneOffsetTableEntry.w  Rings_WFZ_1	; 12 $06
-	zoneOffsetTableEntry.w  Rings_WFZ_2	; 13
-	zoneOffsetTableEntry.w  Rings_HTZ_1	; 14 $07
-	zoneOffsetTableEntry.w  Rings_HTZ_2	; 15
-	zoneOffsetTableEntry.w  Rings_HPZ_1	; 16 $08
-	zoneOffsetTableEntry.w  Rings_HPZ_2	; 17
-	zoneOffsetTableEntry.w  Rings_Lev9_1	; 18 $09
-	zoneOffsetTableEntry.w  Rings_Lev9_2	; 19
-	zoneOffsetTableEntry.w  Rings_OOZ_1	; 20 $0A
-	zoneOffsetTableEntry.w  Rings_OOZ_2	; 21
-	zoneOffsetTableEntry.w  Rings_MCZ_1	; 22 $0B
-	zoneOffsetTableEntry.w  Rings_MCZ_2	; 23
-	zoneOffsetTableEntry.w  Rings_CNZ_1	; 24 $0C
-	zoneOffsetTableEntry.w  Rings_CNZ_2	; 25
-	zoneOffsetTableEntry.w  Rings_CPZ_1	; 26 $0D
-	zoneOffsetTableEntry.w  Rings_CPZ_2	; 27
-	zoneOffsetTableEntry.w  Rings_DEZ_1	; 28 $0E
-	zoneOffsetTableEntry.w  Rings_DEZ_2	; 29
-	zoneOffsetTableEntry.w  Rings_ARZ_1	; 30 $0F
-	zoneOffsetTableEntry.w  Rings_ARZ_2	; 31
-	zoneOffsetTableEntry.w  Rings_SCZ_1	; 32 $10
-	zoneOffsetTableEntry.w  Rings_SCZ_2	; 33
+	; EHZ
+	zoneOffsetTableEntry.w  Rings_EHZ_1	; Act 1
+	zoneOffsetTableEntry.w  Rings_EHZ_2	; Act 2
+	; Zone 1
+	zoneOffsetTableEntry.w  Rings_Lev1_1	; Act 1
+	zoneOffsetTableEntry.w  Rings_Lev1_2	; Act 2
+	; WZ
+	zoneOffsetTableEntry.w  Rings_WZ_1	; Act 1
+	zoneOffsetTableEntry.w  Rings_WZ_2	; Act 2
+	; Zone 3
+	zoneOffsetTableEntry.w  Rings_Lev3_1	; Act 1
+	zoneOffsetTableEntry.w  Rings_Lev3_2	; Act 2
+	; MTZ
+	zoneOffsetTableEntry.w  Rings_MTZ_1	; Act 1
+	zoneOffsetTableEntry.w  Rings_MTZ_2	; Act 2
+	; MTZ
+	zoneOffsetTableEntry.w  Rings_MTZ_3	; Act 3
+	zoneOffsetTableEntry.w  Rings_MTZ_4	; Act 4
+	; WFZ
+	zoneOffsetTableEntry.w  Rings_WFZ_1	; Act 1
+	zoneOffsetTableEntry.w  Rings_WFZ_2	; Act 2
+	; HTZ
+	zoneOffsetTableEntry.w  Rings_HTZ_1	; Act 1
+	zoneOffsetTableEntry.w  Rings_HTZ_2	; Act 2
+	; HPZ
+	zoneOffsetTableEntry.w  Rings_HPZ_1	; Act 1
+	zoneOffsetTableEntry.w  Rings_HPZ_2	; Act 2
+	; Zone 9
+	zoneOffsetTableEntry.w  Rings_Lev9_1	; Act 1
+	zoneOffsetTableEntry.w  Rings_Lev9_2	; Act 2
+	; OOZ
+	zoneOffsetTableEntry.w  Rings_OOZ_1	; Act 1
+	zoneOffsetTableEntry.w  Rings_OOZ_2	; Act 2
+	; MCZ
+	zoneOffsetTableEntry.w  Rings_MCZ_1	; Act 1
+	zoneOffsetTableEntry.w  Rings_MCZ_2	; Act 2
+	; CNZ
+	zoneOffsetTableEntry.w  Rings_CNZ_1	; Act 1
+	zoneOffsetTableEntry.w  Rings_CNZ_2	; Act 2
+	; CPZ
+	zoneOffsetTableEntry.w  Rings_CPZ_1	; Act 1
+	zoneOffsetTableEntry.w  Rings_CPZ_2	; Act 2
+	; DEZ
+	zoneOffsetTableEntry.w  Rings_DEZ_1	; Act 1
+	zoneOffsetTableEntry.w  Rings_DEZ_2	; Act 2
+	; ARZ
+	zoneOffsetTableEntry.w  Rings_ARZ_1	; Act 1
+	zoneOffsetTableEntry.w  Rings_ARZ_2	; Act 2
+	; SCZ
+	zoneOffsetTableEntry.w  Rings_SCZ_1	; Act 1
+	zoneOffsetTableEntry.w  Rings_SCZ_2	; Act 2
     zoneTableEnd
 
 Rings_EHZ_1:	BINCLUDE	"level/rings/EHZ_1.bin"
 Rings_EHZ_2:	BINCLUDE	"level/rings/EHZ_2.bin"
 Rings_Lev1_1:	BINCLUDE	"level/rings/01_1.bin"
 Rings_Lev1_2:	BINCLUDE	"level/rings/01_2.bin"
-Rings_Lev2_1:	BINCLUDE	"level/rings/02_1.bin"
-Rings_Lev2_2:	BINCLUDE	"level/rings/02_2.bin"
+Rings_WZ_1:	BINCLUDE	"level/rings/WZ_1.bin"
+Rings_WZ_2:	BINCLUDE	"level/rings/WZ_2.bin"
 Rings_Lev3_1:	BINCLUDE	"level/rings/03_1.bin"
 Rings_Lev3_2:	BINCLUDE	"level/rings/03_2.bin"
 Rings_MTZ_1:	BINCLUDE	"level/rings/MTZ_1.bin"
@@ -91824,40 +91317,57 @@ Rings_SCZ_2:	BINCLUDE	"level/rings/SCZ_2.bin"
 ; Offset index of object locations
 ; --------------------------------------------------------------------------------------
 Off_Objects: zoneOrderedOffsetTable 2,2
-	zoneOffsetTableEntry.w  Objects_EHZ_1	; 0  $00
-	zoneOffsetTableEntry.w  Objects_EHZ_2	; 1
-	zoneOffsetTableEntry.w  Objects_Null	; 2  $01
-	zoneOffsetTableEntry.w  Objects_Null	; 3
-	zoneOffsetTableEntry.w  Objects_Null	; 4  $02
-	zoneOffsetTableEntry.w  Objects_Null	; 5
-	zoneOffsetTableEntry.w  Objects_Null	; 6  $03
-	zoneOffsetTableEntry.w  Objects_Null	; 7
-	zoneOffsetTableEntry.w  Objects_MTZ_1	; 8  $04
-	zoneOffsetTableEntry.w  Objects_MTZ_2	; 9
-	zoneOffsetTableEntry.w  Objects_MTZ_3	; 10 $05
-	zoneOffsetTableEntry.w  Objects_MTZ_3	; 11
-	zoneOffsetTableEntry.w  Objects_WFZ_1	; 12 $06
-	zoneOffsetTableEntry.w  Objects_WFZ_2	; 13
-	zoneOffsetTableEntry.w  Objects_HTZ_1	; 14 $07
-	zoneOffsetTableEntry.w  Objects_HTZ_2	; 15
-	zoneOffsetTableEntry.w  Objects_HPZ_1	; 16 $08
-	zoneOffsetTableEntry.w  Objects_HPZ_2	; 17
-	zoneOffsetTableEntry.w  Objects_Null	; 18 $09
-	zoneOffsetTableEntry.w  Objects_Null	; 19
-	zoneOffsetTableEntry.w  Objects_OOZ_1	; 20 $0A
-	zoneOffsetTableEntry.w  Objects_OOZ_2	; 21
-	zoneOffsetTableEntry.w  Objects_MCZ_1	; 22 $0B
-	zoneOffsetTableEntry.w  Objects_MCZ_2	; 23
-	zoneOffsetTableEntry.w  Objects_CNZ_1	; 24 $0C
-	zoneOffsetTableEntry.w  Objects_CNZ_2	; 25
-	zoneOffsetTableEntry.w  Objects_CPZ_1	; 26 $0D
-	zoneOffsetTableEntry.w  Objects_CPZ_2	; 27
-	zoneOffsetTableEntry.w  Objects_DEZ_1	; 28 $0E
-	zoneOffsetTableEntry.w  Objects_DEZ_2	; 29
-	zoneOffsetTableEntry.w  Objects_ARZ_1	; 30 $0F
-	zoneOffsetTableEntry.w  Objects_ARZ_2	; 31
-	zoneOffsetTableEntry.w  Objects_SCZ_1	; 32 $10
-	zoneOffsetTableEntry.w  Objects_SCZ_2	; 33
+	; EHZ
+	zoneOffsetTableEntry.w  Objects_EHZ_1	; Act 1
+	zoneOffsetTableEntry.w  Objects_EHZ_2	; Act 2
+	; Zone 1
+	zoneOffsetTableEntry.w  Objects_Null	; Act 1
+	zoneOffsetTableEntry.w  Objects_Null	; Act 2
+	; WZ
+	zoneOffsetTableEntry.w  Objects_Null	; Act 1
+	zoneOffsetTableEntry.w  Objects_Null	; Act 2
+	; Zone 3
+	zoneOffsetTableEntry.w  Objects_Null	; Act 1
+	zoneOffsetTableEntry.w  Objects_Null	; Act 2
+	; MTZ
+	zoneOffsetTableEntry.w  Objects_MTZ_1	; Act 1
+	zoneOffsetTableEntry.w  Objects_MTZ_2	; Act 2
+	; MTZ
+	zoneOffsetTableEntry.w  Objects_MTZ_3	; Act 3
+	zoneOffsetTableEntry.w  Objects_MTZ_3	; Act 4
+	; WFZ
+	zoneOffsetTableEntry.w  Objects_WFZ_1	; Act 1
+	zoneOffsetTableEntry.w  Objects_WFZ_2	; Act 2
+	; HTZ
+	zoneOffsetTableEntry.w  Objects_HTZ_1	; Act 1
+	zoneOffsetTableEntry.w  Objects_HTZ_2	; Act 2
+	; HPZ
+	zoneOffsetTableEntry.w  Objects_HPZ_1	; Act 1
+	zoneOffsetTableEntry.w  Objects_HPZ_2	; Act 2
+	; Zone 9
+	zoneOffsetTableEntry.w  Objects_Null	; Act 1
+	zoneOffsetTableEntry.w  Objects_Null	; Act 2
+	; OOZ
+	zoneOffsetTableEntry.w  Objects_OOZ_1	; Act 1
+	zoneOffsetTableEntry.w  Objects_OOZ_2	; Act 2
+	; MCZ
+	zoneOffsetTableEntry.w  Objects_MCZ_1	; Act 1
+	zoneOffsetTableEntry.w  Objects_MCZ_2	; Act 2
+	; CNZ
+	zoneOffsetTableEntry.w  Objects_CNZ_1	; Act 1
+	zoneOffsetTableEntry.w  Objects_CNZ_2	; Act 2
+	; CPZ
+	zoneOffsetTableEntry.w  Objects_CPZ_1	; Act 1
+	zoneOffsetTableEntry.w  Objects_CPZ_2	; Act 2
+	; DEZ
+	zoneOffsetTableEntry.w  Objects_DEZ_1	; Act 1
+	zoneOffsetTableEntry.w  Objects_DEZ_2	; Act 2
+	; ARZ
+	zoneOffsetTableEntry.w  Objects_ARZ_1	; Act 1
+	zoneOffsetTableEntry.w  Objects_ARZ_2	; Act 2
+	; SCZ
+	zoneOffsetTableEntry.w  Objects_SCZ_1	; Act 1
+	zoneOffsetTableEntry.w  Objects_SCZ_2	; Act 2
     zoneTableEnd
 
 	; These things act as boundaries for the object layout parser, so it doesn't read past the end/beginning of the file
@@ -92172,137 +91682,70 @@ Mus_Continue:   BINCLUDE	"sound/music/compressed/9C - Continue.bin"
 	finishBank
 
 	align $20
-; --------------------------------------------------------------------
-; Nemesis compressed art (20 blocks)
-; HTZ boss lava ball / Sol fireball
+
+; --------------------------------------------------------------------------------------
+; EHZ/HTZ Assets
+; --------------------------------------------------------------------------------------
+ArtNem_HtzFireball1:		BINCLUDE	"art/nemesis/Fireball 1.bin"
 	even
-ArtNem_HtzFireball1:	BINCLUDE	"art/nemesis/Fireball 1.bin"
-; --------------------------------------------------------------------
-; Nemesis compressed art (24 blocks)
-; Waterfall tiles
+ArtNem_Waterfall:		BINCLUDE	"art/nemesis/Waterfall tiles.bin"
 	even
-ArtNem_Waterfall:	BINCLUDE	"art/nemesis/Waterfall tiles.bin"
-; --------------------------------------------------------------------
-; Nemesis compressed art (16 blocks)
-; Another fireball
+ArtNem_HtzFireball2:		BINCLUDE	"art/nemesis/Fireball 2.bin"
 	even
-ArtNem_HtzFireball2:	BINCLUDE	"art/nemesis/Fireball 2.bin"
-; --------------------------------------------------------------------
-; Nemesis compressed art (8 blocks)
-; Bridge in EHZ
+ArtNem_EHZ_Bridge:		BINCLUDE	"art/nemesis/EHZ bridge.bin"
 	even
-ArtNem_EHZ_Bridge:	BINCLUDE	"art/nemesis/EHZ bridge.bin"
-; --------------------------------------------------------------------
-; Nemesis compressed art (48 blocks)
-; Diagonally moving lift in HTZ
+ArtNem_HtzZipline:		BINCLUDE	"art/nemesis/HTZ zip-line platform.bin"
 	even
-ArtNem_HtzZipline:	BINCLUDE	"art/nemesis/HTZ zip-line platform.bin"
-; --------------------------------------------------------------------
-; Nemesis compressed art (4 blocks)
-; One way barrier from HTZ
+ArtNem_HtzValveBarrier:		BINCLUDE	"art/nemesis/One way barrier from HTZ.bin"
 	even
-ArtNem_HtzValveBarrier:	BINCLUDE	"art/nemesis/One way barrier from HTZ.bin"
-; --------------------------------------------------------------------
-; Nemesis compressed art (24 blocks)
-; See-saw in HTZ
+ArtNem_HtzSeeSaw:		BINCLUDE	"art/nemesis/See-saw in HTZ.bin"
 	even
-ArtNem_HtzSeeSaw:	BINCLUDE	"art/nemesis/See-saw in HTZ.bin"
-; --------------------------------------------------------------------
-; Nemesis compressed art (24 blocks)
-; Unused Fireball
+				BINCLUDE	"art/nemesis/Fireball 3.bin" ; Unused
 	even
-;ArtNem_F0B06:
-	BINCLUDE	"art/nemesis/Fireball 3.bin"
-; --------------------------------------------------------------------
-; Nemesis compressed art (20 blocks)
-; Rock from HTZ
+ArtNem_HtzRock:			BINCLUDE	"art/nemesis/Rock from HTZ.bin"
 	even
-ArtNem_HtzRock:	BINCLUDE	"art/nemesis/Rock from HTZ.bin"
-; --------------------------------------------------------------------
-; Nemesis compressed art (4 blocks)
-; Orbit badnik from HTZ		; ArtNem_HtzSol:
+ArtNem_Sol:			BINCLUDE	"art/nemesis/Sol badnik from HTZ.bin" ; Not grouped with the other badniks for some reason...
 	even
-ArtNem_Sol:	BINCLUDE	"art/nemesis/Sol badnik from HTZ.bin"
-; --------------------------------------------------------------------
-; Nemesis compressed art (120 blocks)
-; Large spinning wheel from MTZ
+
+; --------------------------------------------------------------------------------------
+; MTZ Assets
+; --------------------------------------------------------------------------------------
+ArtNem_MtzWheel:		BINCLUDE	"art/nemesis/Large spinning wheel from MTZ.bin"
 	even
-ArtNem_MtzWheel:	BINCLUDE	"art/nemesis/Large spinning wheel from MTZ.bin"
-; --------------------------------------------------------------------
-; Nemesis compressed art (9 blocks)
-; Indent in large spinning wheel from MTZ
+ArtNem_MtzWheelIndent:		BINCLUDE	"art/nemesis/Large spinning wheel from MTZ - indent.bin"
 	even
-ArtNem_MtzWheelIndent:	BINCLUDE	"art/nemesis/Large spinning wheel from MTZ - indent.bin"
-; --------------------------------------------------------------------
-; Nemesis compressed art (8 blocks)
-; Spike block from MTZ
+ArtNem_MtzSpikeBlock:		BINCLUDE	"art/nemesis/MTZ spike block.bin"
 	even
-ArtNem_MtzSpikeBlock:	BINCLUDE	"art/nemesis/MTZ spike block.bin"
-; --------------------------------------------------------------------
-; Nemesis compressed art (15 blocks)
-; Steam from MTZ
+ArtNem_MtzSteam:		BINCLUDE	"art/nemesis/Steam from MTZ.bin"
 	even
-ArtNem_MtzSteam:	BINCLUDE	"art/nemesis/Steam from MTZ.bin"
-; --------------------------------------------------------------------
-; Nemesis compressed art (8 blocks)
-; Spike from MTZ
+ArtNem_MtzSpike:		BINCLUDE	"art/nemesis/Spike from MTZ.bin"
 	even
-ArtNem_MtzSpike:	BINCLUDE	"art/nemesis/Spike from MTZ.bin"
-; --------------------------------------------------------------------
-; Nemesis compressed art (54 blocks)
-; Similarly shaded blocks from MTZ
+ArtNem_MtzAsstBlocks:		BINCLUDE	"art/nemesis/Similarly shaded blocks from MTZ.bin"
 	even
-ArtNem_MtzAsstBlocks:	BINCLUDE	"art/nemesis/Similarly shaded blocks from MTZ.bin"
-; --------------------------------------------------------------------
-; Nemesis compressed art (9 blocks)
-; Lava bubble from MTZ
+ArtNem_MtzLavaBubble:		BINCLUDE	"art/nemesis/Lava bubble from MTZ.bin"
 	even
-ArtNem_MtzLavaBubble:	BINCLUDE	"art/nemesis/Lava bubble from MTZ.bin"
-; --------------------------------------------------------------------
-; Nemesis compressed art (4 blocks)
-; Lava cup
+ArtNem_LavaCup:			BINCLUDE	"art/nemesis/Lava cup from MTZ.bin"
 	even
-ArtNem_LavaCup:	BINCLUDE	"art/nemesis/Lava cup from MTZ.bin"
-; --------------------------------------------------------------------
-; Nemesis compressed art (8 blocks)
-; End of a bolt and rope from MTZ
-	even
-ArtNem_BoltEnd_Rope:	BINCLUDE	"art/nemesis/Bolt end and rope from MTZ.bin"
-; --------------------------------------------------------------------
-; Nemesis compressed art (12 blocks)
-; Small cog from MTZ
-	even
-ArtNem_MtzCog:	BINCLUDE	"art/nemesis/Small cog from MTZ.bin"
-; --------------------------------------------------------------------
-; Nemesis compressed art (4 blocks)
-; Flash inside spin tube from MTZ
+ArtNem_BoltEnd_Rope:		BINCLUDE	"art/nemesis/Bolt end and rope from MTZ.bin"
+	even	
+ArtNem_MtzCog:			BINCLUDE	"art/nemesis/Small cog from MTZ.bin"
 	even
 ArtNem_MtzSpinTubeFlash:	BINCLUDE	"art/nemesis/Spin tube flash from MTZ.bin"
-; --------------------------------------------------------------------
-; Nemesis compressed art (32 blocks)
-; Large wooden box from MCZ	; ArtNem_F187C:
 	even
-ArtNem_Crate:	BINCLUDE	"art/nemesis/Large wooden box from MCZ.bin"
-; --------------------------------------------------------------------
-; Nemesis compressed art (26 blocks)
-; Collapsing platform from MCZ	; ArtNem_F1ABA:
+
+; --------------------------------------------------------------------------------------
+; MCZ Assets
+; --------------------------------------------------------------------------------------
+ArtNem_Crate:			BINCLUDE	"art/nemesis/Large wooden box from MCZ.bin"
 	even
-ArtNem_MCZCollapsePlat:	BINCLUDE	"art/nemesis/Collapsing platform from MCZ.bin"
-; --------------------------------------------------------------------
-; Nemesis compressed art (16 blocks)
-; Switch that you pull on from MCZ	; ArtNem_F1C64:
+ArtNem_MCZCollapsePlat:		BINCLUDE	"art/nemesis/Collapsing platform from MCZ.bin"
 	even
-ArtNem_VineSwitch:	BINCLUDE	"art/nemesis/Pull switch from MCZ.bin"
-; --------------------------------------------------------------------
-; Nemesis compressed art (10 blocks)
-; Vine that lowers in MCZ	; ArtNem_F1D5C:
+ArtNem_VineSwitch:		BINCLUDE	"art/nemesis/Pull switch from MCZ.bin"
 	even
-ArtNem_VinePulley:	BINCLUDE	"art/nemesis/Vine that lowers from MCZ.bin"
-; --------------------------------------------------------------------
-; Nemesis compressed art (20 blocks)
-; Log viewed from the end for folding gates in MCZ (start of MCZ2)	; ArtNem_F1E06:
+ArtNem_VinePulley:		BINCLUDE	"art/nemesis/Vine that lowers from MCZ.bin"
 	even
-ArtNem_MCZGateLog:	BINCLUDE	"art/nemesis/Drawbridge logs from MCZ.bin"
+ArtNem_MCZGateLog:		BINCLUDE	"art/nemesis/Drawbridge logs from MCZ.bin"
+	even
 
 ; ----------------------------------------------------------------------------------
 ; Filler (free space)
