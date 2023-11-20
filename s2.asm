@@ -42,10 +42,6 @@ EDDebug = 0
 	include "s2.constants.asm"
 
 ; >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-; Equates section - Names for variables.
-	include "s2.constants.asm"
-
-; >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 ; Expressing SMPS bytecode in a portable and human-readable form
 SonicDriverVer = 2 ; Tell SMPS2ASM that we are targetting Sonic 2's sound driver
 	include "sound/_smps2asm_inc.asm"
@@ -125,7 +121,7 @@ Vectors:
 ; byte_100:
 Header:
 	dc.b "SEGA SSF        " ; Console name
-	dc.b "Lil-G   2023.JAN" ; Copyright holder and release date (generally year)
+	dc.b "Lil-G   2023.AUG" ; Copyright holder and release date (generally year)
 	dc.b "SONIC THE             HEDGEHOG 2                " ; Domestic name
 	dc.b "SONIC THE             HEDGEHOG 2                " ; International name
     if gameRevision=0

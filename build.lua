@@ -185,7 +185,7 @@ message_abort_wrapper(common.build_rom("s2", "s2built", "", "-p=0 -z=0," .. (imp
 os.execute(tools.fixpointer .. " s2.h s2built.bin   off_3A294 MapRUnc_Sonic 0x2D 0 4   word_728C_user Obj5F_MapUnc_7240 2 2 1")
 
 -- Create DEBUG build
-success_continue_wrapper(common.build_rom("s2", "s2built.debug", "-D __DEBUG__ -OLIST s2.debug.lst", "-p=0 -z=0," .. (improved_sound_driver_compression and "saxman-optimised" or "saxman-bugged") .. ",Size_of_Snd_driver_guess,after", true, repository))
+message_abort_wrapper(common.build_rom("s2", "s2built.debug", "-D __DEBUG__ -OLIST s2.debug.lst", "-p=0 -z=0," .. (improved_sound_driver_compression and "saxman-optimised" or "saxman-bugged") .. ",Size_of_Snd_driver_guess,after", true, repository))
 os.execute(tools.fixpointer .. " s2.h s2built.debug.bin   off_3A294 MapRUnc_Sonic 0x2D 0 4   word_728C_user Obj5F_MapUnc_7240 2 2 1")
 
 -- Remove the header file, since we no longer need it.
@@ -198,7 +198,7 @@ if extra_tools == nil then
 	os.exit(false)
 end
 os.execute(extra_tools.convsym .. " s2.lst s2built.bin -input as_lst -range 0 FFFFFF -a")
-os.execute(extra_tools.convsym .. " s2.lst s2built.debug.bin -input as_lst -exclude -filter \"z[A-Z].+\" -range 0 FFFFFF -a")
+os.execute(extra_tools.convsym .. " s2.debug.lst s2built.debug.bin -input as_lst -exclude -filter \"z[A-Z].+\" -range 0 FFFFFF -a")
 
 
 -- Correct the ROM's header with a proper checksum and end-of-ROM value.

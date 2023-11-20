@@ -26,7 +26,6 @@ EDRam: 												; The Mega Everdrive's rom mapper supports writing to ROM so 
 ; Actual debugger code
 
 EDDebugger:
-	MapperEnable
 	tst.b		(EDRam.WatchEnable).w
 	bne.s		.ProcessWatchList
 	move.b		(RegSTE+1), d0
@@ -35,6 +34,7 @@ EDDebugger:
 	st.b		(EDRam.WatchEnable).w				; USB is ready so set WatchEnable flag
 
 .ProcessWatchList:
+	MapperEnable
 	lea			(EDRam.WatchList).w, a0
 	lea			(RegUSB), a3						; Load the USB FIFO address into a3 for S P E E D
 	moveq		#0, d0								; Clear d0 so the upper 24-bits aren't garbage
