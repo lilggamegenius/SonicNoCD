@@ -200,6 +200,9 @@ hashes_file:close()
 
 message_abort_wrapper(common.build_rom("s2", "s2built", "", "-p=0 -z=0," .. (improved_sound_driver_compression and "saxman-optimised" or "saxman-bugged") .. ",Size_of_Snd_driver_guess,after", true, repository))
 
+-- Create DEBUG build
+message_abort_wrapper(common.build_rom("s2", "s2built.debug", "-D __DEBUG__ -OLIST s2.debug.lst", "-p=0 -z=0," .. (improved_sound_driver_compression and "saxman-optimised" or "saxman-bugged") .. ",Size_of_Snd_driver_guess,after", true, repository))
+
 -- Correct the compressed sound driver size, which we couldn't do until p2bin had been ran.
 local comp_z80_size, movewZ80CompSize
 
@@ -224,11 +227,14 @@ if comp_z80_size ~= nil and movewZ80CompSize ~= nil then
 	rom:write(string.pack(">I2", comp_z80_size))
 
 	rom:close()
-end
 
--- Create DEBUG build
-message_abort_wrapper(common.build_rom("s2", "s2built.debug", "-D __DEBUG__ -OLIST s2.debug.lst", "-p=0 -z=0," .. (improved_sound_driver_compression and "saxman-optimised" or "saxman-bugged") .. ",Size_of_Snd_driver_guess,after", true, repository))
-os.execute(tools.fixpointer .. " s2.h s2built.debug.bin   off_3A294 MapRUnc_Sonic 0x2D 0 4   word_728C_user Obj5F_MapUnc_7240 2 2 1")
+	rom = io.open("s2built.debug.bin", "r+b")
+
+    rom:seek("set", movewZ80CompSize + 2)
+    rom:write(string.pack(">I2", comp_z80_size))
+
+    rom:close()
+end
 
 -- Remove the header file, since we no longer need it.
 os.remove("s2.h")
@@ -245,6 +251,7 @@ os.execute(extra_tools.convsym .. " s2.debug.lst s2built.debug.bin -input as_lst
 
 -- Correct the ROM's header with a proper checksum and end-of-ROM value.
 common.fix_header("s2built.bin")
+common.fix_header("s2built.debug.bin")
 
 if assemble_result == "warning" then
 	for line in io.lines("s2.log") do
