@@ -838,7 +838,7 @@ SndID_Checkpoint =	id(SndPtr_Checkpoint)		; A1
 SndID_SpikeSwitch =	id(SndPtr_SpikeSwitch)		; A2
 SndID_Hurt =		id(SndPtr_Hurt)			; A3
 SndID_Skidding =	id(SndPtr_Skidding)		; A4
-SndID_BlockPush =	id(SndPtr_BlockPush)		; A5
+SndID_MissileDissolve =	id(SndPtr_MissileDissolve)	; A5
 SndID_HurtBySpikes =	id(SndPtr_HurtBySpikes)		; A6
 SndID_Sparkle =		id(SndPtr_Sparkle)		; A7
 SndID_Beep =		id(SndPtr_Beep)			; A8
@@ -997,7 +997,13 @@ AniIDTailsAni_Fly		= id(TailsAni_Fly_ptr)		; 32 ; $20
 
 
 ; Other sizes
-palette_line_size =	$10*2	; 16 word entries
+palette_line_size =		$10*2	; 16 word entries
+
+; Sprite queue
+object_display_list_size_bits =		7
+object_display_list_size =		1<<object_display_list_size_bits ; How big a list is
+total_object_display_lists_bits =	3
+total_object_display_lists =		1<<total_object_display_lists_bits ; How many lists there are
 
 
 
@@ -1017,8 +1023,8 @@ Block_Table_End:
 
 TempArray_LayerDef:		ds.b	$200	; used by some layer deformation routines
 Decomp_Buffer:			ds.b	$200
-Sprite_Table_Input:		ds.b	$400	; in custom format before being converted and stored in Sprite_Table/Sprite_Table_P2
-Sprite_Table_Input_End:
+Object_Display_Lists:		ds.b	object_display_list_size*total_object_display_lists	; in custom format before being converted and stored in Sprite_Table/Sprite_Table_P2
+Object_Display_Lists_End:
 
 Object_RAM:			; The various objects in the game are loaded in this area.
 				; Each game mode uses different objects, so some slots are reused.
@@ -1155,9 +1161,9 @@ Camera_Y_pos_P2:		ds.l	1
 Camera_BG_X_pos_P2:		ds.l	1	; only used sometimes as the layer deformation makes it sort of redundant
 Camera_BG_Y_pos_P2:		ds.l	1
 Camera_BG2_X_pos_P2:		ds.l	1	; unused (only initialised at beginning of level)?
-Camera_BG2_Y_pos_P2:		ds.l	1
+Camera_BG2_Y_pos_P2:		ds.l	1	; unused (only initialised at beginning of level)?
 Camera_BG3_X_pos_P2:		ds.l	1	; unused (only initialised at beginning of level)?
-Camera_BG3_Y_pos_P2:		ds.l	1
+Camera_BG3_Y_pos_P2:		ds.l	1	; unused (only initialised at beginning of level)?
 Camera_Positions_P2_End:
 
 Block_Crossed_Flags:
@@ -1657,7 +1663,6 @@ Oscillating_Numbers:
 Oscillation_Control:		ds.w	1
 Oscillating_variables:
 Oscillating_Data:		ds.w	$20
-Oscillating_Numbers_End
 
 Logspike_anim_counter:		ds.b	1
 Logspike_anim_frame:		ds.b	1
@@ -1693,7 +1698,6 @@ Timer_minute_word_2P:				; 2 bytes
 				ds.b	1	; filler
 Timer_minute_2P:		ds.b	1	; 1 byte
 Timer_second_2P:		ds.b	1	; 1 byte
-Timer_centisecond_2P:				; inaccurate name (the seconds increase when this reaches 60)
 Timer_frame_2P:			ds.b	1	; 1 byte
 Score_2P:			ds.l	1
 				ds.b	6	; $FFFFFEDA-$FFFFFEDF ; seems unused
@@ -2132,10 +2136,6 @@ VRAM_SS_Plane_A_Name_Table1              = $C000	; Extends until $DFFF
 VRAM_SS_Plane_A_Name_Table2              = $8000	; Extends until $9FFF
 VRAM_SS_Plane_B_Name_Table               = $A000	; Extends until $BFFF
 VRAM_SS_Plane_Table_Size                 = $2000	; 128 cells x 32 cells x 2 bytes per cell
-VRAM_SS_Sprite_Attribute_Table           = $F800	; Extends until $FA7F
-VRAM_SS_Sprite_Attribute_Table_Size      = $0280	; 640 bytes
-VRAM_SS_Horiz_Scroll_Table               = $FC00	; Extends until $FF7F
-VRAM_SS_Horiz_Scroll_Table_Size          = $0380	; 224 lines * 2 bytes per entry * 2 PNTs
 
 ; VRAM Reserved regions, Title screen.
 VRAM_TtlScr_Plane_A_Name_Table           = $C000	; Extends until $CFFF

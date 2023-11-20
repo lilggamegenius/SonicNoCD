@@ -187,32 +187,32 @@ offsetTableEntry macro ptr
 zoneOrderedTable macro entryLen,zoneEntries,{INTLABEL}
 __LABEL__ label *
 ; set some global variables
-zone_table_name := "__LABEL__"
-zone_table_addr := *
-zone_entry_len := entryLen
-zone_entries := zoneEntries
-zone_entries_left := 0
-cur_zone_id := 0
-cur_zone_str := "0"
+.zone_table_name := "__LABEL__"
+.zone_table_addr := *
+.zone_entry_len := entryLen
+.zone_entries := zoneEntries
+.zone_entries_left := 0
+.cur_zone_id := 0
+.cur_zone_str := "0"
     endm
 
 zoneOrderedOffsetTable macro entryLen,zoneEntries,{INTLABEL}
-current_offset_table := __LABEL__
 __LABEL__ zoneOrderedTable entryLen,zoneEntries
+.current_offset_table := __LABEL__
     endm
 
 ; macro to declare one or more entries in a zone-ordered table
 zoneTableEntry macro value
 	if "value"<>""
-	    if zone_entries_left
+	    if .zone_entries_left
 		dc.ATTRIBUTE value
-zone_entries_left := zone_entries_left-1
+.zone_entries_left := .zone_entries_left-1
 	    else
-		!org zone_table_addr+zone_id_{cur_zone_str}*zone_entry_len*zone_entries
+		!org .zone_table_addr+zone_id_{.cur_zone_str}*.zone_entry_len*.zone_entries
 		dc.ATTRIBUTE value
-zone_entries_left := zone_entries-1
-cur_zone_id := cur_zone_id+1
-cur_zone_str := "\{cur_zone_id}"
+.zone_entries_left := .zone_entries-1
+.cur_zone_id := .cur_zone_id+1
+.cur_zone_str := "\{.cur_zone_id}"
 	    endif
 	    shift
 	    zoneTableEntry.ATTRIBUTE ALLARGS
@@ -221,30 +221,30 @@ cur_zone_str := "\{cur_zone_id}"
 
 ; macro to declare one or more BINCLUDE entries in a zone-ordered table
 zoneTableBinEntry macro numEntries,path
-	if zone_entries_left
+	if .zone_entries_left
 	    BINCLUDE path
-zone_entries_left := zone_entries_left-numEntries
+.zone_entries_left := .zone_entries_left-numEntries
 	else
-	    !org zone_table_addr+zone_id_{cur_zone_str}*zone_entry_len*zone_entries
+	    !org .zone_table_addr+zone_id_{.cur_zone_str}*.zone_entry_len*.zone_entries
 	    BINCLUDE path
-zone_entries_left := zone_entries-numEntries
-cur_zone_id := cur_zone_id+1
-cur_zone_str := "\{cur_zone_id}"
+.zone_entries_left := .zone_entries-numEntries
+.cur_zone_id := .cur_zone_id+1
+.cur_zone_str := "\{.cur_zone_id}"
 	endif
     endm
 
 ; macro to declare one entry in a zone-ordered offset table
 zoneOffsetTableEntry macro value
-	zoneTableEntry.ATTRIBUTE value-current_offset_table
+	zoneTableEntry.ATTRIBUTE value-.current_offset_table
     endm
 
 ; macro which sets the PC to the correct value at the end of a zone offset table and checks if the correct
 ; number of entries were declared
 zoneTableEnd macro
-	if (cur_zone_id<>no_of_zones)&&(MOMPASS=1)
-	    message "Warning: Table \{zone_table_name} has \{cur_zone_id/1.0} entries, but it should have \{(no_of_zones)/1.0} entries"
+	if (.cur_zone_id<>no_of_zones)&&(MOMPASS=1)
+	    message "Warning: Table \{.zone_table_name} has \{.cur_zone_id/1.0} entries, but it should have \{(no_of_zones)/1.0} entries"
 	endif
-	!org zone_table_addr+cur_zone_id*zone_entry_len*zone_entries
+	!org .zone_table_addr+.cur_zone_id*.zone_entry_len*.zone_entries
     endm
 
 ; macro to declare sub-object data
@@ -286,11 +286,8 @@ tiles_to_bytes function addr,((addr&$7FF)<<5)
 make_block_tile_pair function addr,flx,fly,pal,pri,((make_block_tile(addr,flx,fly,pal,pri)<<16)|make_block_tile(addr,flx,fly,pal,pri))
 make_block_tile_pair_2p function addr,flx,fly,pal,pri,((make_block_tile_2p(addr,flx,fly,pal,pri)<<16)|make_block_tile_2p(addr,flx,fly,pal,pri))
 
-; function to calculate the location of a tile in plane mappings with a width of 64 cells
-planeLocH40 function col,line,(($80 * line) + (2 * col))
-
-; function to calculate the location of a tile in plane mappings with a width of 128 cells
-planeLocH80 function col,line,(($100 * line) + (2 * col))
+; function to calculate the location of a tile in plane mappings
+planeLoc function width,col,line,(((width * line) + col) * 2)
 
 ; macro formatting text for the game's menus
 menutxt	macro	text

@@ -25,18 +25,18 @@ EDDebug = 1
 	else
 EDDebug = 0
 	endif
-	
+
 	include "s2.options.asm"
 ; >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 ; AS-specific macros and assembler settings
 	CPU 68000
 	include "s2.macrosetup.asm"
 	include "Debugger/Debugger.asm"           ; ++
-	
+
 ; >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 ; Simplifying macros and functions
 	include "s2.macros.asm"
-	
+
 ; >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 ; Equates section - Names for variables.
 	include "s2.constants.asm"
@@ -45,6 +45,12 @@ EDDebug = 0
 ; Expressing SMPS bytecode in a portable and human-readable form
 SonicDriverVer = 2 ; Tell SMPS2ASM that we are targetting Sonic 2's sound driver
 	include "sound/_smps2asm_inc.asm"
+
+; >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+; Expressing sprite mappings and DPLCs in a portable and human-readable form
+SonicMappingsVer := 2
+SonicDplcVer := 2
+	include "mappings/MapMacros.asm"
 
 ; >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 ; start of ROM
@@ -150,7 +156,7 @@ ROMEndLoc:
 EndOfHeader:
 
 	include "s2.mapper.asm"
-	
+
 ; ===========================================================================
 ; Crash/Freeze the 68000.
 ; loc_200:
@@ -251,7 +257,7 @@ SetupValues:
 	dc.l	Z80_Bus_Request
 	dc.l	Z80_Reset
 	dc.l	VDP_data_port, VDP_control_port
-	
+
 
 
 VDPInitValues:	; values for VDP registers
@@ -334,7 +340,7 @@ PSGInitValues_End:
 ; loc_300:
 GameProgram:
 	bsr.w	InitSSF2	; Initializes the mapper
-	
+
 	tst.w	(VDP_control_port).l
 ; loc_306:
 CheckSumCheck:
@@ -391,21 +397,21 @@ GameClrRAM:
 	bsr.w	VDPSetupGame
 	bsr.w	JmpTo_SoundDriverLoad
 	bsr.w	JoypadInit
-	
+
 	if MCDEnable
 		bsr.w	FindMCDBIOS	; if bios found, clear carry and load pointer to it
 		bcs.w	ErrorTrap	; Error if no MCD is found
-		
+
 		lea		(SubCPU), a1
 		move.l	#SubCPU_Size, d0
-		bsr.w	InitSubCPU	
+		bsr.w	InitSubCPU
 		bne.w	ErrorTrap	; Error if failed
-		
+
 		bsr.w	SyncMCD
 	endif
-	
+
 	move.b	#GameModeID_SegaScreen,(Game_Mode).w ; set Game Mode to Sega Screen
-	
+
 ; >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 ; Start of debugger code. Only assembled when the debug flag is active
 
@@ -413,7 +419,7 @@ GameClrRAM:
 	bra.w	MainGameLoop ; This jump is only here because the debug code goes here
 	include "s2.debugger.asm"
 	endif
-	
+
 ; ===========================================================================
 ; loc_394:
 MainGameLoop:
@@ -476,13 +482,13 @@ LevelSelectMenu: ;;
 ; VERTICAL INTERRUPT HANDLER:
 V_Int:
 	SendMCDInt2						; Sub CPU boot requires that we send it level 2 interrupt requests.
-	
+
 	movem.l	d0-a6,-(sp)
-	
+
 	if EDDebug
 		bsr.w EDDebugger
 	endif
-	
+
 	tst.b	(Vint_routine).w
 	beq.w	Vint_Lag
 
@@ -810,11 +816,11 @@ Vint_Pause_specialStage:
 	tst.b	(SS_Last_Alternate_HorizScroll_Buf).w
 	beq.s	loc_84A
 
-	dma68kToVDP SS_Horiz_Scroll_Buf_2,VRAM_SS_Horiz_Scroll_Table,VRAM_SS_Horiz_Scroll_Table_Size,VRAM
+	dma68kToVDP SS_Horiz_Scroll_Buf_2,VRAM_Horiz_Scroll_Table,VRAM_Horiz_Scroll_Table_Size,VRAM
 	bra.s	loc_86E
 ; ---------------------------------------------------------------------------
 loc_84A:
-	dma68kToVDP SS_Horiz_Scroll_Buf_1,VRAM_SS_Horiz_Scroll_Table,VRAM_SS_Horiz_Scroll_Table_Size,VRAM
+	dma68kToVDP SS_Horiz_Scroll_Buf_1,VRAM_Horiz_Scroll_Table,VRAM_Horiz_Scroll_Table_Size,VRAM
 
 loc_86E:
 	startZ80
@@ -828,17 +834,17 @@ Vint_S2SS:
 	bsr.w	SSSet_VScroll
 
 	dma68kToVDP Normal_palette,$0000,palette_line_size*4,CRAM
-	dma68kToVDP Sprite_Table,VRAM_SS_Sprite_Attribute_Table,VRAM_SS_Sprite_Attribute_Table_Size,VRAM
+	dma68kToVDP Sprite_Table,VRAM_Sprite_Attribute_Table,VRAM_Sprite_Attribute_Table_Size,VRAM
 
 	tst.b	(SS_Alternate_HorizScroll_Buf).w
 	beq.s	loc_906
 
-	dma68kToVDP SS_Horiz_Scroll_Buf_2,VRAM_SS_Horiz_Scroll_Table,VRAM_SS_Horiz_Scroll_Table_Size,VRAM
+	dma68kToVDP SS_Horiz_Scroll_Buf_2,VRAM_Horiz_Scroll_Table,VRAM_Horiz_Scroll_Table_Size,VRAM
 	bra.s	loc_92A
 ; ---------------------------------------------------------------------------
 
 loc_906:
-	dma68kToVDP SS_Horiz_Scroll_Buf_1,VRAM_SS_Horiz_Scroll_Table,VRAM_SS_Horiz_Scroll_Table_Size,VRAM
+	dma68kToVDP SS_Horiz_Scroll_Buf_1,VRAM_Horiz_Scroll_Table,VRAM_Horiz_Scroll_Table_Size,VRAM
 
 loc_92A:
 	tst.b	(SSTrack_Orientation).w			; Is the current track frame flipped?
@@ -1102,9 +1108,9 @@ off_D3C:	offsetTable
 	move.w	#$8400|(VRAM_EndSeq_Plane_B_Name_Table2/$2000),(a6)	; PNT B base: $4000
 	move.w	#$9011,(a6)		; Scroll table size: 64x64
 	lea	(Chunk_Table).l,a1
-	move.l	#vdpComm(VRAM_EndSeq_Plane_A_Name_Table + planeLocH40($16,$21),VRAM,WRITE),d0	;$50AC0003
-	moveq	#$16,d1
-	moveq	#$E,d2
+	move.l	#vdpComm(VRAM_EndSeq_Plane_A_Name_Table + planeLoc(64,22,33),VRAM,WRITE),d0	;$50AC0003
+	moveq	#23-1,d1
+	moveq	#15-1,d2
 	jsrto	PlaneMapToVRAM_H40, PlaneMapToVRAM_H40
 	rts
 ; ===========================================================================
@@ -1447,7 +1453,7 @@ VDPSetupArray_End:
 ClearScreen:
 	stopZ80
 
-	dmaFillVRAM 0,$0000,$40		; Fill first $40 bytes of VRAM with 0
+	dmaFillVRAM 0,$0000,tiles_to_bytes(2)				; Fill first $40 bytes of VRAM with 0
 	dmaFillVRAM 0,VRAM_Plane_A_Name_Table,VRAM_Plane_Table_Size	; Clear Plane A pattern name table
 	dmaFillVRAM 0,VRAM_Plane_B_Name_Table,VRAM_Plane_Table_Size	; Clear Plane B pattern name table
 
@@ -1653,7 +1659,7 @@ Pause_SlowMo:
 ; sub_140E: ShowVDPGraphics: PlaneMapToVRAM:
 PlaneMapToVRAM_H40:
 	lea	(VDP_data_port).l,a6
-	move.l	#vdpCommDelta(planeLocH40(0,1)),d4	; $800000
+	move.l	#vdpCommDelta(planeLoc(64,0,1)),d4	; $800000
 -	move.l	d0,VDP_control_port-VDP_data_port(a6)	; move d0 to VDP_control_port
 	move.w	d1,d3
 -	move.w	(a1)+,(a6)	; from source address to destination in VDP
@@ -1673,7 +1679,7 @@ PlaneMapToVRAM_H40:
 ; sub_142E: ShowVDPGraphics2: PlaneMapToVRAM2:
 PlaneMapToVRAM_H80_SpecialStage:
 	lea	(VDP_data_port).l,a6
-	move.l	#vdpCommDelta(planeLocH80(0,1)),d4	; $1000000
+	move.l	#vdpCommDelta(planeLoc(128,0,1)),d4	; $1000000
 -	move.l	d0,VDP_control_port-VDP_data_port(a6)
 	move.w	d1,d3
 -	move.w	(a1)+,(a6)
@@ -2493,7 +2499,6 @@ EniDec_ChkGetNextByte:
 	rts
 
 ; ||||||||||||||| S U B R O U T I N E |||||||||||||||||||||||||||||||||||||||
-; ===========================================================================
 ; ---------------------------------------------------------------------------
 ; Kosinski decompression routine
 ;
@@ -2513,13 +2518,13 @@ _Kos_RunBitStream macro
     swap    d3
     bpl.s   .skip
     move.b  (a0)+,	d0					; get desc. bitfield
-    move.b  (a0)+,	d1            	
+    move.b  (a0)+,	d1
     move.b  (a4,d0.w),	d0				; reload converted desc. bitfield from a LUT
-    move.b  (a4,d1.w),	d1            
+    move.b  (a4,d1.w),	d1
 .skip
     endm
 ; ---------------------------------------------------------------------------
- 
+
 ; KozDec_193A:
 KosDec:
     moveq   #7,	d7
@@ -2532,24 +2537,24 @@ KosDec:
     move.b  (a4,d1.w),	d1
     moveq   #7,		d2					; set repeat count to 8
     moveq   #-1,	d3					; d3 will be desc field switcher
-    clr.w   d3              
+    clr.w   d3
     bra.s   KosDec_FetchNewCode
- 
+
 KosDec_FetchCodeLoop:
     ; code 1 (Uncompressed byte)
     _Kos_RunBitStream
     move.b  (a0)+,	(a1)+
- 
+
 KosDec_FetchNewCode:
     add.b   d0,	d0						; get a bit from the bitstream
     bcs.s   KosDec_FetchCodeLoop		; if code = 0, branch
- 
+
     ; codes 00 and 01
     _Kos_RunBitStream
     moveq   #0,	d4						; d4 will contain copy count
     add.b   d0,	d0						; get a bit from the bitstream
     bcs.s   KosDec_Code_01
- 
+
     ; code 00 (Dictionary ref. short)
     _Kos_RunBitStream
     add.b   d0,	d0						; get a bit from the bitstream
@@ -2560,11 +2565,11 @@ KosDec_FetchNewCode:
     _Kos_RunBitStream
     moveq   #-1,	d5
     move.b  (a0)+,	d5					; d5 = displacement
- 
+
 KosDec_StreamCopy:
     lea 	(a1,d5),a3
     move.b  (a3)+,	(a1)+				; do 1 extra copy (to compensate for +1 to copy counter)
- 
+
 KosDec_copy:
     move.b  (a3)+,(a1)+
     dbf	d4,	KosDec_copy
@@ -2581,13 +2586,13 @@ KosDec_Code_01:
     move.b  d6,		d5					; d5 = %111HHHHH LLLLLLLL
     and.w   d7,		d4					; d4 = %00000CCC
     bne.s   KosDec_StreamCopy			; if CCC=0, branch
- 
+
     ; special mode (extended counter)
     move.b  (a0)+,	d4					; read cnt
     beq.s   KosDec_Quit					; if cnt=0, quit decompression
     subq.b  #1,		d4
     beq.w   KosDec_FetchNewCode			; if cnt=1, fetch a new code
- 
+
     lea 	(a1,d5),a3
     move.b  (a3)+,	(a1)+				; do 1 extra copy (to compensate for +1 to copy counter)
     move.w  d4,	d6
@@ -2596,21 +2601,21 @@ KosDec_Code_01:
     add.w   d6,	d6
     lsr.w   #3,	d4
     jmp 	KosDec_largecopy(pc,d6.w)
- 
+
 KosDec_largecopy:
     rept 8
     move.b  (a3)+,(a1)+
     endr
     dbf d4,KosDec_largecopy
     bra.w   KosDec_FetchNewCode
- 
+
 KosDec_Quit:
     rts
- 
+
 ; ---------------------------------------------------------------------------
 ; A look-up table to invert bits order in desc. field bytes
 ; ---------------------------------------------------------------------------
- 
+
 KosDec_ByteMap:
     dc.b    $00,$80,$40,$C0,$20,$A0,$60,$E0,$10,$90,$50,$D0,$30,$B0,$70,$F0
     dc.b    $08,$88,$48,$C8,$28,$A8,$68,$E8,$18,$98,$58,$D8,$38,$B8,$78,$F8
@@ -2628,7 +2633,7 @@ KosDec_ByteMap:
     dc.b    $0B,$8B,$4B,$CB,$2B,$AB,$6B,$EB,$1B,$9B,$5B,$DB,$3B,$BB,$7B,$FB
     dc.b    $07,$87,$47,$C7,$27,$A7,$67,$E7,$17,$97,$57,$D7,$37,$B7,$77,$F7
     dc.b    $0F,$8F,$4F,$CF,$2F,$AF,$6F,$EF,$1F,$9F,$5F,$DF,$3F,$BF,$7F,$FF
- 
+
 ; ===========================================================================
 
     if gameRevision<2
@@ -4156,7 +4161,7 @@ Sega_GotoTitle:
 ; sub_396E: ShowVDPGraphics3: PlaneMapToVRAM3:
 PlaneMapToVRAM_H80_Sega:
 	lea	(VDP_data_port).l,a6
-	move.l	#vdpCommDelta(planeLocH80(0,1)),d4	; $1000000
+	move.l	#vdpCommDelta(planeLoc(128,0,1)),d4	; $1000000
 -	move.l	d0,VDP_control_port-VDP_data_port(a6)
 	move.w	d1,d3
 -	move.w	(a1)+,(a6)
@@ -4217,7 +4222,7 @@ TitleScreen:
 	bsr.w	ClearScreen
 
 	; Reset a bunch of engine state.
-	clearRAM Sprite_Table_Input,Sprite_Table_Input_End ; fill $AC00-$AFFF with $0
+	clearRAM Object_Display_Lists,Object_Display_Lists_End ; fill $AC00-$AFFF with $0
 	clearRAM Object_RAM,Object_RAM_End ; fill object RAM ($B000-$D5FF) with $0
 	clearRAM Misc_Variables,Misc_Variables_End ; clear CPU player RAM and following variables
 	clearRAM Camera_RAM,Camera_RAM_End ; clear camera RAM and following variables
@@ -4302,7 +4307,7 @@ TitleScreen:
 
 	; ...and send it to VRAM.
 	lea	(Chunk_Table).l,a1
-	move.l	#vdpComm(VRAM_TtlScr_Plane_B_Name_Table+planeLocH40(40,0),VRAM,WRITE),d0
+	move.l	#vdpComm(VRAM_TtlScr_Plane_B_Name_Table+planeLoc(64,40,0),VRAM,WRITE),d0
 	moveq	#24-1,d1 ; Width
 	moveq	#28-1,d2 ; Height
 	jsrto	PlaneMapToVRAM_H40, PlaneMapToVRAM_H40
@@ -4314,7 +4319,7 @@ TitleScreen:
 	bsr.w	EniDec
 
 	; ...add the copyright text to it...
-	lea	(Chunk_Table+planeLocH40(44,16)).l,a1
+	lea	(Chunk_Table+planeLoc(40,28,26)).l,a1
 	lea	(CopyrightText).l,a2
 	moveq	#bytesToWcnt(CopyrightText_End-CopyrightText),d6
 -	move.w	(a2)+,(a1)+
@@ -4605,7 +4610,7 @@ TailsNameCheat_Buttons:
 ; Player 1 2 VS Text
 ; ---------------------------------------------------------------------------------
 ; ArtNem_3DF4:
-ArtNem_Player1VS2:	BINCLUDE	"art/nemesis/1Player2VS.bin"
+ArtNem_Player1VS2:	BINCLUDE	"art/nemesis/1Player2VS.nem"
 	even
 
 	charset '0','9',0 ; Add character set for numbers
@@ -4744,7 +4749,7 @@ Level:
 	bsr.w	LoadPLC
 ; loc_3F48:
 Level_ClrRam:
-	clearRAM Sprite_Table_Input,Sprite_Table_Input_End
+	clearRAM Object_Display_Lists,Object_Display_Lists_End
 	clearRAM Object_RAM,LevelOnly_Object_RAM_End ; clear object RAM and level-only object RAM
 	clearRAM MiscLevelVariables,MiscLevelVariables_End
 	clearRAM Misc_Variables,Misc_Variables_End
@@ -5172,7 +5177,9 @@ UpdateWaterSurface:
 	; the water surface sprite to the right every frame. To fix this,
 	; just avoid pushing the sprite to the right when the game is about
 	; to be paused.
-	btst	#button_start,(Ctrl_1_Press).w
+	move.b	(Ctrl_1_Press).w,d0 ; is Start button pressed?
+	or.b	(Ctrl_2_Press).w,d0 ; (either player)
+	andi.b	#button_start_mask,d0
 	bne.s	+
     endif
 	btst	#0,(Timer_frames+1).w
@@ -5220,12 +5227,12 @@ MoveWater:
 	bhs.s	+
 	tst.w	d0
 	bpl.s	+
-	move.b	#$DF,(Hint_counter_reserve+1).w	; H-INT every 224th scanline
+	move.b	#224-1,(Hint_counter_reserve+1).w	; H-INT every 224th scanline
 	move.b	#1,(Water_fullscreen_flag).w
 +
-	cmpi.w	#$DF,d0
+	cmpi.w	#224-1,d0
 	blo.s	+
-	move.w	#$DF,d0
+	move.w	#224-1,d0
 +
 	move.b	d0,(Hint_counter_reserve+1).w	; H-INT every d0 scanlines
 ; loc_456A:
@@ -6526,8 +6533,8 @@ SpecialStage:
 	move.w	#$8C08,(a6)		; H res 32 cells, no interlace, S/H enabled
 	move.w	#$9003,(a6)		; Scroll table size: 128x32
 	move.w	#$8700,(a6)		; Background palette/color: 0/0
-	move.w	#$8D00|(VRAM_SS_Horiz_Scroll_Table/$400),(a6)		; H scroll table base: $FC00
-	move.w	#$8500|(VRAM_SS_Sprite_Attribute_Table/$200),(a6)	; Sprite attribute table base: $F800
+	move.w	#$8D00|(VRAM_Horiz_Scroll_Table/$400),(a6)		; H scroll table base: $FC00
+	move.w	#$8500|(VRAM_Sprite_Attribute_Table/$200),(a6)	; Sprite attribute table base: $F800
 	move.w	(VDP_Reg1_val).w,d0
 	andi.b	#$BF,d0
 	move.w	d0,(VDP_control_port).l
@@ -6540,7 +6547,7 @@ SpecialStage:
 	dmaFillVRAM 0,VRAM_SS_Plane_A_Name_Table2,VRAM_SS_Plane_Table_Size ; clear Plane A pattern name table 1
 	dmaFillVRAM 0,VRAM_SS_Plane_A_Name_Table1,VRAM_SS_Plane_Table_Size ; clear Plane A pattern name table 2
 	dmaFillVRAM 0,VRAM_SS_Plane_B_Name_Table,VRAM_SS_Plane_Table_Size ; clear Plane B pattern name table
-	dmaFillVRAM 0,VRAM_SS_Horiz_Scroll_Table,VRAM_SS_Horiz_Scroll_Table_Size  ; clear Horizontal scroll table
+	dmaFillVRAM 0,VRAM_Horiz_Scroll_Table,VRAM_Horiz_Scroll_Table_Size  ; clear Horizontal scroll table
 
 	clr.l	(Vscroll_Factor).w
 	clr.b	(SpecialStage_Started).w
@@ -6559,7 +6566,7 @@ SpecialStage:
 	clearRAM SS_Horiz_Scroll_Buf_1,SS_Horiz_Scroll_Buf_1+HorizontalScrollBuffer.len+4
 	clearRAM SS_Shared_RAM,SS_Shared_RAM_End+4
     endif
-	clearRAM Sprite_Table_Input,Sprite_Table_Input_End
+	clearRAM Object_Display_Lists,Object_Display_Lists_End
 	clearRAM Object_RAM,Object_RAM_End
 
     if fixBugs
@@ -6752,7 +6759,7 @@ SpecialStage:
 	move.w	#MusID_EndLevel,d0
 	jsr	(PlaySound).l
 
-	clearRAM Sprite_Table_Input,Sprite_Table_Input_End
+	clearRAM Object_Display_Lists,Object_Display_Lists_End
 	clearRAM Object_RAM,Object_RAM_End
 
 	move.b	#ObjID_SSResults,(SpecialStageResults+id).w ; load Obj6F (special stage results) at $FFFFB800
@@ -9122,34 +9129,27 @@ ssLdComprsdData:
 ;sub_6D52
 SSPlaneB_Background:
 	move	#$2700,sr
-	movea.l	#Chunk_Table,a1
+
+	movea.l	#Chunk_Table+planeLoc(32,0,0),a1
 	lea	(MapEng_SpecialBackBottom).l,a0
 	move.w	#make_art_tile(ArtTile_ArtNem_SpecialBack,0,0),d0
 	bsr.w	EniDec
-	movea.l	#Chunk_Table+$400,a1
+
+	movea.l	#Chunk_Table+planeLoc(32,0,16),a1
 	lea	(MapEng_SpecialBack).l,a0
 	move.w	#make_art_tile(ArtTile_ArtNem_SpecialBack,0,0),d0
 	bsr.w	EniDec
+
+.c := 0
+    rept 128/32
 	lea	(Chunk_Table).l,a1
-	move.l	#vdpComm(VRAM_SS_Plane_B_Name_Table + $0000,VRAM,WRITE),d0
-	moveq	#$1F,d1
-	moveq	#$1F,d2
+	move.l	#vdpComm(VRAM_SS_Plane_B_Name_Table + planeLoc(128,32*.c,0),VRAM,WRITE),d0
+	moveq	#32-1,d1
+	moveq	#32-1,d2
 	jsrto	PlaneMapToVRAM_H80_SpecialStage, PlaneMapToVRAM_H80_SpecialStage
-	lea	(Chunk_Table).l,a1
-	move.l	#vdpComm(VRAM_SS_Plane_B_Name_Table + $0040,VRAM,WRITE),d0
-	moveq	#$1F,d1
-	moveq	#$1F,d2
-	jsrto	PlaneMapToVRAM_H80_SpecialStage, PlaneMapToVRAM_H80_SpecialStage
-	lea	(Chunk_Table).l,a1
-	move.l	#vdpComm(VRAM_SS_Plane_B_Name_Table + $0080,VRAM,WRITE),d0
-	moveq	#$1F,d1
-	moveq	#$1F,d2
-	jsrto	PlaneMapToVRAM_H80_SpecialStage, PlaneMapToVRAM_H80_SpecialStage
-	lea	(Chunk_Table).l,a1
-	move.l	#vdpComm(VRAM_SS_Plane_B_Name_Table + $00C0,VRAM,WRITE),d0
-	moveq	#$1F,d1
-	moveq	#$1F,d2
-	jsrto	PlaneMapToVRAM_H80_SpecialStage, PlaneMapToVRAM_H80_SpecialStage
+.c := .c+1
+    endm
+
 	move	#$2300,sr
 	rts
 ; End of function SSPlaneB_Background
@@ -9472,7 +9472,7 @@ Obj5E:
     if fixBugs
 	; See below.
 	beq.s	+
-	move.w	#$80*0,d0
+	move.w	#object_display_list_size*0,d0
 	jmp	(DisplaySprite3).l
 +
     else
@@ -9579,7 +9579,7 @@ SSHUD_SonicTails:
 ; -----------------------------------------------------------------------------------
 ; sprite mappings
 ; -----------------------------------------------------------------------------------
-Obj5E_MapUnc_7070:	BINCLUDE "mappings/sprite/obj5E.bin"
+Obj5E_MapUnc_7070:	include "mappings/sprite/obj5E.asm"
 ; ===========================================================================
 ; ----------------------------------------------------------------------------
 ; Object 5F - Start banner/"Ending controller" from Special Stage
@@ -9661,8 +9661,7 @@ loc_71B4:
     endif
 	moveq	#6,d6
 
-; WARNING: the build script needs editing if you rename this label
-word_728C_user: lea	(Obj5F_MapUnc_7240+$4C).l,a2 ; word_728C
+	lea	(Obj5F_MapUnc_7240.frame2).l,a2
 
 	moveq	#2,d3
 	move.w	#8,objoff_14(a0)
@@ -9726,13 +9725,11 @@ return_723E:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-; WARNING: the build script needs editing if you rename this label
-;	   or if you change the meaning of frame 2 in these mappings
-Obj5F_MapUnc_7240:	BINCLUDE "mappings/sprite/obj5F_a.bin"
+Obj5F_MapUnc_7240:	include "mappings/sprite/obj5F_a.asm"
 ; -----------------------------------------------------------------------------------
 ; sprite mappings
 ; -----------------------------------------------------------------------------------
-Obj5F_MapUnc_72D2:	BINCLUDE "mappings/sprite/obj5F_b.bin"
+Obj5F_MapUnc_72D2:	include "mappings/sprite/obj5F_b.asm"
 ; ===========================================================================
 ; ----------------------------------------------------------------------------
 ; Object 87 - Number of rings in Special Stage
@@ -9896,7 +9893,7 @@ loc_7536:
 	; must use 'DisplaySprite3' instead of 'DisplaySprite'.
 	; This object's 'priority' is overwritten by 'sub3_y_pos', causing it
 	; to display on the wrong layer.
-	move.w	#$80*0,d0
+	move.w	#object_display_list_size*0,d0
 	jmp	(DisplaySprite3).l
     else
 	jmpto	DisplaySprite, JmpTo_DisplaySprite
@@ -9953,7 +9950,7 @@ loc_753E:
 	; must use 'DisplaySprite3' instead of 'DisplaySprite'.
 	; This object's 'priority' is overwritten by 'sub3_y_pos', causing it
 	; to display on the wrong layer.
-	move.w	#$80*0,d0
+	move.w	#object_display_list_size*0,d0
 	jmp	(DisplaySprite3).l
     else
 	jmpto	DisplaySprite, JmpTo_DisplaySprite
@@ -9967,7 +9964,7 @@ loc_753E:
 	; must use 'DisplaySprite3' instead of 'DisplaySprite'.
 	; This object's 'priority' is overwritten by 'sub3_y_pos', causing it
 	; to display on the wrong layer.
-	move.w	#$80*0,d0
+	move.w	#object_display_list_size*0,d0
 	jmp	(DisplaySprite3).l
     else
 	jmpto	DisplaySprite, JmpTo_DisplaySprite
@@ -9983,7 +9980,7 @@ loc_753E:
 	; must use 'DisplaySprite3' instead of 'DisplaySprite'.
 	; This object's 'priority' is overwritten by 'sub3_y_pos', causing it
 	; to display on the wrong layer.
-	move.w	#$80*0,d0
+	move.w	#object_display_list_size*0,d0
 	jmp	(DisplaySprite3).l
     else
 	jmpto	DisplaySprite, JmpTo_DisplaySprite
@@ -10037,7 +10034,7 @@ loc_75DE:
 	; must use 'DisplaySprite3' instead of 'DisplaySprite'.
 	; This object's 'priority' is overwritten by 'sub3_y_pos', causing it
 	; to display on the wrong layer.
-	move.w	#$80*0,d0
+	move.w	#object_display_list_size*0,d0
 	jmp	(DisplaySprite3).l
     else
 	jmpto	DisplaySprite, JmpTo_DisplaySprite
@@ -10492,9 +10489,9 @@ ObjDA_Init:
 	move.w	#make_art_tile(ArtTile_ArtNem_ContinueText,0,1),art_tile(a0)
 	jsrto	Adjust2PArtPointer, JmpTo_Adjust2PArtPointer
 	move.b	#0,render_flags(a0)
-	move.b	#$3C,width_pixels(a0)
-	move.w	#$120,x_pixel(a0)
-	move.w	#$C0,y_pixel(a0)
+	move.b	#60,width_pixels(a0)
+	move.w	#$80+320/2,x_pixel(a0)
+	move.w	#$80+64,y_pixel(a0)
 
 JmpTo2_DisplaySprite ; JmpTo
 	jmp	(DisplaySprite).l
@@ -10681,7 +10678,7 @@ Ani_objDB:	offsetTable
 ; Sprite mappings for text, countdown, stars, and Tails on the continue screen
 ; Art starts at $A000 in VRAM
 ; -------------------------------------------------------------------------------
-ObjDA_MapUnc_7CB6:	BINCLUDE	"mappings/sprite/objDA.bin"
+ObjDA_MapUnc_7CB6:	include	"mappings/sprite/objDA.asm"
 
     if ~~removeJmpTos
 JmpTo_Adjust2PArtPointer2 ; JmpTo
@@ -10713,7 +10710,7 @@ TwoPlayerResults:
 	move.w	#$8C81,(a6)		; H res 40 cells, no interlace, S/H disabled
 	move.w	#$9001,(a6)		; Scroll table size: 64x32
 
-	clearRAM Sprite_Table_Input,Sprite_Table_Input_End
+	clearRAM Object_Display_Lists,Object_Display_Lists_End
 	clearRAM Object_RAM,Object_RAM_End
 
 	move.l	#vdpComm(tiles_to_bytes(ArtTile_ArtNem_FontStuff),VRAM,WRITE),(VDP_control_port).l
@@ -10728,8 +10725,8 @@ TwoPlayerResults:
 	bsr.w	EniDec
 	lea	(Chunk_Table).l,a1
 	move.l	#vdpComm(VRAM_Plane_B_Name_Table,VRAM,WRITE),d0
-	moveq	#$27,d1
-	moveq	#$1B,d2
+	moveq	#40-1,d1
+	moveq	#28-1,d2
 	jsrto	PlaneMapToVRAM_H40, PlaneMapToVRAM_H40
 	move.w	(Results_Screen_2P).w,d0
 	add.w	d0,d0
@@ -10744,8 +10741,8 @@ TwoPlayerResults:
 	jsr	(a2)	; dynamic call! to Setup2PResults_Act, Setup2PResults_Zone, Setup2PResults_Game, Setup2PResults_SpecialAct, or Setup2PResults_SpecialZone, assuming the pointers in TwoPlayerResultsPointers have not been changed
 	lea	(Chunk_Table).l,a1
 	move.l	#vdpComm(tiles_to_bytes(ArtTile_TwoPlayerResults),VRAM,WRITE),d0
-	moveq	#$27,d1
-	moveq	#$1B,d2
+	moveq	#40-1,d1
+	moveq	#28-1,d2
 	jsrto	PlaneMapToVRAM_H40, PlaneMapToVRAM_H40
 	clr.w	(VDP_Command_Buffer).w
 	move.l	#VDP_Command_Buffer,(VDP_Command_Buffer_Slot).w
@@ -11038,7 +11035,7 @@ JmpTo4_DisplaySprite ; JmpTo
 ; --------------------------------------------------------------------------
 ; sprite mappings
 ; --------------------------------------------------------------------------
-Obj21_MapUnc_8146:	BINCLUDE "mappings/sprite/obj21.bin"
+Obj21_MapUnc_8146:	include "mappings/sprite/obj21.asm"
 ; ===========================================================================
 
 ; loc_819A:
@@ -11081,7 +11078,7 @@ Setup2PResults_Act:
 	bsr.w	sub_86B0
 	move.w	#$3FA,d2
 	moveq	#0,d1
-	move.b	(Timer_centisecond_2P).w,d1
+	move.b	(Timer_frame_2P).w,d1
 	mulu.w	#$1B0,d1
 	lsr.l	#8,d1
 	bsr.w	sub_86B0
@@ -11681,23 +11678,23 @@ VsResultsScreen_SSZone:	dc.l Map_2PSpecialStageZoneResults, Setup2PResults_Speci
 
 ; 2P single act results screen (enigma compressed)
 ; byte_8804:
-Map_2PActResults:	BINCLUDE "mappings/misc/2P Act Results.bin"
+Map_2PActResults:	BINCLUDE "mappings/misc/2P Act Results.eni"
 
 ; 2P zone results screen (enigma compressed)
 ; byte_88CE:
-Map_2PZoneResults:	BINCLUDE "mappings/misc/2P Zone Results.bin"
+Map_2PZoneResults:	BINCLUDE "mappings/misc/2P Zone Results.eni"
 
 ; 2P game results screen (after all 4 zones) (enigma compressed)
 ; byte_8960:
-Map_2PGameResults:	BINCLUDE "mappings/misc/2P Game Results.bin"
+Map_2PGameResults:	BINCLUDE "mappings/misc/2P Game Results.eni"
 
 ; 2P special stage act results screen (enigma compressed)
 ; byte_8AA4:
-Map_2PSpecialStageActResults:	BINCLUDE "mappings/misc/2P Special Stage Act Results.bin"
+Map_2PSpecialStageActResults:	BINCLUDE "mappings/misc/2P Special Stage Act Results.eni"
 
 ; 2P special stage zone results screen (enigma compressed)
 ; byte_8B30:
-Map_2PSpecialStageZoneResults:	BINCLUDE "mappings/misc/2P Special Stage Zone Results.bin"
+Map_2PSpecialStageZoneResults:	BINCLUDE "mappings/misc/2P Special Stage Zone Results.eni"
 
 	even
 
@@ -11731,7 +11728,7 @@ MenuScreen:
 	move.w	#$8C81,(a6)		; H res 40 cells, no interlace, S/H disabled
 	move.w	#$9001,(a6)		; Scroll table size: 64x32
 
-	clearRAM Sprite_Table_Input,Sprite_Table_Input_End
+	clearRAM Object_Display_Lists,Object_Display_Lists_End
 	clearRAM Object_RAM,Object_RAM_End
 
 	; load background + graphics of font/LevSelPics
@@ -11752,8 +11749,8 @@ MenuScreen:
 	bsr.w	EniDec
 	lea	(Chunk_Table).l,a1
 	move.l	#vdpComm(VRAM_Plane_B_Name_Table,VRAM,WRITE),d0
-	moveq	#$27,d1
-	moveq	#$1B,d2
+	moveq	#40-1,d1
+	moveq	#28-1,d2
 	jsrto	PlaneMapToVRAM_H40, JmpTo_PlaneMapToVRAM_H40	; fullscreen background
 
 	cmpi.b	#GameModeID_OptionsMenu,(Game_Mode).w	; options menu?
@@ -11777,7 +11774,7 @@ MenuScreen:
 	bsr.w	EniDec
 	lea	(Chunk_Table+$498).l,a2
 
-	moveq	#bytesToWcnt($20),d1
+	moveq	#bytesToWcnt(tiles_to_bytes(1)),d1
 -	move.w	#make_art_tile(ArtTile_ArtNem_MenuBox+11,1,0),(a2)+
 	dbf	d1,-
 
@@ -11806,7 +11803,7 @@ MenuScreen:
 	lea	(Normal_palette_line3).w,a1
 	lea	(Target_palette_line3).w,a2
 
-	moveq	#bytesToLcnt($20),d1
+	moveq	#bytesToLcnt(tiles_to_bytes(1)),d1
 -	move.l	(a1),(a2)+
 	clr.l	(a1)+
 	dbf	d1,-
@@ -11937,8 +11934,8 @@ Update2PLevSelSelection:
 
 	lea	(Chunk_Table).l,a1
 	move.l	(a3)+,d0
-	moveq	#$10,d1
-	moveq	#$B,d2
+	moveq	#17-1,d1
+	moveq	#12-1,d2
 	jsrto	PlaneMapToVRAM_H40, JmpTo_PlaneMapToVRAM_H40
 	lea	(Pal_LevelIcons).l,a1
 	moveq	#0,d0
@@ -12010,8 +12007,8 @@ ClearOld2PLevSelSelection:
 
 	lea	(Chunk_Table+$198).l,a1
 	move.l	(a3)+,d0
-	moveq	#$10,d1
-	moveq	#$B,d2
+	moveq	#17-1,d1
+	moveq	#12-1,d2
 	jmpto	PlaneMapToVRAM_H40, JmpTo_PlaneMapToVRAM_H40
 ; End of function ClearOld2PLevSelSelection
 
@@ -12026,10 +12023,10 @@ iconData macro txtlabel,txtlabel2,vramAddr,iconPal,iconAddr
 	dc.l iconPal<<24|((iconAddr)&$FFFFFF)	; icon palette and plane data location
     endm
 
-	iconData	Text2P_EmeraldHill,Text2P_Zone, VRAM_Plane_A_Name_Table+planeLocH40(2,2),   0,Chunk_Table+$330
-	iconData	Text2P_MysticCave, Text2P_Zone, VRAM_Plane_A_Name_Table+planeLocH40(22,2),  5,Chunk_Table+$3A8
-	iconData	Text2P_CasinoNight,Text2P_Zone, VRAM_Plane_A_Name_Table+planeLocH40(2,15),  6,Chunk_Table+$3C0
-	iconData	Text2P_Special,    Text2P_Stage,VRAM_Plane_A_Name_Table+planeLocH40(22,15),$C,Chunk_Table+$450
+	iconData	Text2P_EmeraldHill,Text2P_Zone, VRAM_Plane_A_Name_Table+planeLoc(64,2,2),   0,Chunk_Table+$330
+	iconData	Text2P_MysticCave, Text2P_Zone, VRAM_Plane_A_Name_Table+planeLoc(64,22,2),  5,Chunk_Table+$3A8
+	iconData	Text2P_CasinoNight,Text2P_Zone, VRAM_Plane_A_Name_Table+planeLoc(64,2,15),  6,Chunk_Table+$3C0
+	iconData	Text2P_Special,    Text2P_Stage,VRAM_Plane_A_Name_Table+planeLoc(64,22,15),12,Chunk_Table+$450
 
 ; ---------------------------------------------------------------------------
 ; Common menu screen subroutine for transferring text to RAM
@@ -12147,6 +12144,7 @@ OptionScreen_Select_Not1P:
 	; for the player to play two player mode with all emeralds collected,
 	; allowing them to use Super Sonic. This code is borrowed from
 	; similar logic in the title screen, which doesn't make this mistake.
+	moveq	#0,d0
 	move.w	d0,(Got_Emerald).w
 	move.l	d0,(Got_Emeralds_array).w
 	move.w	d0,(Got_Emeralds_array+4).w
@@ -12206,12 +12204,27 @@ OptionScreen_Controls:
 	moveq	#0,d2
 
 +
+    if fixBugs
+	; Based on code from the Level Select.
+	cmpi.b	#2,(Options_menu_box).w
+	bne.s	+
+	btst	#button_A,d0
+	beq.s	+
+	addi.b	#$10,d2
+	andi.b	#$7F,d2
+    else
+	; This code appears to have been carelessly created from a copy of the
+	; above block of code. It makes no sense to advance by $10 on options
+	; that have only 2 or 3 values. Likewise, the logic for setting the
+	; value to 0 when exceeding the maximum bound only makes sense for
+	; incrementing by 1, not $10.
 	btst	#button_A,d0
 	beq.s	+
 	addi.b	#$10,d2
 	cmp.b	d3,d2
 	bls.s	+
 	moveq	#0,d2
+    endif
 
 +
 	move.w	d2,(a1)
@@ -12274,8 +12287,8 @@ OptionScreen_DrawSelected:
 +
 	lea	(Chunk_Table).l,a1
 	move.l	(a3)+,d0
-	moveq	#$15,d1
-	moveq	#7,d2
+	moveq	#22-1,d1
+	moveq	#8-1,d2
 	jmpto	PlaneMapToVRAM_H40, JmpTo_PlaneMapToVRAM_H40
 ; ===========================================================================
 
@@ -12313,8 +12326,8 @@ OptionScreen_DrawUnselected:
 +
 	lea	(Chunk_Table+$160).l,a1
 	move.l	(a3)+,d0
-	moveq	#$15,d1
-	moveq	#7,d2
+	moveq	#22-1,d1
+	moveq	#8-1,d2
 	jmpto	PlaneMapToVRAM_H40, JmpTo_PlaneMapToVRAM_H40
 ; ===========================================================================
 
@@ -12367,9 +12380,9 @@ boxData macro txtlabel,vramAddr
 	dc.l txtlabel, vdpComm(vramAddr,VRAM,WRITE)
     endm
 
-	boxData	TextOptScr_PlayerSelect,VRAM_Plane_A_Name_Table+planeLocH40(9,3)
-	boxData	TextOptScr_VsModeItems,VRAM_Plane_A_Name_Table+planeLocH40(9,11)
-	boxData	TextOptScr_SoundTest,VRAM_Plane_A_Name_Table+planeLocH40(9,19)
+	boxData	TextOptScr_PlayerSelect,VRAM_Plane_A_Name_Table+planeLoc(64,9,3)
+	boxData	TextOptScr_VsModeItems,VRAM_Plane_A_Name_Table+planeLoc(64,9,11)
+	boxData	TextOptScr_SoundTest,VRAM_Plane_A_Name_Table+planeLoc(64,9,19)
 
 off_92D2:
 	dc.l TextOptScr_SonicAndMiles
@@ -12395,8 +12408,8 @@ MenuScreen_LevelSelect:
 
 	lea	(Chunk_Table).l,a1
 	move.l	#vdpComm(VRAM_Plane_A_Name_Table,VRAM,WRITE),d0
-	moveq	#$27,d1
-	moveq	#$1B,d2	; 40x28 = whole screen
+	moveq	#40-1,d1
+	moveq	#28-1,d2	; 40x28 = whole screen
 	jsrto	PlaneMapToVRAM_H40, JmpTo_PlaneMapToVRAM_H40	; display patterns
 
 	; Draw sound test number
@@ -12404,7 +12417,7 @@ MenuScreen_LevelSelect:
 	bsr.w	LevelSelect_DrawSoundNumber
 
 	; Load zone icon
-	lea	(Chunk_Table+$8C0).l,a1
+	lea	(Chunk_Table+planeLoc(40,0,28)).l,a1
 	lea	(MapEng_LevSelIcon).l,a0
 	move.w	#make_art_tile(ArtTile_ArtNem_LevelSelectPics,0,0),d0
 	bsr.w	EniDec
@@ -12751,7 +12764,7 @@ LevelSelect_MarkFields:
 ; ===========================================================================
 ;loc_965A:
 LevelSelect_DrawSoundNumber:
-	move.l	#vdpComm(VRAM_Plane_A_Name_Table+planeLocH40(34,18),VRAM,WRITE),(VDP_control_port).l
+	move.l	#vdpComm(VRAM_Plane_A_Name_Table+planeLoc(64,34,18),VRAM,WRITE),(VDP_control_port).l
 	move.w	(Sound_test_sound).w,d0
 	move.b	d0,d2
 	lsr.b	#4,d0
@@ -12776,7 +12789,7 @@ LevelSelect_DrawIcon:
 	move.w	(Level_select_zone).w,d0
 	lea	(LevSel_IconTable).l,a3
 	lea	(a3,d0.w),a3
-	lea	(Chunk_Table+$8C0).l,a1
+	lea	(Chunk_Table+planeLoc(40,0,28)).l,a1
 	moveq	#0,d0
 	move.b	(a3),d0
 	lsl.w	#3,d0
@@ -12784,9 +12797,9 @@ LevelSelect_DrawIcon:
 	add.w	d0,d0
 	add.w	d1,d0
 	lea	(a1,d0.w),a1
-	move.l	#vdpComm(VRAM_Plane_A_Name_Table+planeLocH40(27,22),VRAM,WRITE),d0
-	moveq	#3,d1
-	moveq	#2,d2
+	move.l	#vdpComm(VRAM_Plane_A_Name_Table+planeLoc(64,27,22),VRAM,WRITE),d0
+	moveq	#4-1,d1
+	moveq	#3-1,d2
 	jsrto	PlaneMapToVRAM_H40, JmpTo_PlaneMapToVRAM_H40
 	lea	(Pal_LevelIcons).l,a1
 	moveq	#0,d0
@@ -12961,22 +12974,22 @@ Pal_LevelIcons:	BINCLUDE "art/palettes/Level Select Icons.bin"
 ; 2-player level select screen mappings (Enigma compressed)
 ; byte_9A60:
 	even
-MapEng_LevSel2P:	BINCLUDE "mappings/misc/Level Select 2P.bin"
+MapEng_LevSel2P:	BINCLUDE "mappings/misc/Level Select 2P.eni"
 
 ; options screen mappings (Enigma compressed)
 ; byte_9AB2:
 	even
-MapEng_Options:	BINCLUDE "mappings/misc/Options Screen.bin"
+MapEng_Options:	BINCLUDE "mappings/misc/Options Screen.eni"
 
 ; level select screen mappings (Enigma compressed)
 ; byte_9ADE:
 	even
-MapEng_LevSel:	BINCLUDE "mappings/misc/Level Select.bin"
+MapEng_LevSel:	BINCLUDE "mappings/misc/Level Select.eni"
 
 ; 1P and 2P level select icon mappings (Enigma compressed)
 ; byte_9C32:
 	even
-MapEng_LevSelIcon:	BINCLUDE "mappings/misc/Level Select Icons.bin"
+MapEng_LevSelIcon:	BINCLUDE "mappings/misc/Level Select Icons.eni"
 	even
 
     if ~~removeJmpTos
@@ -13158,7 +13171,7 @@ EndgameCredits:
 	move.w	#$8C81,(a6)		; H res 40 cells, no interlace, S/H disabled
 	jsrto	ClearScreen, JmpTo_ClearScreen
 
-	clearRAM Sprite_Table_Input,Sprite_Table_Input_End
+	clearRAM Object_Display_Lists,Object_Display_Lists_End
 	clearRAM Object_RAM,Object_RAM_End
 	clearRAM Misc_Variables,Misc_Variables_End
 	clearRAM Camera_RAM,Camera_RAM_End
@@ -13237,9 +13250,9 @@ EndgameCredits:
 	move.w	#0,d0
 	jsrto	EniDec, JmpTo_EniDec
 	lea	(Chunk_Table).l,a1
-	move.l	#vdpComm(VRAM_Plane_A_Name_Table+planeLocH40(12,11),VRAM,WRITE),d0
-	moveq	#$F,d1
-	moveq	#5,d2
+	move.l	#vdpComm(VRAM_Plane_A_Name_Table+planeLoc(64,12,11),VRAM,WRITE),d0
+	moveq	#16-1,d1
+	moveq	#6-1,d2
 	jsrto	PlaneMapToVRAM_H40, JmpTo2_PlaneMapToVRAM_H40
 	clr.w	(CreditsScreenIndex).w
 	bsr.w	EndgameLogoFlash
@@ -13403,9 +13416,9 @@ loc_A256:
 	jsrto	EniDec, JmpTo_EniDec
 	move	#$2700,sr
 	lea	(Chunk_Table).l,a1
-	move.l	#vdpComm(VRAM_Plane_A_Name_Table + planeLocH40(14,8),VRAM,WRITE),d0
-	moveq	#$B,d1
-	moveq	#8,d2
+	move.l	#vdpComm(VRAM_Plane_A_Name_Table + planeLoc(64,14,8),VRAM,WRITE),d0
+	moveq	#12-1,d1
+	moveq	#9-1,d2
 	jsrto	PlaneMapToVRAM_H40, JmpTo2_PlaneMapToVRAM_H40
 	move	#$2300,sr
 	movea.l	(sp)+,a0 ; load 0bj address
@@ -14363,12 +14376,12 @@ byte_AD9E:	dc.b   1,  5,  6,$FF
 ; -----------------------------------------------------------------------------
 ; sprite mappings
 ; -----------------------------------------------------------------------------
-ObjCF_MapUnc_ADA2:	BINCLUDE "mappings/sprite/objCF.bin"
+ObjCF_MapUnc_ADA2:	include "mappings/sprite/objCF.asm"
 ; --------------------------------------------------------------------------------------
 ; Enigma compressed art mappings
 ; "Sonic the Hedgehog 2" mappings		; MapEng_B23A:
 	even
-MapEng_EndGameLogo:	BINCLUDE	"mappings/misc/Sonic 2 end of game logo.bin"
+MapEng_EndGameLogo:	BINCLUDE	"mappings/misc/Sonic 2 end of game logo.eni"
 	even
 
 ; ||||||||||||||| S U B R O U T I N E |||||||||||||||||||||||||||||||||||||||
@@ -14638,7 +14651,7 @@ byte_BD1A:	creditText   0,"SONIC"
 ; Standard font used in credits
 ; -------------------------------------------------------------------------------
 ; ArtNem_BD26:
-ArtNem_CreditText:	BINCLUDE	"art/nemesis/Credit Text.bin"
+ArtNem_CreditText:	BINCLUDE	"art/nemesis/Credit Text.nem"
 	even
 ; ===========================================================================
 
@@ -14663,7 +14676,6 @@ JmpTo2_PlayMusic ; JmpTo
 	jmp	(PlayMusic).l
 JmpTo_LoadChildObject ; JmpTo
 	jmp	(LoadChildObject).l
-; JmpTo2_PlaneMapToVRAM_H40
 JmpTo2_PlaneMapToVRAM_H40 ; JmpTo
 	jmp	(PlaneMapToVRAM_H40).l
 JmpTo2_ObjectMove ; JmpTo
@@ -18167,12 +18179,12 @@ ScrollVerti:
 	bne.s	.scrollUpOrDown_maxYPosChanging	; if it is, branch
 ; loc_D7C0:
 .doNotScroll:
-	clr.w	(a4)		; clear Y position difference (Camera_Y_pos_bias)
+	clr.w	(a4)		; clear Y position difference (Camera_Y_pos_diff)
 	rts
 ; ===========================================================================
 ; loc_D7C4:
 .decideScrollType:
-	cmpi.w	#(224/2)-16,d3		; is the camera bias normal?
+	cmpi.w	#(224/2)-16,d3	; is the camera bias normal?
 	bne.s	.doScroll_slow	; if not, branch
 	mvabs.w	inertia(a0),d1	; get player ground velocity, force it to be positive
 	cmpi.w	#$800,d1	; is the player travelling very fast?
@@ -19110,12 +19122,13 @@ Draw_BG3_CPZ:
 	move.w	(Camera_BG_Y_pos).w,d0
     if fixBugs
 	andi.w	#$3F0,d0	; After right-shifting, the is a mask of $3F. Since CPZ_CameraSections is $40 items long, this is correct.
-    endif
+    else
 	; After right-shifting, the is a mask of $7F. Since CPZ_CameraSections
 	; is $40 items long, this is incorrect, and will cause accesses to
 	; exceed the bounds of CPZ_CameraSections and read invalid data. This
 	; is most notably a problem in Marble Zone's version of this code.
 	andi.w	#$7F0,d0
+    endif
 	lsr.w	#4,d0
 	lea	(a0,d0.w),a0
 	bra.w	DrawBlockColumn_Advanced
@@ -21914,7 +21927,7 @@ Obj11:
 	jmp	Obj11_Index(pc,d1.w)
 ; ===========================================================================
 +	; child sprite objects only need to be drawn
-	move.w	#$180,d0
+	move.w	#object_display_list_size*3,d0
 	bra.w	DisplaySprite3
 ; ===========================================================================
 ; off_F68C:
@@ -22397,12 +22410,12 @@ byte_FB28:
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj11_MapUnc_FC28:	BINCLUDE "mappings/sprite/obj11_a.bin"
+Obj11_MapUnc_FC28:	include "mappings/sprite/obj11_a.asm"
 
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj11_MapUnc_FC70:	BINCLUDE "mappings/sprite/obj11_b.bin"
+Obj11_MapUnc_FC70:	include "mappings/sprite/obj11_b.asm"
 
 ; ||||||||||||||| S U B R O U T I N E |||||||||||||||||||||||||||||||||||||||
 
@@ -22436,7 +22449,7 @@ Obj15:
 	jmp	Obj15_Index(pc,d1.w)
 ; ---------------------------------------------------------------------------
 +
-	move.w	#$200,d0
+	move.w	#object_display_list_size*4,d0
 	bra.w	DisplaySprite3
 ; ===========================================================================
 ; off_FCBC: Obj15_States:
@@ -22692,7 +22705,7 @@ loc_FF6E:
 	move.w	#0,objoff_3E(a0)
 	move.w	#$8000,angle(a0)
 	move.b	#0,objoff_3D(a0)
-	move.w	#$3C,objoff_36(a0)
+	move.w	#60,objoff_36(a0)
 	bra.s	loc_10006
 ; ===========================================================================
 +
@@ -22706,7 +22719,7 @@ loc_FF6E:
 	move.w	#$4000,angle(a0)
 	move.b	#1,objoff_3D(a0)
 ; loc_10000:
-	move.w	#$3C,objoff_36(a0)
+	move.w	#60,objoff_36(a0)
 
 loc_10006:
 	move.b	angle(a0),d0
@@ -22899,51 +22912,66 @@ Obj15_State7:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj15_MapUnc_101E8:	BINCLUDE "mappings/sprite/obj15_a.bin"
+Obj15_MapUnc_101E8:	include "mappings/sprite/obj15_a.asm"
 
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj15_Obj83_MapUnc_1021E:	BINCLUDE "mappings/sprite/obj83.bin"
+Obj15_Obj83_MapUnc_1021E:	include "mappings/sprite/obj83.asm"
 
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj15_Obj7A_MapUnc_10256:	offsetTable
-		offsetTableEntry.w word_1025E
-		offsetTableEntry.w word_10270
-		offsetTableEntry.w word_1027A
-		offsetTableEntry.w word_1028C
-word_1025E:	dc.w 2
-		dc.w $F809, $6060, $6030, $FFE8
-		dc.w $F809, $6860, $6830, 0
-word_10270:	dc.w 1
-		dc.w $F805, $6066, $6033, $FFF8
-word_1027A:	dc.w 2
-		dc.w $E805, $406A, $4035, $FFF4
-		dc.w $F80B, $406E, $4037, $FFF4
-word_1028C:	dc.w $A
-		dc.w $A805, $406A, $4035, $FFF4
-		dc.w $B80B, $406E, $4037, $FFF4
-		dc.w $C805, $6066, $6033, $FFF8
-		dc.w $D805, $6066, $6033, $FFF8
-		dc.w $E805, $6066, $6033, $FFF8
-		dc.w $F805, $6066, $6033, $FFF8
-		dc.w $805, $6066, $6033, $FFF8
-		dc.w $1805, $6066, $6033, $FFF8
-		dc.w $2805, $6066, $6033, $FFF8
-		dc.w $3805, $6066, $6033, $FFF8
+
+Obj15_Obj7A_MapUnc_10256:	mappingsTable
+	mappingsTableEntry.w	Map_obj7A_a_0008
+	mappingsTableEntry.w	Map_obj7A_a_001A
+	mappingsTableEntry.w	Map_obj7A_a_0024
+	mappingsTableEntry.w	Map_obj7A_a_0036
+
+Map_obj7A_a_0008:	spriteHeader
+	spritePiece	-$18, -8, 3, 2, $60, 0, 0, 3, 0
+	spritePiece	0, -8, 3, 2, $60, 1, 0, 3, 0
+Map_obj7A_a_0008_End
+
+Map_obj7A_a_001A:	spriteHeader
+	spritePiece	-8, -8, 2, 2, $66, 0, 0, 3, 0
+Map_obj7A_a_001A_End
+
+Map_obj7A_a_0024:	spriteHeader
+	spritePiece	-$C, -$18, 2, 2, $6A, 0, 0, 2, 0
+	spritePiece	-$C, -8, 3, 4, $6E, 0, 0, 2, 0
+Map_obj7A_a_0024_End
+
+Map_obj7A_a_0036:	spriteHeader
+	spritePiece	-$C, -$58, 2, 2, $6A, 0, 0, 2, 0
+	spritePiece	-$C, -$48, 3, 4, $6E, 0, 0, 2, 0
+	spritePiece	-8, -$38, 2, 2, $66, 0, 0, 3, 0
+	spritePiece	-8, -$28, 2, 2, $66, 0, 0, 3, 0
+	spritePiece	-8, -$18, 2, 2, $66, 0, 0, 3, 0
+	spritePiece	-8, -8, 2, 2, $66, 0, 0, 3, 0
+	spritePiece	-8, 8, 2, 2, $66, 0, 0, 3, 0
+	spritePiece	-8, $18, 2, 2, $66, 0, 0, 3, 0
+	spritePiece	-8, $28, 2, 2, $66, 0, 0, 3, 0
+	spritePiece	-8, $38, 2, 2, $66, 0, 0, 3, 0
+Map_obj7A_a_0036_End
+
+	even
 
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj15_MapUnc_102DE:	offsetTable
-		offsetTableEntry.w word_102E4
-		offsetTableEntry.w word_10270
-		offsetTableEntry.w word_1027A
-word_102E4:	dc.w 2
-		dc.w $F80D, $6058, $602C, $FFE0
-		dc.w $F80D, $6858, $682C, 0
+Obj15_MapUnc_102DE:	mappingsTable
+	mappingsTableEntry.w	Map_obj15_b_0006
+	mappingsTableEntry.w	Map_obj7A_a_001A
+	mappingsTableEntry.w	Map_obj7A_a_0024
+
+Map_obj15_b_0006:	spriteHeader
+	spritePiece	-$20, -8, 4, 2, $58, 0, 0, 3, 0
+	spritePiece	0, -8, 4, 2, $58, 1, 0, 3, 0
+Map_obj15_b_0006_End
+
+	even
 
 ; ===========================================================================
 
@@ -23106,7 +23134,7 @@ Obj17_Display:
 ; -----------------------------------------------------------------------------
 ; sprite mappings - helix of spikes on a pole (GHZ) (unused)
 ; -----------------------------------------------------------------------------
-Obj17_MapUnc_10452:	BINCLUDE "mappings/sprite/obj17.bin"
+Obj17_MapUnc_10452:	include "mappings/sprite/obj17.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -23437,7 +23465,7 @@ loc_10778:
 	lsr.w	#4,d0
 	tst.b	(a2,d0.w)
 	beq.s	+	; rts
-	move.w	#$3C,objoff_3A(a0)
+	move.w	#60,objoff_3A(a0)
 /
 	rts
 ; ===========================================================================
@@ -23488,11 +23516,11 @@ loc_107EE:
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj18_MapUnc_107F6:	BINCLUDE "mappings/sprite/obj18_a.bin"
+Obj18_MapUnc_107F6:	include "mappings/sprite/obj18_a.asm"
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj18_MapUnc_1084E:	BINCLUDE "mappings/sprite/obj18_b.bin"
+Obj18_MapUnc_1084E:	include "mappings/sprite/obj18_b.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -23855,11 +23883,11 @@ Obj1A_GHZ_SlopeData:
 ; -------------------------------------------------------------------------------
 ; unused sprite mappings (GHZ)
 ; -------------------------------------------------------------------------------
-Obj1A_MapUnc_10C6C:	BINCLUDE "mappings/sprite/obj1A_a.bin"
+Obj1A_MapUnc_10C6C:	include "mappings/sprite/obj1A_a.asm"
 ; ----------------------------------------------------------------------------
 ; unused sprite mappings (MZ, SLZ, SBZ)
 ; ----------------------------------------------------------------------------
-Obj1F_MapUnc_10F0C:	BINCLUDE "mappings/sprite/obj1F_a.bin"
+Obj1F_MapUnc_10F0C:	include "mappings/sprite/obj1F_a.asm"
 
 ; Slope data for platforms.
 ;byte_10FDC:
@@ -23874,19 +23902,19 @@ Obj1A_HPZ_SlopeData
 ; ----------------------------------------------------------------------------
 ; sprite mappings (HPZ)
 ; ----------------------------------------------------------------------------
-Obj1A_MapUnc_1101C:	BINCLUDE "mappings/sprite/obj1A_b.bin"
+Obj1A_MapUnc_1101C:	include "mappings/sprite/obj1A_b.asm"
 ; ----------------------------------------------------------------------------
 ; sprite mappings (OOZ)
 ; ----------------------------------------------------------------------------
-Obj1F_MapUnc_110C6:	BINCLUDE "mappings/sprite/obj1F_b.bin"
+Obj1F_MapUnc_110C6:	include "mappings/sprite/obj1F_b.asm"
 ; -------------------------------------------------------------------------------
 ; sprite mappings (MCZ)
 ; -------------------------------------------------------------------------------
-Obj1F_MapUnc_11106:	BINCLUDE "mappings/sprite/obj1F_c.bin"
+Obj1F_MapUnc_11106:	include "mappings/sprite/obj1F_c.asm"
 ; -------------------------------------------------------------------------------
 ; sprite mappings (ARZ)
 ; -------------------------------------------------------------------------------
-Obj1F_MapUnc_1115E:	BINCLUDE "mappings/sprite/obj1F_d.bin"
+Obj1F_MapUnc_1115E:	include "mappings/sprite/obj1F_d.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -24074,31 +24102,31 @@ byte_11392:	dc.b $7F,  6,$FD,  2
 ; --------------------------------------------------------------------------------
 ; sprite mappings
 ; --------------------------------------------------------------------------------
-Obj71_MapUnc_11396:	BINCLUDE "mappings/sprite/obj71_a.bin"
+Obj71_MapUnc_11396:	include "mappings/sprite/obj71_a.asm"
 ; ----------------------------------------------------------------------------------------
 ; Unknown sprite mappings
 ; ----------------------------------------------------------------------------------------
-Obj1C_MapUnc_113D6:	BINCLUDE "mappings/sprite/obj1C_a.bin"
+Obj1C_MapUnc_113D6:	include "mappings/sprite/obj1C_a.asm"
 ; --------------------------------------------------------------------------------
 ; Unknown sprite mappings
 ; --------------------------------------------------------------------------------
-Obj1C_MapUnc_113EE:	BINCLUDE "mappings/sprite/obj1C_b.bin"
+Obj1C_MapUnc_113EE:	include "mappings/sprite/obj1C_b.asm"
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj1C_MapUnc_11406:	BINCLUDE "mappings/sprite/obj1C_c.bin"
+Obj1C_MapUnc_11406:	include "mappings/sprite/obj1C_c.asm"
 ; --------------------------------------------------------------------------------
 ; sprite mappings
 ; --------------------------------------------------------------------------------
-Obj1C_MapUnc_114AE:	BINCLUDE "mappings/sprite/obj1C_d.bin"
+Obj1C_MapUnc_114AE:	include "mappings/sprite/obj1C_d.asm"
 ; --------------------------------------------------------------------------------
 ; sprite mappings
 ; --------------------------------------------------------------------------------
-Obj1C_MapUnc_11552:	BINCLUDE "mappings/sprite/obj1C_e.bin"
+Obj1C_MapUnc_11552:	include "mappings/sprite/obj1C_e.asm"
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj71_MapUnc_11576:	BINCLUDE "mappings/sprite/obj71_b.bin"
+Obj71_MapUnc_11576:	include "mappings/sprite/obj71_b.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -24167,7 +24195,7 @@ Obj2A_Main:
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj2A_MapUnc_11666:	BINCLUDE "mappings/sprite/obj2A.bin"
+Obj2A_MapUnc_11666:	include "mappings/sprite/obj2A.asm"
 
 ; ===========================================================================
 ; ----------------------------------------------------------------------------
@@ -24311,7 +24339,7 @@ return_11820:
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj2D_MapUnc_11822:	BINCLUDE "mappings/sprite/obj2D.bin"
+Obj2D_MapUnc_11822:	include "mappings/sprite/obj2D.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -24836,27 +24864,27 @@ Obj29_Main:
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj28_MapUnc_11E1C:	BINCLUDE "mappings/sprite/obj28_a.bin"
+Obj28_MapUnc_11E1C:	include "mappings/sprite/obj28_a.asm"
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj28_MapUnc_11E40:	BINCLUDE "mappings/sprite/obj28_b.bin"
+Obj28_MapUnc_11E40:	include "mappings/sprite/obj28_b.asm"
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj28_MapUnc_11E64:	BINCLUDE "mappings/sprite/obj28_c.bin"
+Obj28_MapUnc_11E64:	include "mappings/sprite/obj28_c.asm"
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj28_MapUnc_11E88:	BINCLUDE "mappings/sprite/obj28_d.bin"
+Obj28_MapUnc_11E88:	include "mappings/sprite/obj28_d.asm"
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj28_MapUnc_11EAC:	BINCLUDE "mappings/sprite/obj28_e.bin"
+Obj28_MapUnc_11EAC:	include "mappings/sprite/obj28_e.asm"
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj29_MapUnc_11ED0:	BINCLUDE "mappings/sprite/obj29.bin"
+Obj29_MapUnc_11ED0:	include "mappings/sprite/obj29.asm"
 
     if ~~removeJmpTos
 JmpTo_RandomNumber ; JmpTo
@@ -25310,16 +25338,16 @@ Ani_Ring:	offsetTable
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj25_MapUnc_12382:	BINCLUDE "mappings/sprite/obj37_a.bin"
+Obj25_MapUnc_12382:	include "mappings/sprite/obj37_a.asm"
 
 ; -------------------------------------------------------------------------------
 ; Unused sprite mappings
 ; -------------------------------------------------------------------------------
-Obj37_MapUnc_123E6:	BINCLUDE "mappings/sprite/obj37_b.bin"
+Obj37_MapUnc_123E6:	include "mappings/sprite/obj37_b.asm"
 ; -------------------------------------------------------------------------------
 ; Unused sprite mappings
 ; -------------------------------------------------------------------------------
-Obj37_MapUnc_124E6:	BINCLUDE "mappings/sprite/obj37_c.bin"
+Obj37_MapUnc_124E6:	include "mappings/sprite/obj37_c.asm"
 
 ; ===========================================================================
 ; ----------------------------------------------------------------------------
@@ -26141,7 +26169,7 @@ Ani_obj26_Broken:
 ; Sprite Mappings - Sprite table for monitor and monitor contents (26, ??)
 ; ---------------------------------------------------------------------------------
 ; MapUnc_12D36: MapUnc_obj26:
-Obj26_MapUnc_12D36:	BINCLUDE "mappings/sprite/obj26.bin"
+Obj26_MapUnc_12D36:	include "mappings/sprite/obj26.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -27009,7 +27037,7 @@ TitleScreen_SetFinalState:
 	dbf	d6,-
 
 	sf.b	(Object_RAM+($100+$32)).w			; set fade counter to 00 (finish)
-	
+
 	; Play title screen music if it isn't already playing.
 	tst.b	obj0e_music_playing(a0)
 	bne.s	+
@@ -27139,11 +27167,11 @@ Ani_obj0E_FallingStar:
 ; -----------------------------------------------------------------------------
 ; Sprite Mappings - Flashing stars from intro (Obj0E)
 ; -----------------------------------------------------------------------------
-Obj0E_MapUnc_136A8:	BINCLUDE "mappings/sprite/obj0E.bin"
+Obj0E_MapUnc_136A8:	include "mappings/sprite/obj0E.asm"
 ; -----------------------------------------------------------------------------
 ; sprite mappings
 ; -----------------------------------------------------------------------------
-Obj0F_MapUnc_13B70:	BINCLUDE "mappings/sprite/obj0F.bin"
+Obj0F_MapUnc_13B70:	include "mappings/sprite/obj0F.asm"
 
     if ~~removeJmpTos
 JmpTo4_PlaySound ; JmpTo
@@ -27815,7 +27843,7 @@ loc_14220:
 	move.l	#Obj3A_MapUnc_14CBC,mappings(a1)
 	bsr.w	Adjust2PArtPointer2
 	move.b	#0,render_flags(a1)
-	move.w	#$3C,anim_frame_duration(a1)
+	move.w	#60,anim_frame_duration(a1)
 	addq.b	#1,(Continue_count).w
 
 return_14254:
@@ -28402,7 +28430,7 @@ Obj6F_SubObjectMetaData_End:
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj34_MapUnc_147BA:	offsetTable
+Obj34_MapUnc_147BA:	mappingsTable
 .zone_names:	zoneOrderedOffsetTable 2,1
 	zoneOffsetTableEntry.w word_147E8	; EHZ
 	zoneOffsetTableEntry.w word_147E8	; Zone 1
@@ -28422,268 +28450,332 @@ Obj34_MapUnc_147BA:	offsetTable
 	zoneOffsetTableEntry.w word_14A88	; ARZ
 	zoneOffsetTableEntry.w word_14AE2	; SCZ
     zoneTableEnd
-	offsetTableEntry.w word_14BC8
-	offsetTableEntry.w word_14BEA
-	offsetTableEntry.w word_14BF4
-	offsetTableEntry.w word_14BFE
-	offsetTableEntry.w word_14C08
-	offsetTableEntry.w word_14C32
-word_147E8:	dc.w $B
-	dc.w 5,	$8580, $82C0, $FFC3
-	dc.w 9,	$85DE, $82EF, $FFD0
-	dc.w 5,	$8580, $82C0, $FFE8
-	dc.w 5,	$85E4, $82F2, $FFF8
-	dc.w 5,	$85E8, $82F4, 8
-	dc.w 5,	$85EC, $82F6, $18
-	dc.w 5,	$85F0, $82F8, $28
-	dc.w 5,	$85F4, $82FA, $48
-	dc.w 1,	$85F8, $82FC, $58
-	dc.w 5,	$85EC, $82F6, $60
-	dc.w 5,	$85EC, $82F6, $70
-word_14842:	dc.w $A
-	dc.w 9,	$85DE, $82EF, $FFE0
-	dc.w 5,	$8580, $82C0, $FFF8
-	dc.w 5,	$85E4, $82F2, 8
-	dc.w 5,	$85E8, $82F4, $18
-	dc.w 5,	$8588, $82C4, $28
-	dc.w 5,	$85EC, $82F6, $38
-	dc.w 5,	$8588, $82C4, $48
-	dc.w 5,	$85F0, $82F8, $58
-	dc.w 1,	$85F4, $82FA, $68
-	dc.w 5,	$85F6, $82FB, $70
-word_14894:	dc.w 7
-	dc.w 5,	$85DE, $82EF, 8
-	dc.w 1,	$85E2, $82F1, $18
-	dc.w 5,	$85E4, $82F2, $20
-	dc.w 5,	$85E4, $82F2, $30
-	dc.w 5,	$85E8, $82F4, $51
-	dc.w 5,	$8588, $82C4, $60
-	dc.w 5,	$85EC, $82F6, $70
-word_148CE:	dc.w $C
-	dc.w 5,	$85DE, $82EF, $FFB8
-	dc.w 1,	$85E2, $82F1, $FFC8
-	dc.w 5,	$85E4, $82F2, $FFD0
-	dc.w 5,	$85E4, $82F2, $FFE0
-	dc.w 5,	$8580, $82C0, $FFF0
-	dc.w 5,	$8584, $82C2, 0
-	dc.w 5,	$85E8, $82F4, $20
-	dc.w 5,	$85EC, $82F6, $30
-	dc.w 5,	$85F0, $82F8, $40
-	dc.w 5,	$85EC, $82F6, $50
-	dc.w 5,	$85F4, $82FA, $60
-	dc.w 5,	$8580, $82C0, $70
-word_14930:	dc.w 8
-	dc.w 5,	$8588, $82C4, $FFFB
-	dc.w 1,	$85DE, $82EF, $B
-	dc.w 5,	$85E0, $82F0, $13
-	dc.w 5,	$8588, $82C4, $33
-	dc.w 5,	$85E4, $82F2, $43
-	dc.w 5,	$8580, $82C0, $53
-	dc.w 5,	$85E8, $82F4, $60
-	dc.w 5,	$8584, $82C2, $70
-word_14972:	dc.w $A
-	dc.w 9,	$85DE, $82EF, $FFD0
-	dc.w 5,	$85E4, $82F2, $FFE8
-	dc.w 5,	$85E8, $82F4, $FFF8
-	dc.w 5,	$85EC, $82F6, 8
-	dc.w 1,	$85F0, $82F8, $18
-	dc.w 5,	$85F2, $82F9, $20
-	dc.w 5,	$85F2, $82F9, $41
-	dc.w 5,	$85F6, $82FB, $50
-	dc.w 5,	$85FA, $82FD, $60
-	dc.w 5,	$8580, $82C0, $70
-word_149C4:	dc.w $B
-	dc.w 5,	$85DE, $82EF, $FFD1
-	dc.w 5,	$85E2, $82F1, $FFE0
-	dc.w 5,	$85E6, $82F3, $FFF0
-	dc.w 1,	$85EA, $82F5, 0
-	dc.w 5,	$8584, $82C2, 8
-	dc.w 5,	$8588, $82C4, $18
-	dc.w 5,	$8584, $82C2, $38
-	dc.w 1,	$85EA, $82F5, $48
-	dc.w 5,	$85EC, $82F6, $50
-	dc.w 5,	$85F0, $82F8, $60
-	dc.w 5,	$85F4, $82FA, $70
-word_14A1E:	dc.w $D
-	dc.w 5,	$85DE, $82EF, $FFA4
-	dc.w 5,	$85E2, $82F1, $FFB4
-	dc.w 5,	$8580, $82C0, $FFC4
-	dc.w 9,	$85E6, $82F3, $FFD1
-	dc.w 1,	$85EC, $82F6, $FFE9
-	dc.w 5,	$85DE, $82EF, $FFF1
-	dc.w 5,	$85EE, $82F7, 0
-	dc.w 5,	$85F2, $82F9, $10
-	dc.w 5,	$85F6, $82FB, $31
-	dc.w 5,	$85F2, $82F9, $41
-	dc.w 5,	$85EE, $82F7, $50
-	dc.w 5,	$8584, $82C2, $60
-	dc.w 5,	$85FA, $82FD, $70
-word_14A88:	dc.w $B
-	dc.w 5,	$85DE, $82EF, $FFD2
-	dc.w 5,	$85E2, $82F1, $FFE2
-	dc.w 5,	$85E6, $82F3, $FFF2
-	dc.w 5,	$85DE, $82EF, 0
-	dc.w 5,	$85EA, $82F5, $10
-	dc.w 1,	$85EE, $82F7, $20
-	dc.w 5,	$85F0, $82F8, $28
-	dc.w 5,	$85F4, $82FA, $48
-	dc.w 5,	$85E6, $82F3, $58
-	dc.w 1,	$85EE, $82F7, $68
-	dc.w 5,	$8584, $82C2, $70
-word_14AE2:	dc.w 8
-	dc.w 5,	$85DE, $82EF, $FFF0
-	dc.w 5,	$85E2, $82F1, 0
-	dc.w 5,	$85E6, $82F3, $10
-	dc.w 5,	$85EA, $82F5, $30
-	dc.w 5,	$85EE, $82F7, $40
-	dc.w 5,	$85F2, $82F9, $50
-	dc.w 5,	$85DE, $82EF, $60
-	dc.w 5,	$8580, $82C0, $70
-word_14B24:	dc.w $C
-	dc.w 9,	$85DE, $82EF, $FFB1
-	dc.w 1,	$85E4, $82F2, $FFC8
-	dc.w 5,	$8584, $82C2, $FFD0
-	dc.w 5,	$85E6, $82F3, $FFE0
-	dc.w 5,	$85EA, $82F5, 1
-	dc.w 5,	$8588, $82C4, $10
-	dc.w 5,	$85EE, $82F7, $20
-	dc.w 5,	$85F2, $82F9, $30
-	dc.w 5,	$85EE, $82F7, $40
-	dc.w 5,	$8580, $82C0, $50
-	dc.w 5,	$85F6, $82FB, $5F
-	dc.w 5,	$85F6, $82FB, $6F
-word_14B86:	dc.w 8
-	dc.w 5,	$85DE, $82EF, $FFF2
-	dc.w 5,	$8580, $82C0, 2
-	dc.w 5,	$85E2, $82F1, $10
-	dc.w 5,	$85E6, $82F3, $20
-	dc.w 5,	$85EA, $82F5, $30
-	dc.w 5,	$8580, $82C0, $51
-	dc.w 5,	$85EE, $82F7, $60
-	dc.w 5,	$85EE, $82F7, $70
-word_14BC8:	dc.w 4
-	dc.w 5,	$858C, $82C6, 1
-	dc.w 5,	$8588, $82C4, $10
-	dc.w 5,	$8584, $82C2, $20
-	dc.w 5,	$8580, $82C0, $30
-word_14BEA:	dc.w 1
-	dc.w 7,	$A590, $A2C8, 0
-word_14BF4:	dc.w 1
-	dc.w $B, $A598,	$A2CC, 0
-word_14BFE:	dc.w 1
-	dc.w $B, $A5A4,	$A2D2, 0
-word_14C08:	dc.w 5
-	dc.w $D, $85B0,	$82D8, $FFB8
-	dc.w $D, $85B8,	$82DC, $FFD8
-	dc.w $D, $85C0,	$82E0, $FFF8
-	dc.w $D, $85C8,	$82E4, $18
-	dc.w 5,	$85D0, $82E8, $38
-word_14C32:	dc.w 7
-	dc.w $9003, $85D4, $82EA, 0
-	dc.w $B003, $85D4, $82EA, 0
-	dc.w $D003, $85D4, $82EA, 0
-	dc.w $F003, $85D4, $82EA, 0
-	dc.w $1003, $85D4, $82EA, 0
-	dc.w $3003, $85D4, $82EA, 0
-	dc.w $5003, $85D4, $82EA, 0
+	mappingsTableEntry.w	word_14BC8
+	mappingsTableEntry.w	word_14BEA
+	mappingsTableEntry.w	word_14BF4
+	mappingsTableEntry.w	word_14BFE
+	mappingsTableEntry.w	word_14C08
+	mappingsTableEntry.w	word_14C32
+
+word_147E8:	spriteHeader
+	spritePiece	-$3D, 0, 2, 2, $580, 0, 0, 0, 1
+	spritePiece	-$30, 0, 3, 2, $5DE, 0, 0, 0, 1
+	spritePiece	-$18, 0, 2, 2, $580, 0, 0, 0, 1
+	spritePiece	-8, 0, 2, 2, $5E4, 0, 0, 0, 1
+	spritePiece	8, 0, 2, 2, $5E8, 0, 0, 0, 1
+	spritePiece	$18, 0, 2, 2, $5EC, 0, 0, 0, 1
+	spritePiece	$28, 0, 2, 2, $5F0, 0, 0, 0, 1
+	spritePiece	$48, 0, 2, 2, $5F4, 0, 0, 0, 1
+	spritePiece	$58, 0, 1, 2, $5F8, 0, 0, 0, 1
+	spritePiece	$60, 0, 2, 2, $5EC, 0, 0, 0, 1
+	spritePiece	$70, 0, 2, 2, $5EC, 0, 0, 0, 1
+word_147E8_End
+
+word_14842:	spriteHeader
+	spritePiece	-$20, 0, 3, 2, $5DE, 0, 0, 0, 1
+	spritePiece	-8, 0, 2, 2, $580, 0, 0, 0, 1
+	spritePiece	8, 0, 2, 2, $5E4, 0, 0, 0, 1
+	spritePiece	$18, 0, 2, 2, $5E8, 0, 0, 0, 1
+	spritePiece	$28, 0, 2, 2, $588, 0, 0, 0, 1
+	spritePiece	$38, 0, 2, 2, $5EC, 0, 0, 0, 1
+	spritePiece	$48, 0, 2, 2, $588, 0, 0, 0, 1
+	spritePiece	$58, 0, 2, 2, $5F0, 0, 0, 0, 1
+	spritePiece	$68, 0, 1, 2, $5F4, 0, 0, 0, 1
+	spritePiece	$70, 0, 2, 2, $5F6, 0, 0, 0, 1
+word_14842_End
+
+word_14894:	spriteHeader
+	spritePiece	8, 0, 2, 2, $5DE, 0, 0, 0, 1
+	spritePiece	$18, 0, 1, 2, $5E2, 0, 0, 0, 1
+	spritePiece	$20, 0, 2, 2, $5E4, 0, 0, 0, 1
+	spritePiece	$30, 0, 2, 2, $5E4, 0, 0, 0, 1
+	spritePiece	$51, 0, 2, 2, $5E8, 0, 0, 0, 1
+	spritePiece	$60, 0, 2, 2, $588, 0, 0, 0, 1
+	spritePiece	$70, 0, 2, 2, $5EC, 0, 0, 0, 1
+word_14894_End
+
+word_148CE:	spriteHeader
+	spritePiece	-$48, 0, 2, 2, $5DE, 0, 0, 0, 1
+	spritePiece	-$38, 0, 1, 2, $5E2, 0, 0, 0, 1
+	spritePiece	-$30, 0, 2, 2, $5E4, 0, 0, 0, 1
+	spritePiece	-$20, 0, 2, 2, $5E4, 0, 0, 0, 1
+	spritePiece	-$10, 0, 2, 2, $580, 0, 0, 0, 1
+	spritePiece	0, 0, 2, 2, $584, 0, 0, 0, 1
+	spritePiece	$20, 0, 2, 2, $5E8, 0, 0, 0, 1
+	spritePiece	$30, 0, 2, 2, $5EC, 0, 0, 0, 1
+	spritePiece	$40, 0, 2, 2, $5F0, 0, 0, 0, 1
+	spritePiece	$50, 0, 2, 2, $5EC, 0, 0, 0, 1
+	spritePiece	$60, 0, 2, 2, $5F4, 0, 0, 0, 1
+	spritePiece	$70, 0, 2, 2, $580, 0, 0, 0, 1
+word_148CE_End
+
+word_14930:	spriteHeader
+	spritePiece	-5, 0, 2, 2, $588, 0, 0, 0, 1
+	spritePiece	$B, 0, 1, 2, $5DE, 0, 0, 0, 1
+	spritePiece	$13, 0, 2, 2, $5E0, 0, 0, 0, 1
+	spritePiece	$33, 0, 2, 2, $588, 0, 0, 0, 1
+	spritePiece	$43, 0, 2, 2, $5E4, 0, 0, 0, 1
+	spritePiece	$53, 0, 2, 2, $580, 0, 0, 0, 1
+	spritePiece	$60, 0, 2, 2, $5E8, 0, 0, 0, 1
+	spritePiece	$70, 0, 2, 2, $584, 0, 0, 0, 1
+word_14930_End
+
+word_14972:	spriteHeader
+	spritePiece	-$30, 0, 3, 2, $5DE, 0, 0, 0, 1
+	spritePiece	-$18, 0, 2, 2, $5E4, 0, 0, 0, 1
+	spritePiece	-8, 0, 2, 2, $5E8, 0, 0, 0, 1
+	spritePiece	8, 0, 2, 2, $5EC, 0, 0, 0, 1
+	spritePiece	$18, 0, 1, 2, $5F0, 0, 0, 0, 1
+	spritePiece	$20, 0, 2, 2, $5F2, 0, 0, 0, 1
+	spritePiece	$41, 0, 2, 2, $5F2, 0, 0, 0, 1
+	spritePiece	$50, 0, 2, 2, $5F6, 0, 0, 0, 1
+	spritePiece	$60, 0, 2, 2, $5FA, 0, 0, 0, 1
+	spritePiece	$70, 0, 2, 2, $580, 0, 0, 0, 1
+word_14972_End
+
+word_149C4:	spriteHeader
+	spritePiece	-$2F, 0, 2, 2, $5DE, 0, 0, 0, 1
+	spritePiece	-$20, 0, 2, 2, $5E2, 0, 0, 0, 1
+	spritePiece	-$10, 0, 2, 2, $5E6, 0, 0, 0, 1
+	spritePiece	0, 0, 1, 2, $5EA, 0, 0, 0, 1
+	spritePiece	8, 0, 2, 2, $584, 0, 0, 0, 1
+	spritePiece	$18, 0, 2, 2, $588, 0, 0, 0, 1
+	spritePiece	$38, 0, 2, 2, $584, 0, 0, 0, 1
+	spritePiece	$48, 0, 1, 2, $5EA, 0, 0, 0, 1
+	spritePiece	$50, 0, 2, 2, $5EC, 0, 0, 0, 1
+	spritePiece	$60, 0, 2, 2, $5F0, 0, 0, 0, 1
+	spritePiece	$70, 0, 2, 2, $5F4, 0, 0, 0, 1
+word_149C4_End
+
+word_14A1E:	spriteHeader
+	spritePiece	-$5C, 0, 2, 2, $5DE, 0, 0, 0, 1
+	spritePiece	-$4C, 0, 2, 2, $5E2, 0, 0, 0, 1
+	spritePiece	-$3C, 0, 2, 2, $580, 0, 0, 0, 1
+	spritePiece	-$2F, 0, 3, 2, $5E6, 0, 0, 0, 1
+	spritePiece	-$17, 0, 1, 2, $5EC, 0, 0, 0, 1
+	spritePiece	-$F, 0, 2, 2, $5DE, 0, 0, 0, 1
+	spritePiece	0, 0, 2, 2, $5EE, 0, 0, 0, 1
+	spritePiece	$10, 0, 2, 2, $5F2, 0, 0, 0, 1
+	spritePiece	$31, 0, 2, 2, $5F6, 0, 0, 0, 1
+	spritePiece	$41, 0, 2, 2, $5F2, 0, 0, 0, 1
+	spritePiece	$50, 0, 2, 2, $5EE, 0, 0, 0, 1
+	spritePiece	$60, 0, 2, 2, $584, 0, 0, 0, 1
+	spritePiece	$70, 0, 2, 2, $5FA, 0, 0, 0, 1
+word_14A1E_End
+
+word_14A88:	spriteHeader
+	spritePiece	-$2E, 0, 2, 2, $5DE, 0, 0, 0, 1
+	spritePiece	-$1E, 0, 2, 2, $5E2, 0, 0, 0, 1
+	spritePiece	-$E, 0, 2, 2, $5E6, 0, 0, 0, 1
+	spritePiece	0, 0, 2, 2, $5DE, 0, 0, 0, 1
+	spritePiece	$10, 0, 2, 2, $5EA, 0, 0, 0, 1
+	spritePiece	$20, 0, 1, 2, $5EE, 0, 0, 0, 1
+	spritePiece	$28, 0, 2, 2, $5F0, 0, 0, 0, 1
+	spritePiece	$48, 0, 2, 2, $5F4, 0, 0, 0, 1
+	spritePiece	$58, 0, 2, 2, $5E6, 0, 0, 0, 1
+	spritePiece	$68, 0, 1, 2, $5EE, 0, 0, 0, 1
+	spritePiece	$70, 0, 2, 2, $584, 0, 0, 0, 1
+word_14A88_End
+
+word_14AE2:	spriteHeader
+	spritePiece	-$10, 0, 2, 2, $5DE, 0, 0, 0, 1
+	spritePiece	0, 0, 2, 2, $5E2, 0, 0, 0, 1
+	spritePiece	$10, 0, 2, 2, $5E6, 0, 0, 0, 1
+	spritePiece	$30, 0, 2, 2, $5EA, 0, 0, 0, 1
+	spritePiece	$40, 0, 2, 2, $5EE, 0, 0, 0, 1
+	spritePiece	$50, 0, 2, 2, $5F2, 0, 0, 0, 1
+	spritePiece	$60, 0, 2, 2, $5DE, 0, 0, 0, 1
+	spritePiece	$70, 0, 2, 2, $580, 0, 0, 0, 1
+word_14AE2_End
+
+word_14B24:	spriteHeader
+	spritePiece	-$4F, 0, 3, 2, $5DE, 0, 0, 0, 1
+	spritePiece	-$38, 0, 1, 2, $5E4, 0, 0, 0, 1
+	spritePiece	-$30, 0, 2, 2, $584, 0, 0, 0, 1
+	spritePiece	-$20, 0, 2, 2, $5E6, 0, 0, 0, 1
+	spritePiece	1, 0, 2, 2, $5EA, 0, 0, 0, 1
+	spritePiece	$10, 0, 2, 2, $588, 0, 0, 0, 1
+	spritePiece	$20, 0, 2, 2, $5EE, 0, 0, 0, 1
+	spritePiece	$30, 0, 2, 2, $5F2, 0, 0, 0, 1
+	spritePiece	$40, 0, 2, 2, $5EE, 0, 0, 0, 1
+	spritePiece	$50, 0, 2, 2, $580, 0, 0, 0, 1
+	spritePiece	$5F, 0, 2, 2, $5F6, 0, 0, 0, 1
+	spritePiece	$6F, 0, 2, 2, $5F6, 0, 0, 0, 1
+word_14B24_End
+
+word_14B86:	spriteHeader
+	spritePiece	-$E, 0, 2, 2, $5DE, 0, 0, 0, 1
+	spritePiece	2, 0, 2, 2, $580, 0, 0, 0, 1
+	spritePiece	$10, 0, 2, 2, $5E2, 0, 0, 0, 1
+	spritePiece	$20, 0, 2, 2, $5E6, 0, 0, 0, 1
+	spritePiece	$30, 0, 2, 2, $5EA, 0, 0, 0, 1
+	spritePiece	$51, 0, 2, 2, $580, 0, 0, 0, 1
+	spritePiece	$60, 0, 2, 2, $5EE, 0, 0, 0, 1
+	spritePiece	$70, 0, 2, 2, $5EE, 0, 0, 0, 1
+word_14B86_End
+
+word_14BC8:	spriteHeader
+	spritePiece	1, 0, 2, 2, $58C, 0, 0, 0, 1
+	spritePiece	$10, 0, 2, 2, $588, 0, 0, 0, 1
+	spritePiece	$20, 0, 2, 2, $584, 0, 0, 0, 1
+	spritePiece	$30, 0, 2, 2, $580, 0, 0, 0, 1
+word_14BC8_End
+
+word_14BEA:	spriteHeader
+	spritePiece	0, 0, 2, 4, $590, 0, 0, 1, 1
+word_14BEA_End
+
+word_14BF4:	spriteHeader
+	spritePiece	0, 0, 3, 4, $598, 0, 0, 1, 1
+word_14BF4_End
+
+word_14BFE:	spriteHeader
+	spritePiece	0, 0, 3, 4, $5A4, 0, 0, 1, 1
+word_14BFE_End
+
+word_14C08:	spriteHeader
+	spritePiece	-$48, 0, 4, 2, $5B0, 0, 0, 0, 1
+	spritePiece	-$28, 0, 4, 2, $5B8, 0, 0, 0, 1
+	spritePiece	-8, 0, 4, 2, $5C0, 0, 0, 0, 1
+	spritePiece	$18, 0, 4, 2, $5C8, 0, 0, 0, 1
+	spritePiece	$38, 0, 2, 2, $5D0, 0, 0, 0, 1
+word_14C08_End
+
+word_14C32:	spriteHeader
+	spritePiece	0, -$70, 1, 4, $5D4, 0, 0, 0, 1
+	spritePiece	0, -$50, 1, 4, $5D4, 0, 0, 0, 1
+	spritePiece	0, -$30, 1, 4, $5D4, 0, 0, 0, 1
+	spritePiece	0, -$10, 1, 4, $5D4, 0, 0, 0, 1
+	spritePiece	0, $10, 1, 4, $5D4, 0, 0, 0, 1
+	spritePiece	0, $30, 1, 4, $5D4, 0, 0, 0, 1
+	spritePiece	0, $50, 1, 4, $5D4, 0, 0, 0, 1
+word_14C32_End
+
+	even
+
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj39_MapUnc_14C6C:	BINCLUDE "mappings/sprite/obj39.bin"
+Obj39_MapUnc_14C6C:	include "mappings/sprite/obj39.asm"
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj3A_MapUnc_14CBC:	offsetTable
-	offsetTableEntry.w word_14CDA
-	offsetTableEntry.w word_14D1C
-	offsetTableEntry.w word_14D5E
-	offsetTableEntry.w word_14DA0
-	offsetTableEntry.w word_14DDA
-	offsetTableEntry.w word_14BC8
-	offsetTableEntry.w word_14BEA
-	offsetTableEntry.w word_14BF4
-	offsetTableEntry.w word_14BFE
-	offsetTableEntry.w word_14DF4
-	offsetTableEntry.w word_14E1E
-	offsetTableEntry.w word_14E50
-	offsetTableEntry.w word_14E82
-	offsetTableEntry.w word_14E8C
-	offsetTableEntry.w word_14E96
-word_14CDA:	dc.w 8
-	dc.w 5,	$85D0, $82E8, $FFC0
-	dc.w 5,	$8588, $82C4, $FFD0
-	dc.w 5,	$8584, $82C2, $FFE0
-	dc.w 1,	$85C0, $82E0, $FFF0
-	dc.w 5,	$85B4, $82DA, $FFF8
-	dc.w 5,	$85B8, $82DC, $10
-	dc.w 5,	$8588, $82C4, $20
-	dc.w 5,	$85D4, $82EA, $2F
-word_14D1C:	dc.w 8
-	dc.w 9,	$85C6, $82E3, $FFBC
-	dc.w 1,	$85C0, $82E0, $FFD4
-	dc.w 5,	$85C2, $82E1, $FFDC
-	dc.w 5,	$8580, $82C0, $FFEC
-	dc.w 5,	$85D0, $82E8, $FFFC
-	dc.w 5,	$85B8, $82DC, $14
-	dc.w 5,	$8588, $82C4, $24
-	dc.w 5,	$85D4, $82EA, $33
-word_14D5E:	dc.w 8
-	dc.w 5,	$85D4, $82EA, $FFC3
-	dc.w 5,	$85B0, $82D8, $FFD0
-	dc.w 1,	$85C0, $82E0, $FFE0
-	dc.w 5,	$85C2, $82E1, $FFE8
-	dc.w 5,	$85D0, $82E8, $FFF8
-	dc.w 5,	$85B8, $82DC, $10
-	dc.w 5,	$8588, $82C4, $20
-	dc.w 5,	$85D4, $82EA, $2F
-word_14DA0:	dc.w 7
-	dc.w 5,	$85D4, $82EA, $FFC8
-	dc.w 5,	$85BC, $82DE, $FFD8
-	dc.w 5,	$85CC, $82E6, $FFE8
-	dc.w 5,	$8588, $82C4, $FFF8
-	dc.w 5,	$85D8, $82EC, 8
-	dc.w 5,	$85B8, $82DC, $18
-	dc.w 5,	$85BC, $82DE, $28
-word_14DDA:	dc.w 3
-	dc.w 5,	$85B0, $82D8, 0
-	dc.w 5,	$85B4, $82DA, $10
-	dc.w 5,	$85D4, $82EA, $1F
-word_14DF4:	dc.w 5
-	dc.w 9,	$A5E6, $A2F3, $FFB8
-	dc.w 5,	$A5EC, $A2F6, $FFD0
-	dc.w 5,	$85F0, $82F8, $FFD4
-	dc.w $D, $8520,	$8290, $38
-	dc.w 1,	$86F0, $8378, $58
-word_14E1E:	dc.w 6
-	dc.w $D, $A6DA,	$A36D, $FFA4
-	dc.w $D, $A5DE,	$A2EF, $FFCC
-	dc.w 1,	$A6CA, $A365, $FFEC
-	dc.w 5,	$85F0, $82F8, $FFE8
-	dc.w $D, $8528,	$8294, $38
-	dc.w 1,	$86F0, $8378, $58
-word_14E50:	dc.w 6
-	dc.w $D, $A6D2,	$A369, $FFA4
-	dc.w $D, $A5DE,	$A2EF, $FFCC
-	dc.w 1,	$A6CA, $A365, $FFEC
-	dc.w 5,	$85F0, $82F8, $FFE8
-	dc.w $D, $8530,	$8298, $38
-	dc.w 1,	$86F0, $8378, $58
-word_14E82:	dc.w 1
-	dc.w 6,	$85F4, $82FA, 0
-word_14E8C:	dc.w 1
-	dc.w 6,	$85FA, $82FD, 0
-word_14E96:	dc.w 7
-	dc.w $D, $A540,	$A2A0, $FF98
-	dc.w 9,	$A548, $A2A4, $FFB8
-	dc.w $D, $A5DE,	$A2EF, $FFD8
-	dc.w 1,	$A6CA, $A365, $FFF8
-	dc.w 5,	$85F0, $82F8, $FFF4
-	dc.w $D, $8538,	$829C, $38
-	dc.w 1,	$86F0, $8378, $58
+Obj3A_MapUnc_14CBC:	mappingsTable
+	mappingsTableEntry.w	word_14CDA
+	mappingsTableEntry.w	word_14D1C
+	mappingsTableEntry.w	word_14D5E
+	mappingsTableEntry.w	word_14DA0
+	mappingsTableEntry.w	word_14DDA
+	mappingsTableEntry.w	word_14BC8
+	mappingsTableEntry.w	word_14BEA
+	mappingsTableEntry.w	word_14BF4
+	mappingsTableEntry.w	word_14BFE
+	mappingsTableEntry.w	word_14DF4
+	mappingsTableEntry.w	word_14E1E
+	mappingsTableEntry.w	word_14E50
+	mappingsTableEntry.w	word_14E82
+	mappingsTableEntry.w	word_14E8C
+	mappingsTableEntry.w	word_14E96
+
+word_14CDA:	spriteHeader
+	spritePiece	-$40, 0, 2, 2, $5D0, 0, 0, 0, 1
+	spritePiece	-$30, 0, 2, 2, $588, 0, 0, 0, 1
+	spritePiece	-$20, 0, 2, 2, $584, 0, 0, 0, 1
+	spritePiece	-$10, 0, 1, 2, $5C0, 0, 0, 0, 1
+	spritePiece	-8, 0, 2, 2, $5B4, 0, 0, 0, 1
+	spritePiece	$10, 0, 2, 2, $5B8, 0, 0, 0, 1
+	spritePiece	$20, 0, 2, 2, $588, 0, 0, 0, 1
+	spritePiece	$2F, 0, 2, 2, $5D4, 0, 0, 0, 1
+word_14CDA_End
+
+word_14D1C:	spriteHeader
+	spritePiece	-$44, 0, 3, 2, $5C6, 0, 0, 0, 1
+	spritePiece	-$2C, 0, 1, 2, $5C0, 0, 0, 0, 1
+	spritePiece	-$24, 0, 2, 2, $5C2, 0, 0, 0, 1
+	spritePiece	-$14, 0, 2, 2, $580, 0, 0, 0, 1
+	spritePiece	-4, 0, 2, 2, $5D0, 0, 0, 0, 1
+	spritePiece	$14, 0, 2, 2, $5B8, 0, 0, 0, 1
+	spritePiece	$24, 0, 2, 2, $588, 0, 0, 0, 1
+	spritePiece	$33, 0, 2, 2, $5D4, 0, 0, 0, 1
+word_14D1C_End
+
+word_14D5E:	spriteHeader
+	spritePiece	-$3D, 0, 2, 2, $5D4, 0, 0, 0, 1
+	spritePiece	-$30, 0, 2, 2, $5B0, 0, 0, 0, 1
+	spritePiece	-$20, 0, 1, 2, $5C0, 0, 0, 0, 1
+	spritePiece	-$18, 0, 2, 2, $5C2, 0, 0, 0, 1
+	spritePiece	-8, 0, 2, 2, $5D0, 0, 0, 0, 1
+	spritePiece	$10, 0, 2, 2, $5B8, 0, 0, 0, 1
+	spritePiece	$20, 0, 2, 2, $588, 0, 0, 0, 1
+	spritePiece	$2F, 0, 2, 2, $5D4, 0, 0, 0, 1
+word_14D5E_End
+
+word_14DA0:	spriteHeader
+	spritePiece	-$38, 0, 2, 2, $5D4, 0, 0, 0, 1
+	spritePiece	-$28, 0, 2, 2, $5BC, 0, 0, 0, 1
+	spritePiece	-$18, 0, 2, 2, $5CC, 0, 0, 0, 1
+	spritePiece	-8, 0, 2, 2, $588, 0, 0, 0, 1
+	spritePiece	8, 0, 2, 2, $5D8, 0, 0, 0, 1
+	spritePiece	$18, 0, 2, 2, $5B8, 0, 0, 0, 1
+	spritePiece	$28, 0, 2, 2, $5BC, 0, 0, 0, 1
+word_14DA0_End
+
+word_14DDA:	spriteHeader
+	spritePiece	0, 0, 2, 2, $5B0, 0, 0, 0, 1
+	spritePiece	$10, 0, 2, 2, $5B4, 0, 0, 0, 1
+	spritePiece	$1F, 0, 2, 2, $5D4, 0, 0, 0, 1
+word_14DDA_End
+
+word_14DF4:	spriteHeader
+	spritePiece	-$48, 0, 3, 2, $5E6, 0, 0, 1, 1
+	spritePiece	-$30, 0, 2, 2, $5EC, 0, 0, 1, 1
+	spritePiece	-$2C, 0, 2, 2, $5F0, 0, 0, 0, 1
+	spritePiece	$38, 0, 4, 2, $520, 0, 0, 0, 1
+	spritePiece	$58, 0, 1, 2, $6F0, 0, 0, 0, 1
+word_14DF4_End
+
+word_14E1E:	spriteHeader
+	spritePiece	-$5C, 0, 4, 2, $6DA, 0, 0, 1, 1
+	spritePiece	-$34, 0, 4, 2, $5DE, 0, 0, 1, 1
+	spritePiece	-$14, 0, 1, 2, $6CA, 0, 0, 1, 1
+	spritePiece	-$18, 0, 2, 2, $5F0, 0, 0, 0, 1
+	spritePiece	$38, 0, 4, 2, $528, 0, 0, 0, 1
+	spritePiece	$58, 0, 1, 2, $6F0, 0, 0, 0, 1
+word_14E1E_End
+
+word_14E50:	spriteHeader
+	spritePiece	-$5C, 0, 4, 2, $6D2, 0, 0, 1, 1
+	spritePiece	-$34, 0, 4, 2, $5DE, 0, 0, 1, 1
+	spritePiece	-$14, 0, 1, 2, $6CA, 0, 0, 1, 1
+	spritePiece	-$18, 0, 2, 2, $5F0, 0, 0, 0, 1
+	spritePiece	$38, 0, 4, 2, $530, 0, 0, 0, 1
+	spritePiece	$58, 0, 1, 2, $6F0, 0, 0, 0, 1
+word_14E50_End
+
+word_14E82:	spriteHeader
+	spritePiece	0, 0, 2, 3, $5F4, 0, 0, 0, 1
+word_14E82_End
+
+word_14E8C:	spriteHeader
+	spritePiece	0, 0, 2, 3, $5FA, 0, 0, 0, 1
+word_14E8C_End
+
+word_14E96:	spriteHeader
+	spritePiece	-$68, 0, 4, 2, $540, 0, 0, 1, 1
+	spritePiece	-$48, 0, 3, 2, $548, 0, 0, 1, 1
+	spritePiece	-$28, 0, 4, 2, $5DE, 0, 0, 1, 1
+	spritePiece	-8, 0, 1, 2, $6CA, 0, 0, 1, 1
+	spritePiece	-$C, 0, 2, 2, $5F0, 0, 0, 0, 1
+	spritePiece	$38, 0, 4, 2, $538, 0, 0, 0, 1
+	spritePiece	$58, 0, 1, 2, $6F0, 0, 0, 0, 1
+word_14E96_End
+
+	even
+
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj6F_MapUnc_14ED0:	BINCLUDE "mappings/sprite/obj6F.bin"
+Obj6F_MapUnc_14ED0:	include "mappings/sprite/obj6F.asm"
 ; ===========================================================================
 
 ;loc_15584: ; level title card drawing function called from Vint
@@ -29316,7 +29408,7 @@ MoveSpikes_ChkDir:
 	bhs.s	+	; rts			; branch, if offset is not yet 0
 	move.w	#0,spikes_retract_offset(a0)
 	move.w	#0,spikes_retract_state(a0)	; switch state
-	move.w	#$3C,spikes_retract_timer(a0)	; reset timer
+	move.w	#60,spikes_retract_timer(a0)	; reset timer
 	bra.s	+	; rts
 ; ===========================================================================
 ; loc_15B46:
@@ -29326,7 +29418,7 @@ MoveSpikes_Retract:
 	blo.s	+	; rts				; if not, branch
 	move.w	#$2000,spikes_retract_offset(a0)
 	move.w	#1,spikes_retract_state(a0)	; switch state
-	move.w	#$3C,spikes_retract_timer(a0)	; reset timer
+	move.w	#60,spikes_retract_timer(a0)	; reset timer
 +
 	rts
 ; End of function MoveSpikes_Delay
@@ -29335,7 +29427,7 @@ MoveSpikes_Retract:
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj36_MapUnc_15B68:	BINCLUDE "mappings/sprite/obj36.bin"
+Obj36_MapUnc_15B68:	include "mappings/sprite/obj36.asm"
 
 
 
@@ -29388,7 +29480,7 @@ Obj3B_Main:
 ; -------------------------------------------------------------------------------
 ; Unused sprite mappings
 ; -------------------------------------------------------------------------------
-Obj3B_MapUnc_15D2E:	BINCLUDE "mappings/sprite/obj3B.bin"
+Obj3B_MapUnc_15D2E:	include "mappings/sprite/obj3B.asm"
 
     if ~~removeJmpTos
 	align 4
@@ -29528,7 +29620,7 @@ Obj3C_FragmentSpeeds_RightToLeft:
 ; -------------------------------------------------------------------------------
 ; Unused sprite mappings
 ; -------------------------------------------------------------------------------
-Obj3C_MapUnc_15ECC:	BINCLUDE "mappings/sprite/obj3C.bin"
+Obj3C_MapUnc_15ECC:	include "mappings/sprite/obj3C.asm"
 ; ===========================================================================
 	bra.w	ObjNull
 
@@ -29614,7 +29706,7 @@ RunObjectDisplayOnly:
 	; If this is a multi-sprite object, then we cannot use its 'priority'
 	; value to display it as it's being used for coordinate data.
 	; In theory, this means that calls to 'DisplaySprite' here could
-	; overflow the 'Sprite_Table_Input' buffer and write to 'Object_RAM'
+	; overflow the 'Object_Display_Lists' buffer and write to 'Object_RAM'
 	; instead, which could be quite disasterous. However, I don't think
 	; it's possible for an object to have a Y coordinate higher than
 	; $7FF, so, in practice, the overflow never occurs. Still, it can
@@ -29628,7 +29720,7 @@ RunObjectDisplayOnly:
 	pea	+(pc)	; This is an optimisation to avoid the need for extra branches: it makes it so '+' will be executed after 'DisplaySprite' or 'DisplaySprite3' return.
 	btst	#6,render_flags(a0)	; Is this a multi-sprite object?
 	beq.w	DisplaySprite		; If not, display using the object's 'priority' value.
-	move.w	#$80*4,d0		; If not, display using a hardcoded priority of 4.
+	move.w	#object_display_list_size*4,d0		; If not, display using a hardcoded priority of 4.
 	bra.w	DisplaySprite3
     else
 	bsr.w	DisplaySprite
@@ -30096,18 +30188,18 @@ DeleteObject2:
 
 ; sub_164F4:
 DisplaySprite:
-	lea	(Sprite_Table_Input).w,a1
+	lea	(Object_Display_Lists).w,a1
 	move.w	priority(a0),d0
-	lsr.w	#1,d0
-	andi.w	#$380,d0
+	lsr.w	#8-object_display_list_size_bits,d0
+	andi.w	#(1<<total_object_display_lists_bits-1)<<object_display_list_size_bits,d0
 	adda.w	d0,a1
-	cmpi.w	#$7E,(a1)
-	bhs.s	return_16510
+	cmpi.w	#object_display_list_size-2,(a1)
+	bhs.s	.return
 	addq.w	#2,(a1)
 	adda.w	(a1),a1
 	move.w	a0,(a1)
 
-return_16510:
+.return:
 	rts
 ; End of function DisplaySprite
 
@@ -30119,37 +30211,37 @@ return_16510:
 
 ; sub_16512:
 DisplaySprite2:
-	lea	(Sprite_Table_Input).w,a2
+	lea	(Object_Display_Lists).w,a2
 	move.w	priority(a1),d0
-	lsr.w	#1,d0
-	andi.w	#$380,d0
+	lsr.w	#8-object_display_list_size_bits,d0
+	andi.w	#(1<<total_object_display_lists_bits-1)<<object_display_list_size_bits,d0
 	adda.w	d0,a2
-	cmpi.w	#$7E,(a2)
-	bhs.s	return_1652E
+	cmpi.w	#object_display_list_size-2,(a2)
+	bhs.s	.return
 	addq.w	#2,(a2)
 	adda.w	(a2),a2
 	move.w	a1,(a2)
 
-return_1652E:
+.return:
 	rts
 ; End of function DisplaySprite2
 
 ; ---------------------------------------------------------------------------
 ; Subroutine to display a sprite/object, when a0 is the object RAM
-; and d0 is already (priority/2)&$380
+; and d0 is already priority*$80
 ; ---------------------------------------------------------------------------
 
 ; loc_16530:
 DisplaySprite3:
-	lea	(Sprite_Table_Input).w,a1
+	lea	(Object_Display_Lists).w,a1
 	adda.w	d0,a1
-	cmpi.w	#$7E,(a1)
-	bhs.s	return_16542
+	cmpi.w	#object_display_list_size-2,(a1)
+	bhs.s	.return
 	addq.w	#2,(a1)
 	adda.w	(a1),a1
 	move.w	a0,(a1)
 
-return_16542:
+.return:
 	rts
 
 ; ---------------------------------------------------------------------------
@@ -30269,8 +30361,8 @@ BuildSprites:
 	jsrto	BuildHUD, JmpTo_BuildHUD
 	bsr.w	BuildRings
 +
-	lea	(Sprite_Table_Input).w,a4
-	moveq	#7,d7	; 8 priority levels
+	lea	(Object_Display_Lists).w,a4
+	moveq	#total_object_display_lists-1,d7	; 8 priority levels
 ; loc_16628:
 BuildSprites_LevelLoop:
 	tst.w	(a4)	; does this level have any objects?
@@ -30370,7 +30462,7 @@ BuildSprites_NextObj:
 	bne.w	BuildSprites_ObjLoop	; if there are objects left, repeat
 ; loc_166FA:
 BuildSprites_NextLevel:
-	lea	$80(a4),a4	; load next priority level
+	lea	object_display_list_size(a4),a4	; load next priority level
 	dbf	d7,BuildSprites_LevelLoop	; loop
 	move.b	d5,(Sprite_count).w
 	; Terminate the sprite list.
@@ -30748,8 +30840,8 @@ BuildSprites_2P:
 	jsrto	BuildHUD_P1, JmpTo_BuildHUD_P1
 	bsr.w	BuildRings_P1
 +
-	lea	(Sprite_Table_Input).w,a4
-	moveq	#7,d7
+	lea	(Object_Display_Lists).w,a4
+	moveq	#total_object_display_lists-1,d7
 ; loc_16982:
 BuildSprites_P1_LevelLoop:
 	move.w	(a4),d0	; does this priority level have any objects?
@@ -30761,7 +30853,7 @@ BuildSprites_P1_ObjLoop:
 	movea.w	(a4,d6.w),a0 ; a0=object
 
 	; These is a sanity check, to detect invalid objects which should not
-	; have been queued for display. S3K gets rids of this, since it
+	; have been queued for display. S3K gets rid of this, since it
 	; should not be needed and it just slows this code down.
 	tst.b	id(a0)
 	beq.w	BuildSprites_P1_NextObj
@@ -30843,7 +30935,7 @@ BuildSprites_P1_NextObj:
 	addq.w	#2,sp
 ; loc_16A5A:
 BuildSprites_P1_NextLevel:
-	lea	$80(a4),a4
+	lea	object_display_list_size(a4),a4
 	dbf	d7,BuildSprites_P1_LevelLoop
 	move.b	d5,(Sprite_count).w
 	; Terminate the sprite list.
@@ -30886,8 +30978,8 @@ BuildSprites_P2:
 	jsrto	BuildHUD_P2, JmpTo_BuildHUD_P2
 	bsr.w	BuildRings_P2
 +
-	lea	(Sprite_Table_Input).w,a4
-	moveq	#7,d7
+	lea	(Object_Display_Lists).w,a4
+	moveq	#total_object_display_lists-1,d7
 ; loc_16A9C:
 BuildSprites_P2_LevelLoop:
 	move.w	(a4),d0
@@ -30899,7 +30991,7 @@ BuildSprites_P2_ObjLoop:
 	movea.w	(a4,d6.w),a0 ; a0=object
 
 	; These is a sanity check, to detect invalid objects which should not
-	; have been queued for display. S3K gets rids of this, since it
+	; have been queued for display. S3K gets rid of this, since it
 	; should not be needed and it just slows this code down.
 	tst.b	id(a0)
 	beq.w	BuildSprites_P2_NextObj
@@ -30983,7 +31075,7 @@ BuildSprites_P2_NextObj:
 	move.w	#0,(a4)
 ; loc_16B78:
 BuildSprites_P2_NextLevel:
-	lea	$80(a4),a4
+	lea	object_display_list_size(a4),a4
 	dbf	d7,BuildSprites_P2_LevelLoop
 
     if fixBugs
@@ -32069,71 +32161,39 @@ RingsMgr_SortRings:
 ; This was customised even further in Sonic 3 & Knuckles.
 
 ; off_1736A:
-MapUnc_Rings: offsetTable
-	offsetTableEntry.w .frame1
-	offsetTableEntry.w .frame2
-	offsetTableEntry.w .frame3
-	offsetTableEntry.w .frame4
-	offsetTableEntry.w .frame5
-	offsetTableEntry.w .frame6
-	offsetTableEntry.w .frame7
-	offsetTableEntry.w .frame8
+MapUnc_Rings: mappingsTable
+	mappingsTableEntry.w .frame1
+	mappingsTableEntry.w .frame2
+	mappingsTableEntry.w .frame3
+	mappingsTableEntry.w .frame4
+	mappingsTableEntry.w .frame5
+	mappingsTableEntry.w .frame6
+	mappingsTableEntry.w .frame7
+	mappingsTableEntry.w .frame8
 
 .frame1:
-	dc.b -8
-	dc.b  5
-	dc.w make_block_tile(0,0,0,0,0)
-	dc.w make_block_tile_2p(0,0,0,0,0)
-	dc.w -8
+	spritePiece	-8, -8, 2, 2, 0, 0, 0, 0, 0
 
 .frame2:
-	dc.b -8
-	dc.b  5
-	dc.w make_block_tile(4,0,0,0,0)
-	dc.w make_block_tile_2p(4,0,0,0,0)
-	dc.w -8
+	spritePiece	-8, -8, 2, 2, 4, 0, 0, 0, 0
 
 .frame3:
-	dc.b -8
-	dc.b  1
-	dc.w make_block_tile(8,0,0,0,0)
-	dc.w make_block_tile_2p(8,0,0,0,0)
-	dc.w -4
+	spritePiece	-4, -8, 1, 2, 8, 0, 0, 0, 0
 
 .frame4:
-	dc.b -8
-	dc.b  5
-	dc.w make_block_tile(4,1,0,0,0)
-	dc.w make_block_tile_2p(4,1,0,0,0)
-	dc.w -8
+	spritePiece	-8, -8, 2, 2, 4, 1, 0, 0, 0
 
 .frame5:
-	dc.b -8
-	dc.b  5
-	dc.w make_block_tile(10,0,0,0,0)
-	dc.w make_block_tile_2p(10,0,0,0,0)
-	dc.w -8
+	spritePiece	-8, -8, 2, 2, $A, 0, 0, 0, 0
 
 .frame6:
-	dc.b -8
-	dc.b  5
-	dc.w make_block_tile(10,1,1,0,0)
-	dc.w make_block_tile_2p(10,1,1,0,0)
-	dc.w -8
+	spritePiece	-8, -8, 2, 2, $A, 1, 1, 0, 0
 
 .frame7:
-	dc.b -8
-	dc.b  5
-	dc.w make_block_tile(10,1,0,0,0)
-	dc.w make_block_tile_2p(10,1,0,0,0)
-	dc.w -8
+	spritePiece	-8, -8, 2, 2, $A, 1, 0, 0, 0
 
 .frame8:
-	dc.b -8
-	dc.b  5
-	dc.w make_block_tile(10,0,1,0,0)
-	dc.w make_block_tile_2p(10,0,1,0,0)
-	dc.w -8
+	spritePiece	-8, -8, 2, 2, $A, 0, 1, 0, 0
 
     if ~~removeJmpTos
 	align 4
@@ -33332,7 +33392,7 @@ ObjectsManager_2P_UnloadObjectBlock:
 
 ;loc_17F0A: ObjMan2P_UnkSub3_DeleteBlockLoop:
 .deleteBlockLoop:
-	tst.b	(a3)
+	tst.b	id(a3)
 	beq.s	.skipObject	; branch if slot is empty
 	movea.l	a3,a1
 	moveq	#0,d0
@@ -34263,106 +34323,124 @@ byte_1900F:
 ; ----------------------------------------------------------------------------
 ; Primary sprite mappings for springs
 ; ----------------------------------------------------------------------------
-Obj41_MapUnc_1901C: offsetTable
-	offsetTableEntry.w word_19048	;  0
-	offsetTableEntry.w word_1905A	;  1
-	offsetTableEntry.w word_19064	;  2
-	offsetTableEntry.w word_19076	;  3
-	offsetTableEntry.w word_19088	;  4
-	offsetTableEntry.w word_19092	;  5
-	offsetTableEntry.w word_190A4	;  6
-	offsetTableEntry.w word_190B6	;  7
-	offsetTableEntry.w word_190D8	;  8
-	offsetTableEntry.w word_190F2	;  9
-	offsetTableEntry.w word_19114	; $A
+Obj41_MapUnc_1901C:	mappingsTable
+	mappingsTableEntry.w	word_19048
+	mappingsTableEntry.w	word_1905A
+	mappingsTableEntry.w	word_19064
+	mappingsTableEntry.w	word_19076
+	mappingsTableEntry.w	word_19088
+	mappingsTableEntry.w	word_19092
+	mappingsTableEntry.w	word_190A4
+	mappingsTableEntry.w	word_190B6
+	mappingsTableEntry.w	word_190D8
+	mappingsTableEntry.w	word_190F2
+	mappingsTableEntry.w	word_19114
 ; -------------------------------------------------------------------------------
 ; Secondary sprite mappings for springs
 ; merged with the above mappings; can't split to file in a useful way...
 ; -------------------------------------------------------------------------------
-Obj41_MapUnc_19032: offsetTable
-	offsetTableEntry.w word_19048	;  0
-	offsetTableEntry.w word_1905A	;  1
-	offsetTableEntry.w word_19064	;  2
-	offsetTableEntry.w word_19076	;  3
-	offsetTableEntry.w word_19088	;  4
-	offsetTableEntry.w word_19092	;  5
-	offsetTableEntry.w word_190A4	;  6
-	offsetTableEntry.w word_19136	;  7
-	offsetTableEntry.w word_19158	;  8
-	offsetTableEntry.w word_19172	;  9
-	offsetTableEntry.w word_19194	; $A
-word_19048:
-	dc.w 2
-	dc.w $F00D,    0,    0,$FFF0
-	dc.w	 5,    8,    4,$FFF8; 4
-word_1905A:
-	dc.w 1
-	dc.w $F80D,    0,    0,$FFF0
-word_19064:
-	dc.w 2
-	dc.w $E00D,    0,    0,$FFF0
-	dc.w $F007,   $C,    6,$FFF8; 4
-word_19076:
-	dc.w 2
-	dc.w $F003,    0,    0,	   0
-	dc.w $F801,    4,    2,$FFF8; 4
-word_19088:
-	dc.w 1
-	dc.w $F003,    0,    0,$FFF8
-word_19092:
-	dc.w 2
-	dc.w $F003,    0,    0,	 $10
-	dc.w $F809,    6,    3,$FFF8; 4
-word_190A4:
-	dc.w 2
-	dc.w	$D,$1000,$1000,$FFF0
-	dc.w $F005,$1008,$1004,$FFF8; 4
-word_190B6:
-	dc.w 4
-	dc.w $F00D,    0,    0,$FFF0
-	dc.w	 5,    8,    4,	   0; 4
-	dc.w $FB05,   $C,    6,$FFF6; 8
-	dc.w	 5,$201C,$200E,$FFF0; 12
-word_190D8:
-	dc.w 3
-	dc.w $F60D,    0,    0,$FFEA
-	dc.w  $605,    8,    4,$FFFA; 4
-	dc.w	 5,$201C,$200E,$FFF0; 8
-word_190F2:
-	dc.w 4
-	dc.w $E60D,    0,    0,$FFFB
-	dc.w $F605,    8,    4,	  $B; 4
-	dc.w $F30B,  $10,    8,$FFF6; 8
-	dc.w	 5,$201C,$200E,$FFF0; 12
-word_19114:
-	dc.w 4
-	dc.w	$D,$1000,$1000,$FFF0
-	dc.w $F005,$1008,$1004,	   0; 4
-	dc.w $F505,$100C,$1006,$FFF6; 8
-	dc.w $F005,$301C,$300E,$FFF0; 12
-word_19136:
-	dc.w 4
-	dc.w $F00D,    0,    0,$FFF0
-	dc.w	 5,    8,    4,	   0; 4
-	dc.w $FB05,   $C,    6,$FFF6; 8
-	dc.w	 5,  $1C,   $E,$FFF0; 12
-word_19158:
-	dc.w 3
-	dc.w $F60D,    0,    0,$FFEA
-	dc.w  $605,    8,    4,$FFFA; 4
-	dc.w	 5,  $1C,   $E,$FFF0; 8
-word_19172:
-	dc.w 4
-	dc.w $E60D,    0,    0,$FFFB
-	dc.w $F605,    8,    4,	  $B; 4
-	dc.w $F30B,  $10,    8,$FFF6; 8
-	dc.w	 5,  $1C,   $E,$FFF0; 12
-word_19194:
-	dc.w 4
-	dc.w	$D,$1000,$1000,$FFF0
-	dc.w $F005,$1008,$1004,	   0; 4
-	dc.w $F505,$100C,$1006,$FFF6; 8
-	dc.w $F005,$101C,$100E,$FFF0; 12
+Obj41_MapUnc_19032:	mappingsTable
+	mappingsTableEntry.w	word_19048
+	mappingsTableEntry.w	word_1905A
+	mappingsTableEntry.w	word_19064
+	mappingsTableEntry.w	word_19076
+	mappingsTableEntry.w	word_19088
+	mappingsTableEntry.w	word_19092
+	mappingsTableEntry.w	word_190A4
+	mappingsTableEntry.w	word_19136
+	mappingsTableEntry.w	word_19158
+	mappingsTableEntry.w	word_19172
+	mappingsTableEntry.w	word_19194
+
+word_19048:	spriteHeader
+	spritePiece	-$10, -$10, 4, 2, 0, 0, 0, 0, 0
+	spritePiece	-8, 0, 2, 2, 8, 0, 0, 0, 0
+word_19048_End
+
+word_1905A:	spriteHeader
+	spritePiece	-$10, -8, 4, 2, 0, 0, 0, 0, 0
+word_1905A_End
+
+word_19064:	spriteHeader
+	spritePiece	-$10, -$20, 4, 2, 0, 0, 0, 0, 0
+	spritePiece	-8, -$10, 2, 4, $C, 0, 0, 0, 0
+word_19064_End
+
+word_19076:	spriteHeader
+	spritePiece	0, -$10, 1, 4, 0, 0, 0, 0, 0
+	spritePiece	-8, -8, 1, 2, 4, 0, 0, 0, 0
+word_19076_End
+
+word_19088:	spriteHeader
+	spritePiece	-8, -$10, 1, 4, 0, 0, 0, 0, 0
+word_19088_End
+
+word_19092:	spriteHeader
+	spritePiece	$10, -$10, 1, 4, 0, 0, 0, 0, 0
+	spritePiece	-8, -8, 3, 2, 6, 0, 0, 0, 0
+word_19092_End
+
+word_190A4:	spriteHeader
+	spritePiece	-$10, 0, 4, 2, 0, 0, 1, 0, 0
+	spritePiece	-8, -$10, 2, 2, 8, 0, 1, 0, 0
+word_190A4_End
+
+word_190B6:	spriteHeader
+	spritePiece	-$10, -$10, 4, 2, 0, 0, 0, 0, 0
+	spritePiece	0, 0, 2, 2, 8, 0, 0, 0, 0
+	spritePiece	-$A, -5, 2, 2, $C, 0, 0, 0, 0
+	spritePiece	-$10, 0, 2, 2, $1C, 0, 0, 1, 0
+word_190B6_End
+
+word_190D8:	spriteHeader
+	spritePiece	-$16, -$A, 4, 2, 0, 0, 0, 0, 0
+	spritePiece	-6, 6, 2, 2, 8, 0, 0, 0, 0
+	spritePiece	-$10, 0, 2, 2, $1C, 0, 0, 1, 0
+word_190D8_End
+
+word_190F2:	spriteHeader
+	spritePiece	-5, -$1A, 4, 2, 0, 0, 0, 0, 0
+	spritePiece	$B, -$A, 2, 2, 8, 0, 0, 0, 0
+	spritePiece	-$A, -$D, 3, 4, $10, 0, 0, 0, 0
+	spritePiece	-$10, 0, 2, 2, $1C, 0, 0, 1, 0
+word_190F2_End
+
+word_19114:	spriteHeader
+	spritePiece	-$10, 0, 4, 2, 0, 0, 1, 0, 0
+	spritePiece	0, -$10, 2, 2, 8, 0, 1, 0, 0
+	spritePiece	-$A, -$B, 2, 2, $C, 0, 1, 0, 0
+	spritePiece	-$10, -$10, 2, 2, $1C, 0, 1, 1, 0
+word_19114_End
+
+word_19136:	spriteHeader
+	spritePiece	-$10, -$10, 4, 2, 0, 0, 0, 0, 0
+	spritePiece	0, 0, 2, 2, 8, 0, 0, 0, 0
+	spritePiece	-$A, -5, 2, 2, $C, 0, 0, 0, 0
+	spritePiece	-$10, 0, 2, 2, $1C, 0, 0, 0, 0
+word_19136_End
+
+word_19158:	spriteHeader
+	spritePiece	-$16, -$A, 4, 2, 0, 0, 0, 0, 0
+	spritePiece	-6, 6, 2, 2, 8, 0, 0, 0, 0
+	spritePiece	-$10, 0, 2, 2, $1C, 0, 0, 0, 0
+word_19158_End
+
+word_19172:	spriteHeader
+	spritePiece	-5, -$1A, 4, 2, 0, 0, 0, 0, 0
+	spritePiece	$B, -$A, 2, 2, 8, 0, 0, 0, 0
+	spritePiece	-$A, -$D, 3, 4, $10, 0, 0, 0, 0
+	spritePiece	-$10, 0, 2, 2, $1C, 0, 0, 0, 0
+word_19172_End
+
+word_19194:	spriteHeader
+	spritePiece	-$10, 0, 4, 2, 0, 0, 1, 0, 0
+	spritePiece	0, -$10, 2, 2, 8, 0, 1, 0, 0
+	spritePiece	-$A, -$B, 2, 2, $C, 0, 1, 0, 0
+	spritePiece	-$10, -$10, 2, 2, $1C, 0, 1, 0, 0
+word_19194_End
+
+	even
+
 ; ===========================================================================
 
     if gameRevision<2
@@ -34523,7 +34601,7 @@ Obj0D_Main_StateNull:
 Obj0D_Main_State2:
 	subq.w	#1,obj0D_spinframe(a0)
 	bpl.s	loc_19398
-	move.w	#$3C,obj0D_spinframe(a0)
+	move.w	#60,obj0D_spinframe(a0)
 	addq.b	#1,anim(a0)
 	cmpi.b	#3,anim(a0)
 	bne.s	loc_19398
@@ -34626,12 +34704,12 @@ Load_EndOfAct:
 	move.b	#1,(Update_Bonus_score).w
 	moveq	#0,d0
 	move.b	(Timer_minute).w,d0
-	mulu.w	#$3C,d0
+	mulu.w	#60,d0
 	moveq	#0,d1
 	move.b	(Timer_second).w,d1
 	add.w	d1,d0
-	divu.w	#$F,d0
-	moveq	#$14,d1
+	divu.w	#15,d0
+	moveq	#(TimeBonuses_End-TimeBonuses)/2-1,d1
 	cmp.w	d1,d0
 	blo.s	+
 	move.w	d1,d0
@@ -34658,6 +34736,7 @@ TimeBonuses:
 	dc.w 5000, 5000, 1000, 500, 400, 400, 300, 300
 	dc.w  200,  200,  200, 200, 100, 100, 100, 100
 	dc.w   50,   50,   50,  50,   0
+TimeBonuses_End:
 ; ===========================================================================
 ; loc_194FC:
 Obj0D_Main_State4:
@@ -34739,16 +34818,16 @@ byte_195BA:	dc.b	$0F, $01, $FF
 ; sprite mappings - Primary sprite table for object 0D (signpost)
 ; -------------------------------------------------------------------------------
 ; SprTbl_0D_Primary:
-Obj0D_MapUnc_195BE:	BINCLUDE "mappings/sprite/obj0D_a.bin"
+Obj0D_MapUnc_195BE:	include "mappings/sprite/obj0D_a.asm"
 ; -------------------------------------------------------------------------------
 ; sprite mappings - Secondary sprite table for object 0D (signpost)
 ; -------------------------------------------------------------------------------
 ; SprTbl_0D_Scndary:
-Obj0D_MapUnc_19656:	BINCLUDE "mappings/sprite/obj0D_b.bin"
+Obj0D_MapUnc_19656:	include "mappings/sprite/obj0D_b.asm"
 ; -------------------------------------------------------------------------------
 ; dynamic pattern loading cues
 ; -------------------------------------------------------------------------------
-Obj0D_MapRUnc_196EE:	BINCLUDE "mappings/spriteDPLC/obj0D.bin"
+Obj0D_MapRUnc_196EE:	include "mappings/spriteDPLC/obj0D.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -35312,6 +35391,11 @@ SolidObject_Squash:
 	blo.w	SolidObject_LeftRight
 
 	move.l	a0,-(sp)
+    if fixBugs
+	; a2 needs to be set here, otherwise KillCharacter
+	; will access a dangling pointer!
+	movea.l	a0,a2
+    endif
 	movea.l	a1,a0
 	jsr	(KillCharacter).l
 	movea.l	(sp)+,a0 ; load 0bj address
@@ -36820,11 +36904,11 @@ Sonic_ChgJumpDir:
 	neg.w	d1
 	cmp.w	d1,d0	; compare new speed with top speed
 	bgt.s	+	; if new speed is less than the maximum, branch
-	
+
 	add.w	d5,d0	; +++ remove this frame's acceleration change
 	cmp.w	d1,d0	; +++ compare speed with top speed
 	ble.s	+	; +++ if speed was already greater than the maximum, branch
-	
+
 	move.w	d1,d0	; limit speed in air going left, even if Sonic was already going faster (speed limit/cap)
 +
 	btst	#button_right,(Ctrl_1_Held_Logical).w
@@ -36834,11 +36918,11 @@ Sonic_ChgJumpDir:
 	add.w	d5,d0	; accelerate right in the air
 	cmp.w	d6,d0	; compare new speed with top speed
 	blt.s	+	; if new speed is less than the maximum, branch
-	
+
 	sub.w	d5,d0	; +++ remove this frame's acceleration change
 	cmp.w	d6,d0	; +++ compare speed with top speed
 	bge.s	+	; +++ if speed was already greater than the maximum, branch
-	
+
 	move.w	d6,d0	; limit speed in air going right, even if Sonic was already going faster (speed limit/cap)
 ; Obj01_JumpMove:
 +	move.w	d0,x_vel(a0)
@@ -36929,7 +37013,11 @@ Sonic_Boundary_CheckBottom:
 	rts
 ; ---------------------------------------------------------------------------
 Sonic_Boundary_Bottom: ;;
-	addq.l    #4,sp
+    if fixBugs
+	; a2 needs to be set here, otherwise KillCharacter
+	; will access a dangling pointer!
+	movea.l	a0,a2
+    endif
 	jmpto	KillCharacter, JmpTo_KillCharacter
 ; ===========================================================================
 
@@ -37822,6 +37910,11 @@ Obj01_Hurt_Normal:
 ; ===========================================================================
 ; loc_1B184:
 Sonic_HurtStop:
+    if fixBugs
+	; a2 needs to be set here, otherwise KillCharacter
+	; will access a dangling pointer!
+	movea.l	a0,a2
+    endif
 	move.w	(Camera_Max_Y_pos).w,d0
     if fixBugs
 	; The original code does not consider that the camera boundary
@@ -39924,7 +40017,11 @@ Tails_Boundary_CheckBottom:
 	rts
 ; ---------------------------------------------------------------------------
 Tails_Boundary_Bottom: ;;
-	addq.l    #4,sp
+    if fixBugs
+	; a2 needs to be set here, otherwise KillCharacter
+	; will access a dangling pointer!
+	movea.l	a0,a2
+    endif
 	jmpto	KillCharacter, JmpTo2_KillCharacter
 ; ===========================================================================
 
@@ -40679,6 +40776,11 @@ Obj02_Hurt:
 ; ===========================================================================
 ; loc_1CC08:
 Tails_HurtStop:
+    if fixBugs
+	; a2 needs to be set here, otherwise KillCharacter
+	; will access a dangling pointer!
+	movea.l	a0,a2
+    endif
 	move.w	(Tails_Max_Y_pos).w,d0
     if fixBugs
 	; The original code does not consider that the camera boundary
@@ -42117,7 +42219,7 @@ loc_1DA44:
 
 loc_1DA74:
 	add.b	d0,objoff_34(a0)
-	move.w	#$80,d0
+	move.w	#object_display_list_size*1,d0
 	bra.w	DisplaySprite3
 ; ===========================================================================
 
@@ -42190,7 +42292,7 @@ loc_1DAE4:
 
 loc_1DB20:
 	add.b	d0,objoff_34(a0)
-	move.w	#$80,d0
+	move.w	#object_display_list_size*1,d0
 	bra.w	DisplaySprite3
 ; ===========================================================================
 
@@ -42232,11 +42334,11 @@ Ani_obj38:	offsetTable
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj38_MapUnc_1DBE4:	BINCLUDE "mappings/sprite/obj38.bin"
+Obj38_MapUnc_1DBE4:	include "mappings/sprite/obj38.asm"
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj35_MapUnc_1DCBC:	BINCLUDE "mappings/sprite/obj35.bin"
+Obj35_MapUnc_1DCBC:	include "mappings/sprite/obj35.asm"
 
 ; ===========================================================================
 ; ----------------------------------------------------------------------------
@@ -42447,11 +42549,11 @@ Obj08Ani_Skid:	dc.b   3,$11,$12,$13,$14,$FC
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj08_MapUnc_1DF5E:	BINCLUDE "mappings/sprite/obj08.bin"
+Obj08_MapUnc_1DF5E:	include "mappings/sprite/obj08.asm"
 ; -------------------------------------------------------------------------------
 ; dynamic pattern loading cues
 ; -------------------------------------------------------------------------------
-Obj08_MapRUnc_1E074:	BINCLUDE "mappings/spriteDPLC/obj08.bin"
+Obj08_MapRUnc_1E074:	include "mappings/spriteDPLC/obj08.asm"
 ; ===========================================================================
 ; ----------------------------------------------------------------------------
 ; Object 7E - Super Sonic's stars
@@ -42533,7 +42635,7 @@ JmpTo8_DeleteObject ; JmpTo
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj7E_MapUnc_1E1BE:	BINCLUDE "mappings/sprite/obj7E.bin"
+Obj7E_MapUnc_1E1BE:	include "mappings/sprite/obj7E.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -44380,11 +44482,11 @@ byte_1F420:
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj79_MapUnc_1F424:	BINCLUDE "mappings/sprite/obj79_a.bin"
+Obj79_MapUnc_1F424:	include "mappings/sprite/obj79_a.asm"
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj79_MapUnc_1F4A0:	BINCLUDE "mappings/sprite/obj79_b.bin"
+Obj79_MapUnc_1F4A0:	include "mappings/sprite/obj79_b.asm"
 ; ===========================================================================
 
 ; loc_1F4C4:
@@ -44622,7 +44724,7 @@ JmpTo12_DeleteObject ; JmpTo
 ; -------------------------------------------------------------------------------
 ; Unused sprite mappings
 ; -------------------------------------------------------------------------------
-Obj7D_MapUnc_1F6FE:	BINCLUDE "mappings/sprite/obj7D.bin"
+Obj7D_MapUnc_1F6FE:	include "mappings/sprite/obj7D.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -44746,7 +44848,7 @@ byte_1F853:	dc.b   3,  1,  0,  1,$FD,  0
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj44_MapUnc_1F85A:	BINCLUDE "mappings/sprite/obj44.bin"
+Obj44_MapUnc_1F85A:	include "mappings/sprite/obj44.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -45085,84 +45187,99 @@ byte_1FBF2:	dc.b  $F, $E, $F,$FF
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj24_MapUnc_1FBF6: offsetTable
-	offsetTableEntry.w word_1FC3A	;   0
-	offsetTableEntry.w word_1FC44	;   1
-	offsetTableEntry.w word_1FC44	;   2
-	offsetTableEntry.w word_1FC4E	;   3
-	offsetTableEntry.w word_1FC58	;   4
-	offsetTableEntry.w word_1FC62	;   5
-	offsetTableEntry.w word_1FC6C	;   6
-	offsetTableEntry.w word_1FC76	;   7
-	offsetTableEntry.w word_1FC98	;   8
-	offsetTableEntry.w word_1FC98	;   9
-	offsetTableEntry.w word_1FC98	;  $A
-	offsetTableEntry.w word_1FC98	;  $B
-	offsetTableEntry.w word_1FC98	;  $C
-	offsetTableEntry.w word_1FC98	;  $D
-	offsetTableEntry.w word_1FCA2	;  $E
-	offsetTableEntry.w word_1FCAC	;  $F
-	offsetTableEntry.w word_1FCB6	; $10
+Obj24_MapUnc_1FBF6:	mappingsTable
+	mappingsTableEntry.w	word_1FC3A
+	mappingsTableEntry.w	word_1FC44
+	mappingsTableEntry.w	word_1FC44
+	mappingsTableEntry.w	word_1FC4E
+	mappingsTableEntry.w	word_1FC58
+	mappingsTableEntry.w	word_1FC62
+	mappingsTableEntry.w	word_1FC6C
+	mappingsTableEntry.w	word_1FC76
+	mappingsTableEntry.w	word_1FC98
+	mappingsTableEntry.w	word_1FC98
+	mappingsTableEntry.w	word_1FC98
+	mappingsTableEntry.w	word_1FC98
+	mappingsTableEntry.w	word_1FC98
+	mappingsTableEntry.w	word_1FC98
+	mappingsTableEntry.w	word_1FCA2
+	mappingsTableEntry.w	word_1FCAC
+	mappingsTableEntry.w	word_1FCB6
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; merged with the above mappings, can't split to file in a useful way...
 ; -------------------------------------------------------------------------------
-Obj24_MapUnc_1FC18: offsetTable
-	offsetTableEntry.w word_1FC3A	;   0
-	offsetTableEntry.w word_1FC44	;   1
-	offsetTableEntry.w word_1FC44	;   2
-	offsetTableEntry.w word_1FC4E	;   3
-	offsetTableEntry.w word_1FC58	;   4
-	offsetTableEntry.w word_1FC62	;   5
-	offsetTableEntry.w word_1FC6C	;   6
-	offsetTableEntry.w word_1FC76	;   7
-	offsetTableEntry.w word_1FCB8	;   8
-	offsetTableEntry.w word_1FCB8	;   9
-	offsetTableEntry.w word_1FCB8	;  $A
-	offsetTableEntry.w word_1FCB8	;  $B
-	offsetTableEntry.w word_1FCB8	;  $C
-	offsetTableEntry.w word_1FCB8	;  $D
-	offsetTableEntry.w word_1FCA2	;  $E
-	offsetTableEntry.w word_1FCAC	;  $F
-	offsetTableEntry.w word_1FCB6	; $10
-word_1FC3A:
-	dc.w	1
-	dc.w	$FC00, $008D, $0046, $FFFC
-word_1FC44:
-	dc.w	1
-	dc.w	$FC00, $008E, $0047, $FFFC
-word_1FC4E:
-	dc.w	1
-	dc.w	$F805, $008F, $0047, $FFF8
-word_1FC58:
-	dc.w	1
-	dc.w	$F805, $0093, $0049, $FFF8
-word_1FC62:
-	dc.w	1
-	dc.w	$F40A, $001C, $000E, $FFF4
-word_1FC6C:
-	dc.w	1
-	dc.w	$F00F, $0008, $0004, $FFF0
-word_1FC76:
-	dc.w	4
-	dc.w	$F005, $0018, $000C, $FFF0
-	dc.w	$F005, $0818, $080C, $0000
-	dc.w	$0005, $1018, $100C, $FFF0
-	dc.w	$0005, $1818, $180C, $0000
-word_1FC98:
-	dc.w	1
-	dc.w	$F406, $1F41, $1BA0, $FFF8
-word_1FCA2:
-	dc.w	1
-	dc.w	$F805, $0000, $0000, $FFF8
-word_1FCAC:
-	dc.w	1
-	dc.w	$F805, $0004, $0002, $FFF8
-word_1FCB6:
-	dc.w	0
-word_1FCB8:
-	dc.w	1
-	dc.w	$F406, $1F31, $1B98, $FFF8
+Obj24_MapUnc_1FC18:	mappingsTable
+	mappingsTableEntry.w	word_1FC3A
+	mappingsTableEntry.w	word_1FC44
+	mappingsTableEntry.w	word_1FC44
+	mappingsTableEntry.w	word_1FC4E
+	mappingsTableEntry.w	word_1FC58
+	mappingsTableEntry.w	word_1FC62
+	mappingsTableEntry.w	word_1FC6C
+	mappingsTableEntry.w	word_1FC76
+	mappingsTableEntry.w	word_1FCB8
+	mappingsTableEntry.w	word_1FCB8
+	mappingsTableEntry.w	word_1FCB8
+	mappingsTableEntry.w	word_1FCB8
+	mappingsTableEntry.w	word_1FCB8
+	mappingsTableEntry.w	word_1FCB8
+	mappingsTableEntry.w	word_1FCA2
+	mappingsTableEntry.w	word_1FCAC
+	mappingsTableEntry.w	word_1FCB6
+
+word_1FC3A:	spriteHeader
+	spritePiece	-4, -4, 1, 1, $8D, 0, 0, 0, 0
+word_1FC3A_End
+
+word_1FC44:	spriteHeader
+	spritePiece	-4, -4, 1, 1, $8E, 0, 0, 0, 0
+word_1FC44_End
+
+word_1FC4E:	spriteHeader
+	spritePiece	-8, -8, 2, 2, $8F, 0, 0, 0, 0
+word_1FC4E_End
+
+word_1FC58:	spriteHeader
+	spritePiece	-8, -8, 2, 2, $93, 0, 0, 0, 0
+word_1FC58_End
+
+word_1FC62:	spriteHeader
+	spritePiece	-$C, -$C, 3, 3, $1C, 0, 0, 0, 0
+word_1FC62_End
+
+word_1FC6C:	spriteHeader
+	spritePiece	-$10, -$10, 4, 4, 8, 0, 0, 0, 0
+word_1FC6C_End
+
+word_1FC76:	spriteHeader
+	spritePiece	-$10, -$10, 2, 2, $18, 0, 0, 0, 0
+	spritePiece	0, -$10, 2, 2, $18, 1, 0, 0, 0
+	spritePiece	-$10, 0, 2, 2, $18, 0, 1, 0, 0
+	spritePiece	0, 0, 2, 2, $18, 1, 1, 0, 0
+word_1FC76_End
+
+word_1FC98:	spriteHeader
+	spritePiece	-8, -$C, 2, 3, $741, 1, 1, 0, 0
+word_1FC98_End
+
+word_1FCA2:	spriteHeader
+	spritePiece	-8, -8, 2, 2, 0, 0, 0, 0, 0
+word_1FCA2_End
+
+word_1FCAC:	spriteHeader
+	spritePiece	-8, -8, 2, 2, 4, 0, 0, 0, 0
+word_1FCAC_End
+
+word_1FCB6:	spriteHeader
+word_1FCB6_End
+
+word_1FCB8:	spriteHeader
+	spritePiece	-8, -$C, 2, 3, $731, 1, 1, 0, 0
+word_1FCB8_End
+
+	even
+
 ; ===========================================================================
 
     if gameRevision<2
@@ -45427,7 +45544,7 @@ return_1FFB6:
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj03_MapUnc_1FFB8:	BINCLUDE "mappings/sprite/obj03.bin"
+Obj03_MapUnc_1FFB8:	include "mappings/sprite/obj03.asm"
 ; ===========================================================================
 
     if ~~removeJmpTos
@@ -45546,7 +45663,7 @@ byte_20198:
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj0B_MapUnc_201A0:	BINCLUDE "mappings/sprite/obj0B.bin"
+Obj0B_MapUnc_201A0:	include "mappings/sprite/obj0B.asm"
 ; ===========================================================================
 
     if ~~removeJmpTos
@@ -45656,7 +45773,7 @@ loc_202E6:
 ; ----------------------------------------------------------------------------
 ; Unused sprite mappings
 ; ----------------------------------------------------------------------------
-Obj0C_MapUnc_202FA:	BINCLUDE "mappings/sprite/obj0C.bin"
+Obj0C_MapUnc_202FA:	include "mappings/sprite/obj0C.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -45719,7 +45836,7 @@ Obj12_Main:
 ; -------------------------------------------------------------------------------
 ; sprite mappings (unused)
 ; -------------------------------------------------------------------------------
-Obj12_MapUnc_20382:	BINCLUDE "mappings/sprite/obj12.bin"
+Obj12_MapUnc_20382:	include "mappings/sprite/obj12.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -45873,7 +45990,7 @@ Obj13_ChkDel:
 ; -------------------------------------------------------------------------------
 ; sprite mappings (unused)
 ; -------------------------------------------------------------------------------
-Obj13_MapUnc_20528:	BINCLUDE "mappings/sprite/obj13.bin"
+Obj13_MapUnc_20528:	include "mappings/sprite/obj13.asm"
 ; ===========================================================================
 
     if ~~removeJmpTos
@@ -45933,7 +46050,15 @@ Obj04_Action:
 	move.w	d1,y_pos(a0)
 	tst.b	objoff_32(a0)
 	bne.s	Obj04_Animate
+    if fixBugs
+	move.b	(Ctrl_1_Press).w,d0 ; is Start button pressed?
+	or.b	(Ctrl_2_Press).w,d0 ; (either player)
+	andi.b	#button_start_mask,d0
+    else
+	; This only checks player 1, causing the water to look weird if
+	; player 2 pauses the game instead.
 	btst	#button_start,(Ctrl_1_Press).w	; is Start button pressed?
+    endif
 	beq.s	loc_20962		; if not, branch
 	addq.b	#3,mapping_frame(a0)	; use different frames
 	move.b	#1,objoff_32(a0)	; stop animation
@@ -45980,7 +46105,15 @@ Obj04_Action2:
 	move.w	d1,y_pos(a0)
 	tst.b	objoff_32(a0)
 	bne.s	Obj04_Animate2
+    if fixBugs
+	move.b	(Ctrl_1_Press).w,d0 ; is Start button pressed?
+	or.b	(Ctrl_2_Press).w,d0 ; (either player)
+	andi.b	#button_start_mask,d0
+    else
+	; This only checks player 1, causing the water to look weird if
+	; player 2 pauses the game instead.
 	btst	#button_start,(Ctrl_1_Press).w	; is Start button pressed?
+    endif
 	beq.s	loc_209F4		; if not, branch
 	addq.b	#2,mapping_frame(a0)    ; use different frames
 	move.b	#1,objoff_32(a0)		; stop animation
@@ -46006,11 +46139,11 @@ BranchTo_JmpTo10_DisplaySprite ; BranchTo
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj04_MapUnc_20A0E:	BINCLUDE "mappings/sprite/obj04_a.bin"
+Obj04_MapUnc_20A0E:	include "mappings/sprite/obj04_a.asm"
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj04_MapUnc_20AFE:	BINCLUDE "mappings/sprite/obj04_b.bin"
+Obj04_MapUnc_20AFE:	include "mappings/sprite/obj04_b.asm"
 ; ===========================================================================
 ; ----------------------------------------------------------------------------
 ; Object 49 - Waterfall from EHZ
@@ -46080,7 +46213,7 @@ Obj49_Display:
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj49_MapUnc_20C50:	BINCLUDE "mappings/sprite/obj49.bin"
+Obj49_MapUnc_20C50:	include "mappings/sprite/obj49.asm"
 
 
 
@@ -46157,12 +46290,12 @@ Obj31_Main:
 ; -------------------------------------------------------------------------------
 ; sprite non-mappings
 ; -------------------------------------------------------------------------------
-Obj31_MapUnc_20E6C:	BINCLUDE "mappings/sprite/obj31_a.bin"
+Obj31_MapUnc_20E6C:	include "mappings/sprite/obj31_a.asm"
     endif
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj31_MapUnc_20E74:	BINCLUDE "mappings/sprite/obj31_b.bin"
+Obj31_MapUnc_20E74:	include "mappings/sprite/obj31_b.asm"
 ; ===========================================================================
 
 
@@ -46232,7 +46365,7 @@ Obj74_Main:
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj74_MapUnc_20F66:	BINCLUDE "mappings/sprite/obj74.bin"
+Obj74_MapUnc_20F66:	include "mappings/sprite/obj74.asm"
 
 
 
@@ -46287,7 +46420,7 @@ Obj7C_Main:
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj7C_MapUnc_2103C:	BINCLUDE "mappings/sprite/obj7C.bin"
+Obj7C_MapUnc_2103C:	include "mappings/sprite/obj7C.asm"
 
 
 
@@ -46348,7 +46481,7 @@ Obj27_Main:
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj27_MapUnc_21120:	BINCLUDE "mappings/sprite/obj27.bin"
+Obj27_MapUnc_21120:	include "mappings/sprite/obj27.asm"
 
 
 
@@ -46962,7 +47095,7 @@ Obj06_Cylinder:
 	cmpi.w	#$C0,d0
 	bge.s	return_2188A
 	move.w	y_pos(a0),d0
-	addi.w	#$3C,d0
+	addi.w	#60,d0
 	move.w	y_pos(a1),d2
 	move.b	y_radius(a1),d1
 	ext.w	d1
@@ -47404,11 +47537,11 @@ byte_21CBF:
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj14_MapUnc_21CF0:	BINCLUDE "mappings/sprite/obj14_a.bin"
+Obj14_MapUnc_21CF0:	include "mappings/sprite/obj14_a.asm"
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj14_MapUnc_21D7C:	BINCLUDE "mappings/sprite/obj14_b.bin"
+Obj14_MapUnc_21D7C:	include "mappings/sprite/obj14_b.asm"
 ; ===========================================================================
 
     if ~~removeJmpTos
@@ -47552,7 +47685,7 @@ Obj16_Fall:
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj16_MapUnc_21F14:	BINCLUDE "mappings/sprite/obj16.bin"
+Obj16_MapUnc_21F14:	include "mappings/sprite/obj16.asm"
 ; ===========================================================================
 
     if ~~removeJmpTos
@@ -47819,7 +47952,7 @@ Obj19_MoveRoutine8:
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj19_MapUnc_2222A:	BINCLUDE "mappings/sprite/obj19.bin"
+Obj19_MapUnc_2222A:	include "mappings/sprite/obj19.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -47961,7 +48094,7 @@ Obj1B_GiveBoost_Done:
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj1B_MapUnc_223E2:	BINCLUDE "mappings/sprite/obj1B.bin"
+Obj1B_MapUnc_223E2:	include "mappings/sprite/obj1B.asm"
 ; ===========================================================================
 
     if ~~removeJmpTos
@@ -48112,7 +48245,7 @@ BranchTo3_JmpTo7_MarkObjGone
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj1D_MapUnc_22576:	BINCLUDE "mappings/sprite/obj1D.bin"
+Obj1D_MapUnc_22576:	include "mappings/sprite/obj1D.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -48775,11 +48908,11 @@ byte_23246:	dc.b   5,  4,  5,  2,  3,  0,  1,  0,  1,  2,  3,  4,  5,$FC
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj20_MapUnc_23254:	BINCLUDE "mappings/sprite/obj20_a.bin"
+Obj20_MapUnc_23254:	include "mappings/sprite/obj20_a.asm"
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj20_MapUnc_23294:	BINCLUDE "mappings/sprite/obj20_b.bin"
+Obj20_MapUnc_23294:	include "mappings/sprite/obj20_b.asm"
 ; ===========================================================================
 
     if ~~removeJmpTos
@@ -49207,15 +49340,15 @@ SmashableObject_ScoreBonus:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj2F_MapUnc_236FA:	BINCLUDE "mappings/sprite/obj2F.bin"
+Obj2F_MapUnc_236FA:	include "mappings/sprite/obj2F.asm"
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj32_MapUnc_23852:	BINCLUDE "mappings/sprite/obj32_a.bin"
+Obj32_MapUnc_23852:	include "mappings/sprite/obj32_a.asm"
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj32_MapUnc_23886:	BINCLUDE "mappings/sprite/obj32_b.bin"
+Obj32_MapUnc_23886:	include "mappings/sprite/obj32_b.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -49665,11 +49798,11 @@ Ani_obj33:	offsetTable
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj33_MapUnc_23DDC:	BINCLUDE "mappings/sprite/obj33_a.bin"
+Obj33_MapUnc_23DDC:	include "mappings/sprite/obj33_a.asm"
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj33_MapUnc_23DF0:	BINCLUDE "mappings/sprite/obj33_b.bin"
+Obj33_MapUnc_23DF0:	include "mappings/sprite/obj33_b.asm"
 ; ===========================================================================
 
     if ~~removeJmpTos
@@ -49863,7 +49996,7 @@ return_23FDE:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj43_MapUnc_23FE0:	BINCLUDE "mappings/sprite/obj43.bin"
+Obj43_MapUnc_23FE0:	include "mappings/sprite/obj43.asm"
 ; ===========================================================================
 
     if ~~removeJmpTos
@@ -50409,7 +50542,7 @@ byte_244F8:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj45_MapUnc_2451A:	BINCLUDE "mappings/sprite/obj45.bin"
+Obj45_MapUnc_2451A:	include "mappings/sprite/obj45.asm"
 ; ===========================================================================
 ; ----------------------------------------------------------------------------
 ; Object 46 - Ball from OOZ (unused, beta leftover)
@@ -50620,7 +50753,7 @@ loc_24C32:
 ; ----------------------------------------------------------------------------
 ; Unused sprite mappings
 ; ----------------------------------------------------------------------------
-Obj46_MapUnc_24C52:	BINCLUDE "mappings/sprite/obj46.bin"
+Obj46_MapUnc_24C52:	include "mappings/sprite/obj46.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -50719,7 +50852,7 @@ BranchTo_JmpTo12_MarkObjGone ; BranchTo
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj47_MapUnc_24D96:	BINCLUDE "mappings/sprite/obj47.bin"
+Obj47_MapUnc_24D96:	include "mappings/sprite/obj47.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -51015,7 +51148,7 @@ word_2507A:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj3D_MapUnc_250BA:	BINCLUDE "mappings/sprite/obj3D.bin"
+Obj3D_MapUnc_250BA:	include "mappings/sprite/obj3D.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -51327,7 +51460,7 @@ loc_254F2:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj48_MapUnc_254FE:	BINCLUDE "mappings/sprite/obj48.bin"
+Obj48_MapUnc_254FE:	include "mappings/sprite/obj48.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -51487,7 +51620,7 @@ byte_257FB:	dc.b   7,  3,  4,$FC,  4,  3,  1,$FD,  0
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj22_MapUnc_25804:	BINCLUDE "mappings/sprite/obj22.bin"
+Obj22_MapUnc_25804:	include "mappings/sprite/obj22.asm"
 ; ===========================================================================
 
     if ~~removeJmpTos
@@ -51650,7 +51783,7 @@ loc_259B8:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj23_MapUnc_259E6:	BINCLUDE "mappings/sprite/obj23.bin"
+Obj23_MapUnc_259E6:	include "mappings/sprite/obj23.asm"
 ; ===========================================================================
 ; ----------------------------------------------------------------------------
 ; Object 2B - Rising pillar from ARZ
@@ -51861,7 +51994,7 @@ loc_25C64:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj2B_MapUnc_25C6E:	BINCLUDE "mappings/sprite/obj2B.bin"
+Obj2B_MapUnc_25C6E:	include "mappings/sprite/obj2B.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -52034,10 +52167,15 @@ loc_261EC:
 	move.b	#8,width_pixels(a1)
 	move.b	#1,priority(a1)
 	move.b	#4,objoff_38(a1)
-	; This line makes no sense: d1 is never set to anything, the object
-	; being written to is the parent, not the child, and angle isn't used
-	; by the parent at all.
+	; d1 is set to a random number by the above call to RandomNumber
+    if fixBugs
+	move.b	d1,angle(a1)
+    else
+	; This line makes no sense: the object being written to is the parent,
+	; not the child, and angle isn't used by the parent at all. The child,
+	; however, does use angle, so it would appear that this is a typo.
 	move.b	d1,angle(a0)		; ???
+    endif
 
 loc_26278:
 	dbf	d6,loc_261EC
@@ -52104,7 +52242,7 @@ JmpTo29_DeleteObject ; JmpTo
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj2C_MapUnc_2631E:	BINCLUDE "mappings/sprite/obj2C.bin"
+Obj2C_MapUnc_2631E:	include "mappings/sprite/obj2C.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -52340,7 +52478,7 @@ byte_265EF:	dc.b   3,  1,  0,$FD,  0
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj40_MapUnc_265F4:	BINCLUDE "mappings/sprite/obj40.bin"
+Obj40_MapUnc_265F4:	include "mappings/sprite/obj40.asm"
 ; ===========================================================================
 
     if ~~removeJmpTos
@@ -52553,7 +52691,7 @@ JmpTo30_DeleteObject ; JmpTo
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj42_MapUnc_2686C:	BINCLUDE "mappings/sprite/obj42.bin"
+Obj42_MapUnc_2686C:	include "mappings/sprite/obj42.asm"
 ; ===========================================================================
 
     if ~~removeJmpTos
@@ -52714,7 +52852,7 @@ loc_26A50:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj64_MapUnc_26A5C:	BINCLUDE "mappings/sprite/obj64.bin"
+Obj64_MapUnc_26A5C:	include "mappings/sprite/obj64.asm"
 ; ===========================================================================
 
     if ~~removeJmpTos
@@ -53132,11 +53270,11 @@ loc_26EC2:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj65_Obj6A_Obj6B_MapUnc_26EC8:	BINCLUDE "mappings/sprite/obj65_a.bin"
+Obj65_Obj6A_Obj6B_MapUnc_26EC8:	include "mappings/sprite/obj65_a.asm"
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj65_MapUnc_26F04:	BINCLUDE "mappings/sprite/obj65_b.bin"
+Obj65_MapUnc_26F04:	include "mappings/sprite/obj65_b.asm"
 ; ===========================================================================
 
     if ~~removeJmpTos
@@ -53323,7 +53461,7 @@ loc_270DC:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj66_MapUnc_27120:	BINCLUDE "mappings/sprite/obj66.bin"
+Obj66_MapUnc_27120:	include "mappings/sprite/obj66.asm"
 ; ===========================================================================
 
     if ~~removeJmpTos
@@ -53618,7 +53756,7 @@ byte_27535:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj67_MapUnc_27548:	BINCLUDE "mappings/sprite/obj67.bin"
+Obj67_MapUnc_27548:	include "mappings/sprite/obj67.asm"
 ; ===========================================================================
 
     if ~~removeJmpTos
@@ -53810,7 +53948,7 @@ Obj68_CollisionFlags:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj68_Obj6D_MapUnc_27750:	BINCLUDE "mappings/sprite/obj68.bin"
+Obj68_Obj6D_MapUnc_27750:	include "mappings/sprite/obj68.asm"
 ; ===========================================================================
 ; ----------------------------------------------------------------------------
 ; Object 6D - Floor spike from MTZ
@@ -54084,7 +54222,7 @@ loc_279FC:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj69_MapUnc_27A26:	BINCLUDE "mappings/sprite/obj69.bin"
+Obj69_MapUnc_27A26:	include "mappings/sprite/obj69.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -54308,7 +54446,7 @@ byte_27D12:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj6A_MapUnc_27D30:	BINCLUDE "mappings/sprite/obj6A.bin"
+Obj6A_MapUnc_27D30:	include "mappings/sprite/obj6A.asm"
 ; ===========================================================================
 
     if ~~removeJmpTos
@@ -54629,7 +54767,7 @@ loc_27FF8:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj6B_MapUnc_2800E:	BINCLUDE "mappings/sprite/obj6B.bin"
+Obj6B_MapUnc_2800E:	include "mappings/sprite/obj6B.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -54907,7 +55045,7 @@ byte_28340:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj6C_MapUnc_28372:	BINCLUDE "mappings/sprite/obj6C.bin"
+Obj6C_MapUnc_28372:	include "mappings/sprite/obj6C.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -55080,7 +55218,7 @@ loc_284BC:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj6E_MapUnc_2852C:	BINCLUDE "mappings/sprite/obj6E.bin"
+Obj6E_MapUnc_2852C:	include "mappings/sprite/obj6E.asm"
 ; ===========================================================================
 
     if ~~removeJmpTos
@@ -55276,7 +55414,7 @@ Obj70_Positions:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj70_MapUnc_28786:	BINCLUDE "mappings/sprite/obj70.bin"
+Obj70_MapUnc_28786:	include "mappings/sprite/obj70.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -55557,7 +55695,7 @@ Obj73_SubObject:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj73_MapUnc_28B9C:	BINCLUDE "mappings/sprite/obj73.bin"
+Obj73_MapUnc_28B9C:	include "mappings/sprite/obj73.asm"
 ; ===========================================================================
 
     if ~~removeJmpTos
@@ -55592,7 +55730,7 @@ Obj75:
 	jmp	Obj75_Index(pc,d1.w)
 ; ===========================================================================
 +
-	move.w	#$280,d0
+	move.w	#object_display_list_size*5,d0
 	jmpto	DisplaySprite3, JmpTo_DisplaySprite3
 ; ===========================================================================
 ; off_28BE8:
@@ -55734,7 +55872,7 @@ loc_28D6C:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj75_MapUnc_28D8A:	BINCLUDE "mappings/sprite/obj75.bin"
+Obj75_MapUnc_28D8A:	include "mappings/sprite/obj75.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -55895,7 +56033,7 @@ Obj76_SlideOut:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj76_MapUnc_28F3A:	BINCLUDE "mappings/sprite/obj76.bin"
+Obj76_MapUnc_28F3A:	include "mappings/sprite/obj76.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -56011,7 +56149,7 @@ Ani_obj77_Open:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj77_MapUnc_29064:	BINCLUDE "mappings/sprite/obj77.bin"
+Obj77_MapUnc_29064:	include "mappings/sprite/obj77.asm"
 ; ===========================================================================
 
     if ~~removeJmpTos
@@ -56151,7 +56289,7 @@ loc_292EC:
 	move.b	objoff_2E(a0),d0
 	andi.b	#touch_bottom_mask,d0
 	beq.s	return_29302
-	move.w	#$3C,objoff_2C(a0)
+	move.w	#60,objoff_2C(a0)
 
 return_29302:
 	rts
@@ -56437,7 +56575,7 @@ loc_2953E:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj7A_MapUnc_29564:	BINCLUDE "mappings/sprite/obj7A.bin"
+Obj7A_MapUnc_29564:	include "mappings/sprite/obj7A.asm"
 ; ===========================================================================
 
     if ~~removeJmpTos
@@ -56635,7 +56773,7 @@ byte_29777:	dc.b   5,  1,  2,  2,  2,  4,$FD,  0
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj7B_MapUnc_29780:	BINCLUDE "mappings/sprite/obj7B.bin"
+Obj7B_MapUnc_29780:	include "mappings/sprite/obj7B.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -56705,10 +56843,10 @@ Obj7F_Action:
 	beq.w	return_29936
 	clr.b	obj_control(a1)
 	clr.b	(a2)
-	move.b	#$12,2(a2)
+	move.b	#18,2(a2)
 	andi.w	#(button_up_mask|button_down_mask|button_left_mask|button_right_mask)<<8,d0
 	beq.s	+
-	move.b	#$3C,2(a2)
+	move.b	#60,2(a2)
 +
 	move.w	#-$300,y_vel(a1)
 	move.b	subtype(a0),d0
@@ -56772,7 +56910,7 @@ return_29936:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj7F_MapUnc_29938:	BINCLUDE "mappings/sprite/obj7F.bin"
+Obj7F_MapUnc_29938:	include "mappings/sprite/obj7F.asm"
 ; ===========================================================================
 
     if ~~removeJmpTos
@@ -56921,10 +57059,10 @@ Obj80_Action:
 	beq.w	loc_29B50
 	clr.b	obj_control(a1)
 	clr.b	(a2)
-	move.b	#$12,2(a2)
+	move.b	#18,2(a2)
 	andi.w	#(button_up_mask|button_down_mask|button_left_mask|button_right_mask)<<8,d0
 	beq.w	+
-	move.b	#$3C,2(a2)
+	move.b	#60,2(a2)
 +
 	btst	#(button_left+8),d0
 	beq.s	+
@@ -56950,7 +57088,7 @@ Obj80_Action:
 loc_29B42:
 	clr.b	obj_control(a1)
 	clr.b	(a2)
-	move.b	#$3C,2(a2)
+	move.b	#60,2(a2)
 	rts
 ; ===========================================================================
 
@@ -57055,11 +57193,11 @@ loc_29C42:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj80_MapUnc_29C64:	BINCLUDE "mappings/sprite/obj80_a.bin"
+Obj80_MapUnc_29C64:	include "mappings/sprite/obj80_a.asm"
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj80_MapUnc_29DD0:	BINCLUDE "mappings/sprite/obj80_b.bin"
+Obj80_MapUnc_29DD0:	include "mappings/sprite/obj80_b.asm"
 ; ===========================================================================
 
     if ~~removeJmpTos
@@ -57088,7 +57226,7 @@ Obj81:
 	jmp	Obj81_Index(pc,d1.w)
 ; ===========================================================================
 +
-	move.w	#$280,d0
+	move.w	#object_display_list_size*5,d0
 	jmpto	DisplaySprite3, JmpTo2_DisplaySprite3
 ; ===========================================================================
 ; off_2A020:
@@ -57276,7 +57414,7 @@ return_2A24C:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj81_MapUnc_2A24E:	BINCLUDE "mappings/sprite/obj81.bin"
+Obj81_MapUnc_2A24E:	include "mappings/sprite/obj81.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -57532,7 +57670,7 @@ return_2A474:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj82_MapUnc_2A476:	BINCLUDE "mappings/sprite/obj82.bin"
+Obj82_MapUnc_2A476:	include "mappings/sprite/obj82.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -57584,7 +57722,7 @@ Obj83:
 	jmp	Obj83_Index(pc,d1.w)
 ; ===========================================================================
 .isMultispriteObject:
-	move.w	#$280,d0
+	move.w	#object_display_list_size*5,d0
 	jmpto	DisplaySprite3, JmpTo3_DisplaySprite3
 ; ===========================================================================
 ; off_2A51C:
@@ -58063,9 +58201,9 @@ return_2AA10:
 ; sprite mappings
 ; ----------------------------------------------------------------------------
 ; sidefacing fan
-Obj3F_MapUnc_2AA12:	BINCLUDE "mappings/sprite/obj3F_a.bin"
+Obj3F_MapUnc_2AA12:	include "mappings/sprite/obj3F_a.asm"
 ; upfacing fan
-Obj3F_MapUnc_2AAC4:	BINCLUDE "mappings/sprite/obj3F_b.bin"
+Obj3F_MapUnc_2AAC4:	include "mappings/sprite/obj3F_b.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -58094,7 +58232,7 @@ Obj85:
 	move.b	routine(a0),d0
 	move.w	Obj85_Index(pc,d0.w),d1
 	jsr	Obj85_Index(pc,d1.w)
-	move.w	#$200,d0
+	move.w	#object_display_list_size*4,d0
 	tst.w	(Two_player_mode).w
 	beq.s	+
 	jmpto	DisplaySprite3, JmpTo4_DisplaySprite3
@@ -58503,8 +58641,8 @@ loc_2B068:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj85_MapUnc_2B07E:	BINCLUDE "mappings/sprite/obj85_a.bin"
-Obj85_MapUnc_2B0EC:	BINCLUDE "mappings/sprite/obj85_b.bin"
+Obj85_MapUnc_2B07E:	include "mappings/sprite/obj85_a.asm"
+Obj85_MapUnc_2B0EC:	include "mappings/sprite/obj85_b.asm"
 ; ===========================================================================
 
     if ~~removeJmpTos
@@ -58786,7 +58924,7 @@ byte_2B451:	dc.b   0,  3,  4,  5,  5,  5,  5,$FD,  2
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj86_MapUnc_2B45A:	BINCLUDE "mappings/sprite/obj86.bin"
+Obj86_MapUnc_2B45A:	include "mappings/sprite/obj86.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -58933,7 +59071,7 @@ byte_2B654:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-ObjD2_MapUnc_2B694:	BINCLUDE "mappings/sprite/objD2.bin"
+ObjD2_MapUnc_2B694:	include "mappings/sprite/objD2.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -59016,7 +59154,7 @@ JmpTo28_DisplaySprite ; JmpTo
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-ObjD3_MapUnc_2B8D4:	BINCLUDE "mappings/sprite/objD6_a.bin"
+ObjD3_MapUnc_2B8D4:	include "mappings/sprite/objD6_a.asm"
 ; ===========================================================================
 
     if ~~removeJmpTos
@@ -59120,7 +59258,7 @@ ObjD4_Vertical:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-ObjD4_MapUnc_2B9CA:	BINCLUDE "mappings/sprite/objD4.bin"
+ObjD4_MapUnc_2B9CA:	include "mappings/sprite/objD4.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -59271,7 +59409,7 @@ loc_2BB08:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-ObjD5_MapUnc_2BB40:	BINCLUDE "mappings/sprite/objD5.bin"
+ObjD5_MapUnc_2BB40:	include "mappings/sprite/objD5.asm"
 ; ===========================================================================
 
     if ~~removeJmpTos
@@ -59556,7 +59694,7 @@ byte_2BEB7:	dc.b   1,  1,  0,$FF
 ; ------------------------------------------------------------------------------
 ; sprite mappings
 ; ------------------------------------------------------------------------------
-ObjD6_MapUnc_2BEBC:	BINCLUDE "mappings/sprite/objD6_b.bin"
+ObjD6_MapUnc_2BEBC:	include "mappings/sprite/objD6_b.asm"
 ; ===========================================================================
 
 
@@ -60313,7 +60451,7 @@ byte_2C61F:	dc.b   3,  2,  0,  2,$FD,  0
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-ObjD7_MapUnc_2C626:	BINCLUDE "mappings/sprite/objD7.bin"
+ObjD7_MapUnc_2C626:	include "mappings/sprite/objD7.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -60557,7 +60695,7 @@ byte_2C8BD:	dc.b   3,  5,  2,  5,$FD,  2
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-ObjD8_MapUnc_2C8C4:	BINCLUDE "mappings/sprite/objD8.bin"
+ObjD8_MapUnc_2C8C4:	include "mappings/sprite/objD8.asm"
 ; ===========================================================================
 
     if ~~removeJmpTos
@@ -60620,10 +60758,10 @@ ObjD9_CheckCharacter:
 	beq.w	ObjD9_CheckCharacter_End
 	clr.b	obj_control(a1)
 	clr.b	(a2)
-	move.b	#$12,2(a2)
+	move.b	#18,2(a2)
 	andi.w	#(button_up_mask|button_down_mask|button_left_mask|button_right_mask)<<8,d0
 	beq.s	+
-	move.b	#$3C,2(a2)
+	move.b	#60,2(a2)
 +
 	move.w	#-$300,y_vel(a1)
 	bra.w	ObjD9_CheckCharacter_End
@@ -60795,7 +60933,7 @@ Obj4A_MoveUp:
 ; ===========================================================================
 +
 	addq.b	#2,routine_secondary(a0)
-	move.w	#$3C,objoff_2C(a0)
+	move.w	#60,objoff_2C(a0)
 	bra.w	Obj4A_FireBullet
 ; ===========================================================================
 ; loc_2CB3A:
@@ -60871,7 +61009,7 @@ byte_2CBF8:	dc.b   7,  0,  1,$FD,  1
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj4A_MapUnc_2CBFE:	BINCLUDE "mappings/sprite/obj4A.bin"
+Obj4A_MapUnc_2CBFE:	include "mappings/sprite/obj4A.asm"
 
     if ~~removeJmpTos
 	align 4
@@ -61175,7 +61313,7 @@ byte_2CF90:		dc.b  $E,  8,$FF
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj50_MapUnc_2CF94:	BINCLUDE "mappings/sprite/obj50.bin"
+Obj50_MapUnc_2CF94:	include "mappings/sprite/obj50.asm"
 ; ===========================================================================
 
     if ~~removeJmpTos
@@ -61456,7 +61594,7 @@ byte_2D2E1:	dc.b	$09, $01, $01, $01, $01, $01, $FD, $00
 ; sprite mappings -- Buzz Bomber Sprite Table
 ; ----------------------------------------------------------------------------
 ; MapUnc_2D2EA: SprTbl_Buzzer:
-Obj4B_MapUnc_2D2EA:	BINCLUDE "mappings/sprite/obj4B.bin"
+Obj4B_MapUnc_2D2EA:	include "mappings/sprite/obj4B.asm"
 
     if ~~removeJmpTos
 	align 4
@@ -61561,7 +61699,7 @@ byte_2D43E:	dc.b   7,  0,$FF
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj5C_MapUnc_2D442:	BINCLUDE "mappings/sprite/obj5C.bin"
+Obj5C_MapUnc_2D442:	include "mappings/sprite/obj5C.asm"
 
     if ~~removeJmpTos
 	align 4
@@ -61637,7 +61775,7 @@ JmpTo50_DeleteObject ; JmpTo
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj58_MapUnc_2D50A:	BINCLUDE "mappings/sprite/obj58.bin"
+Obj58_MapUnc_2D50A:	include "mappings/sprite/obj58.asm"
 ; ===========================================================================
 
 	; Unused - a little dead code here (until the next label)
@@ -63591,7 +63729,7 @@ byte_2EAD9:	dc.b  $F,$1E,$FF
 ; ----------------------------------------------------------------------------
 ; sprite mappings - uses ArtNem_CPZBoss
 ; ----------------------------------------------------------------------------
-Obj5D_MapUnc_2EADC:	BINCLUDE "mappings/sprite/obj5D_a.bin"
+Obj5D_MapUnc_2EADC:	include "mappings/sprite/obj5D_a.asm"
 
 ; animation script
 ; off_2ED5C:
@@ -63615,15 +63753,15 @@ byte_2ED7F:	dc.b  $F,  6,  6,  6,  6,  6,  6,  6,  6,  6,  6,$FD,  1
 ; ----------------------------------------------------------------------------
 ; sprite mappings - uses ArtNem_Eggpod
 ; ----------------------------------------------------------------------------
-Obj5D_MapUnc_2ED8C:	BINCLUDE "mappings/sprite/obj5D_b.bin"
+Obj5D_MapUnc_2ED8C:	include "mappings/sprite/obj5D_b.asm"
 ; ----------------------------------------------------------------------------
 ; sprite mappings - uses ArtNem_EggpodJets
 ; ----------------------------------------------------------------------------
-Obj5D_MapUnc_2EE88:	BINCLUDE "mappings/sprite/obj5D_c.bin"
+Obj5D_MapUnc_2EE88:	include "mappings/sprite/obj5D_c.asm"
 ; ----------------------------------------------------------------------------
 ; sprite mappings - uses ArtNem_BossSmoke
 ; ----------------------------------------------------------------------------
-Obj5D_MapUnc_2EEA0:	BINCLUDE "mappings/sprite/obj5D_d.bin"
+Obj5D_MapUnc_2EEA0:	include "mappings/sprite/obj5D_d.asm"
 ; ===========================================================================
 
     if ~~removeJmpTos
@@ -63911,7 +64049,7 @@ loc_2F2BA:	; Obj56_VehicleMain_Sub2_0:
 loc_2F2CC:
 	addq.b	#2,objoff_2C(a0)	; tertiary routine
 	bset	#0,objoff_2D(a0)	; Robotnik on ground (relevant for propeller)
-	move.w	#$3C,objoff_2A(a0)	; timer for standing still
+	move.w	#60,objoff_2A(a0)	; timer for standing still
 	bra.w	JmpTo35_DisplaySprite
 ; ---------------------------------------------------------------------------
 
@@ -64497,7 +64635,7 @@ byte_2F956:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj56_MapUnc_2F970:	BINCLUDE "mappings/sprite/obj56_a.bin"
+Obj56_MapUnc_2F970:	include "mappings/sprite/obj56_a.asm"
 	; propeller
 	; 7 frames
 
@@ -64520,7 +64658,7 @@ byte_2FA53:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj56_MapUnc_2FA58:	BINCLUDE "mappings/sprite/obj56_b.bin"
+Obj56_MapUnc_2FA58:	include "mappings/sprite/obj56_b.asm"
 	; ground vehicle
 	; frame 0 = vehicle itself
 	; frame 1-3 = spike
@@ -64549,7 +64687,7 @@ byte_2FAEB:	dc.b  $F,  6,  6,  6,  6,  6,  6,  6,  6,  6,  6,$FD,  1	; top, when
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj56_MapUnc_2FAF8:	BINCLUDE "mappings/sprite/obj56_c.bin"
+Obj56_MapUnc_2FAF8:	include "mappings/sprite/obj56_c.asm"
 	; flying vehicle
 	; frame 0 = bottom
 	; frame 1-2 = top, normal
@@ -65159,7 +65297,7 @@ loc_3022A:
 ; ----------------------------------------------------------------------------
 ; sprite mappings - uses ArtNem_BossSmoke
 ; ----------------------------------------------------------------------------
-Obj52_MapUnc_30258:	BINCLUDE "mappings/sprite/obj52_a.bin"
+Obj52_MapUnc_30258:	include "mappings/sprite/obj52_a.asm"
 
 ; animation script
 ; off_30288:
@@ -65191,7 +65329,7 @@ byte_302B7:	dc.b   3, $E, $F,$FF
 ; ----------------------------------------------------------------------------
 ; sprite mappings - uses ArtNem_Eggpod + ?
 ; ----------------------------------------------------------------------------
-Obj52_MapUnc_302BC:	BINCLUDE "mappings/sprite/obj52_b.bin"
+Obj52_MapUnc_302BC:	include "mappings/sprite/obj52_b.asm"
 
     if ~~removeJmpTos
 	align 4
@@ -65426,7 +65564,7 @@ Obj89_Main_Sub0_Standard:
 	; must use 'DisplaySprite3' instead of 'DisplaySprite'.
 	; This object's 'priority' is overwritten by 'sub3_y_pos', causing it
 	; to display on the wrong layer.
-	move.w	#$80*2,d0
+	move.w	#object_display_list_size*2,d0
 	jmp	(DisplaySprite3).l
     else
 	jmpto	DisplaySprite, JmpTo37_DisplaySprite
@@ -65462,7 +65600,7 @@ Obj89_Main_Sub2_Standard:
 	; must use 'DisplaySprite3' instead of 'DisplaySprite'.
 	; This object's 'priority' is overwritten by 'sub3_y_pos', causing it
 	; to display on the wrong layer.
-	move.w	#$80*2,d0
+	move.w	#object_display_list_size*2,d0
 	jmp	(DisplaySprite3).l
     else
 	jmpto	DisplaySprite, JmpTo37_DisplaySprite
@@ -65494,7 +65632,7 @@ Obj89_Main_Sub4_Standard:
 	; must use 'DisplaySprite3' instead of 'DisplaySprite'.
 	; This object's 'priority' is overwritten by 'sub3_y_pos', causing it
 	; to display on the wrong layer.
-	move.w	#$80*2,d0
+	move.w	#object_display_list_size*2,d0
 	jmp	(DisplaySprite3).l
     else
 	jmpto	DisplaySprite, JmpTo37_DisplaySprite
@@ -65532,7 +65670,7 @@ Obj89_Main_Sub6_Standard:
 	; must use 'DisplaySprite3' instead of 'DisplaySprite'.
 	; This object's 'priority' is overwritten by 'sub3_y_pos', causing it
 	; to display on the wrong layer.
-	move.w	#$80*2,d0
+	move.w	#object_display_list_size*2,d0
 	jmp	(DisplaySprite3).l
     else
 	jmpto	DisplaySprite, JmpTo37_DisplaySprite
@@ -65681,7 +65819,7 @@ Obj89_Main_Sub8_Standard:
 	; must use 'DisplaySprite3' instead of 'DisplaySprite'.
 	; This object's 'priority' is overwritten by 'sub3_y_pos', causing it
 	; to display on the wrong layer.
-	move.w	#$80*2,d0
+	move.w	#object_display_list_size*2,d0
 	jmp	(DisplaySprite3).l
     else
 	jmpto	DisplaySprite, JmpTo37_DisplaySprite
@@ -65735,7 +65873,7 @@ Obj89_Main_SubA_Standard:
 	; must use 'DisplaySprite3' instead of 'DisplaySprite'.
 	; This object's 'priority' is overwritten by 'sub3_y_pos', causing it
 	; to display on the wrong layer.
-	move.w	#$80*2,d0
+	move.w	#object_display_list_size*2,d0
 	jmp	(DisplaySprite3).l
     else
 	jmpto	DisplaySprite, JmpTo37_DisplaySprite
@@ -65769,7 +65907,7 @@ Obj89_Main_SubC_Standard:
 	; must use 'DisplaySprite3' instead of 'DisplaySprite'.
 	; This object's 'priority' is overwritten by 'sub3_y_pos', causing it
 	; to display on the wrong layer.
-	move.w	#$80*2,d0
+	move.w	#object_display_list_size*2,d0
 	jmp	(DisplaySprite3).l
     else
 	jmpto	DisplaySprite, JmpTo37_DisplaySprite
@@ -66156,7 +66294,7 @@ byte_30D47:	dc.b  $F,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj89_MapUnc_30D68:	BINCLUDE "mappings/sprite/obj89_a.bin"
+Obj89_MapUnc_30D68:	include "mappings/sprite/obj89_a.asm"
 
 ; animation script
 ; off_30DC8:
@@ -66183,7 +66321,7 @@ byte_30E00:	dc.b   7,  5,$FF
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj89_MapUnc_30E04:	BINCLUDE "mappings/sprite/obj89_b.bin"
+Obj89_MapUnc_30E04:	include "mappings/sprite/obj89_b.asm"
 ; ===========================================================================
 
     if ~~removeJmpTos
@@ -66368,7 +66506,7 @@ Obj57_Main_Sub0_Standard:
 	; must use 'DisplaySprite3' instead of 'DisplaySprite'.
 	; This object's 'priority' is overwritten by 'sub3_y_pos', causing it
 	; to display on the wrong layer.
-	move.w	#$80*3,d0
+	move.w	#object_display_list_size*3,d0
 	jmp	(DisplaySprite3).l
     else
 	jmpto	DisplaySprite, JmpTo38_DisplaySprite
@@ -66395,7 +66533,7 @@ Obj57_Main_Sub2_Standard:
 	; must use 'DisplaySprite3' instead of 'DisplaySprite'.
 	; This object's 'priority' is overwritten by 'sub3_y_pos', causing it
 	; to display on the wrong layer.
-	move.w	#$80*3,d0
+	move.w	#object_display_list_size*3,d0
 	jmp	(DisplaySprite3).l
     else
 	jmpto	DisplaySprite, JmpTo38_DisplaySprite
@@ -66442,7 +66580,7 @@ Obj57_Main_Sub4_Standard:
 	; must use 'DisplaySprite3' instead of 'DisplaySprite'.
 	; This object's 'priority' is overwritten by 'sub3_y_pos', causing it
 	; to display on the wrong layer.
-	move.w	#$80*3,d0
+	move.w	#object_display_list_size*3,d0
 	jmp	(DisplaySprite3).l
     else
 	jmpto	DisplaySprite, JmpTo38_DisplaySprite
@@ -66505,7 +66643,7 @@ Obj57_Main_Sub6_Standard:
 	; must use 'DisplaySprite3' instead of 'DisplaySprite'.
 	; This object's 'priority' is overwritten by 'sub3_y_pos', causing it
 	; to display on the wrong layer.
-	move.w	#$80*3,d0
+	move.w	#object_display_list_size*3,d0
 	jmp	(DisplaySprite3).l
     else
 	jmpto	DisplaySprite, JmpTo38_DisplaySprite
@@ -66690,7 +66828,7 @@ Obj57_Main_Sub8_Standard:
 	; must use 'DisplaySprite3' instead of 'DisplaySprite'.
 	; This object's 'priority' is overwritten by 'sub3_y_pos', causing it
 	; to display on the wrong layer.
-	move.w	#$80*3,d0
+	move.w	#object_display_list_size*3,d0
 	jmp	(DisplaySprite3).l
     else
 	jmpto	DisplaySprite, JmpTo38_DisplaySprite
@@ -66751,7 +66889,7 @@ Obj57_Main_SubA_Standard:
 	; must use 'DisplaySprite3' instead of 'DisplaySprite'.
 	; This object's 'priority' is overwritten by 'sub3_y_pos', causing it
 	; to display on the wrong layer.
-	move.w	#$80*3,d0
+	move.w	#object_display_list_size*3,d0
 	jmp	(DisplaySprite3).l
     else
 	jmpto	DisplaySprite, JmpTo38_DisplaySprite
@@ -66783,7 +66921,7 @@ Obj57_Main_SubC_Standard:
 	; must use 'DisplaySprite3' instead of 'DisplaySprite'.
 	; This object's 'priority' is overwritten by 'sub3_y_pos', causing it
 	; to display on the wrong layer.
-	move.w	#$80*3,d0
+	move.w	#object_display_list_size*3,d0
 	jmp	(DisplaySprite3).l
     else
 	jmpto	DisplaySprite, JmpTo38_DisplaySprite
@@ -66859,7 +66997,7 @@ byte_316E8:	dc.b   7,$12,$FF
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj57_MapUnc_316EC:	BINCLUDE "mappings/sprite/obj57.bin"
+Obj57_MapUnc_316EC:	include "mappings/sprite/obj57.asm"
 ; ===========================================================================
 
     if ~~removeJmpTos
@@ -67148,7 +67286,7 @@ JmpTo39_DisplaySprite ; JmpTo
 	; must use 'DisplaySprite3' instead of 'DisplaySprite'.
 	; This object's 'priority' is overwritten by 'sub3_y_pos', causing it
 	; to display on the wrong layer.
-	move.w	#$80*3,d0
+	move.w	#object_display_list_size*3,d0
 	jmp	(DisplaySprite3).l
     else
 	jmpto	DisplaySprite, JmpTo39_DisplaySprite
@@ -67294,7 +67432,7 @@ loc_31DB8:
 	; must use 'DisplaySprite3' instead of 'DisplaySprite'.
 	; This object's 'priority' is overwritten by 'sub3_y_pos', causing it
 	; to display on the wrong layer.
-	move.w	#$80*3,d0
+	move.w	#object_display_list_size*3,d0
 	jmp	(DisplaySprite3).l
     else
 	jmpto	DisplaySprite, JmpTo39_DisplaySprite
@@ -67345,7 +67483,7 @@ loc_31E0E:
 	; must use 'DisplaySprite3' instead of 'DisplaySprite'.
 	; This object's 'priority' is overwritten by 'sub3_y_pos', causing it
 	; to display on the wrong layer.
-	move.w	#$80*3,d0
+	move.w	#object_display_list_size*3,d0
 	jmp	(DisplaySprite3).l
     else
 	jmpto	DisplaySprite, JmpTo39_DisplaySprite
@@ -67378,7 +67516,7 @@ loc_31E4A:
 	; must use 'DisplaySprite3' instead of 'DisplaySprite'.
 	; This object's 'priority' is overwritten by 'sub3_y_pos', causing it
 	; to display on the wrong layer.
-	move.w	#$80*3,d0
+	move.w	#object_display_list_size*3,d0
 	jmp	(DisplaySprite3).l
     else
 	jmpto	DisplaySprite, JmpTo39_DisplaySprite
@@ -67428,7 +67566,7 @@ loc_31EAE:
 	move.w	#0,objoff_2E(a0)
 
 loc_31EE8:
-	cmpi.w	#$3C,(Boss_Countdown).w
+	cmpi.w	#60,(Boss_Countdown).w
 	bgt.s	return_31F22
 	addi_.w	#1,sub2_x_pos(a0)
 	move.l	objoff_34(a0),d0
@@ -67613,7 +67751,7 @@ byte_320E4:	dc.b   1, $F,$10,$11,$FF
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj51_MapUnc_320EA:	BINCLUDE "mappings/sprite/obj51.bin"
+Obj51_MapUnc_320EA:	include "mappings/sprite/obj51.asm"
 ; ===========================================================================
 
     if ~~removeJmpTos
@@ -67770,7 +67908,7 @@ Obj54_MainSub0:
 	; must use 'DisplaySprite3' instead of 'DisplaySprite'.
 	; This object's 'priority' is overwritten by 'sub3_y_pos', causing it
 	; to display on the wrong layer.
-	move.w	#$80*3,d0
+	move.w	#object_display_list_size*3,d0
 	jmp	(DisplaySprite3).l
     else
 	jmpto	DisplaySprite, JmpTo40_DisplaySprite
@@ -67827,7 +67965,7 @@ Obj54_Display:
 	; must use 'DisplaySprite3' instead of 'DisplaySprite'.
 	; This object's 'priority' is overwritten by 'sub3_y_pos', causing it
 	; to display on the wrong layer.
-	move.w	#$80*3,d0
+	move.w	#object_display_list_size*3,d0
 	jmp	(DisplaySprite3).l
     else
 	jmpto	DisplaySprite, JmpTo40_DisplaySprite
@@ -68115,7 +68253,7 @@ Obj54_AnimateFace:
 ;loc_32802
 Obj54_MainSub10:
 	subq.w	#1,(Boss_Countdown).w
-	cmpi.w	#$3C,(Boss_Countdown).w
+	cmpi.w	#60,(Boss_Countdown).w
 	blo.s	++
 	bmi.s	+
 	bsr.w	Boss_LoadExplosion
@@ -68143,7 +68281,7 @@ Obj54_MainSub10:
 	; must use 'DisplaySprite3' instead of 'DisplaySprite'.
 	; This object's 'priority' is overwritten by 'sub3_y_pos', causing it
 	; to display on the wrong layer.
-	move.w	#$80*3,d0
+	move.w	#object_display_list_size*3,d0
 	jmp	(DisplaySprite3).l
     else
 	jmpto	DisplaySprite, JmpTo40_DisplaySprite
@@ -68179,7 +68317,7 @@ Obj54_MainSub12:
 	; must use 'DisplaySprite3' instead of 'DisplaySprite'.
 	; This object's 'priority' is overwritten by 'sub3_y_pos', causing it
 	; to display on the wrong layer.
-	move.w	#$80*3,d0
+	move.w	#object_display_list_size*3,d0
 	jmp	(DisplaySprite3).l
     else
 	jmpto	DisplaySprite, JmpTo40_DisplaySprite
@@ -68648,7 +68786,7 @@ byte_32DC3:	dc.b   7,$11,$FF
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj54_MapUnc_32DC6:	BINCLUDE "mappings/sprite/obj54.bin"
+Obj54_MapUnc_32DC6:	include "mappings/sprite/obj54.asm"
 
     if ~~removeJmpTos
 	align 4
@@ -68856,7 +68994,7 @@ Obj55_Main_End:
 	; must use 'DisplaySprite3' instead of 'DisplaySprite'.
 	; This object's 'priority' is overwritten by 'sub3_y_pos', causing it
 	; to display on the wrong layer.
-	move.w	#$80*3,d0
+	move.w	#object_display_list_size*3,d0
 	jmp	(DisplaySprite3).l
     else
 	jmpto	DisplaySprite, JmpTo41_DisplaySprite
@@ -68896,7 +69034,7 @@ Obj55_Main_Defeated:
 	; must use 'DisplaySprite3' instead of 'DisplaySprite'.
 	; This object's 'priority' is overwritten by 'sub3_y_pos', causing it
 	; to display on the wrong layer.
-	move.w	#$80*3,d0
+	move.w	#object_display_list_size*3,d0
 	jmp	(DisplaySprite3).l
     else
 	jmpto	DisplaySprite, JmpTo41_DisplaySprite
@@ -68910,7 +69048,7 @@ Obj55_Explode:
 	; must use 'DisplaySprite3' instead of 'DisplaySprite'.
 	; This object's 'priority' is overwritten by 'sub3_y_pos', causing it
 	; to display on the wrong layer.
-	move.w	#$80*3,d0
+	move.w	#object_display_list_size*3,d0
 	jmp	(DisplaySprite3).l
     else
 	jmpto	DisplaySprite, JmpTo41_DisplaySprite
@@ -68946,7 +69084,7 @@ Obj55_Defeated_Sink:
 	; must use 'DisplaySprite3' instead of 'DisplaySprite'.
 	; This object's 'priority' is overwritten by 'sub3_y_pos', causing it
 	; to display on the wrong layer.
-	move.w	#$80*3,d0
+	move.w	#object_display_list_size*3,d0
 	jmp	(DisplaySprite3).l
     else
 	jmpto	DisplaySprite, JmpTo41_DisplaySprite
@@ -69113,7 +69251,7 @@ Obj55_LaserShooter_End:
 	; must use 'DisplaySprite3' instead of 'DisplaySprite'.
 	; This object's 'priority' is overwritten by 'sub3_y_pos', causing it
 	; to display on the wrong layer.
-	move.w	#$80*3,d0
+	move.w	#object_display_list_size*3,d0
 	jmp	(DisplaySprite3).l
     else
 	jmpto	DisplaySprite, JmpTo41_DisplaySprite
@@ -69243,7 +69381,7 @@ Obj55_SpikeChain_End:
 	; must use 'DisplaySprite3' instead of 'DisplaySprite'.
 	; This object's 'priority' is overwritten by 'sub3_y_pos', causing it
 	; to display on the wrong layer.
-	move.w	#$80*3,d0
+	move.w	#object_display_list_size*3,d0
 	jmp	(DisplaySprite3).l
     else
 	jmpto	DisplaySprite, JmpTo41_DisplaySprite
@@ -69480,7 +69618,7 @@ byte_33753:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj55_MapUnc_33756:	BINCLUDE "mappings/sprite/obj55.bin"
+Obj55_MapUnc_33756:	include "mappings/sprite/obj55.asm"
 ; ===========================================================================
 
     if ~~removeJmpTos
@@ -70391,11 +70529,11 @@ byte_34208:
 ; ----------------------------------------------------------------------------
 ; sprite mappings - uses ArtNem_SpecialSonicAndTails
 ; ----------------------------------------------------------------------------
-Obj09_MapUnc_34212:	BINCLUDE "mappings/sprite/obj09.bin"
+Obj09_MapUnc_34212:	include "mappings/sprite/obj09.asm"
 ; ----------------------------------------------------------------------------
 ; sprite mappings for special stage shadows
 ; ----------------------------------------------------------------------------
-Obj63_MapUnc_34492:	BINCLUDE "mappings/sprite/obj63.bin"
+Obj63_MapUnc_34492:	include "mappings/sprite/obj63.asm"
 ; ----------------------------------------------------------------------------
 ; custom dynamic pattern loading cues for special stage Sonic, Tails and
 ; Tails' tails
@@ -70407,7 +70545,394 @@ Obj63_MapUnc_34492:	BINCLUDE "mappings/sprite/obj63.bin"
 ; a small space optimization. These frames only have one dplc per frame ever,
 ; hence the two-byte dplc count is removed from each frame.
 ; ----------------------------------------------------------------------------
-Obj09_MapRUnc_345FA:	BINCLUDE "mappings/spriteDPLC/obj09.bin"
+	pushv ,SonicDplcVer	; Backup previous value of SonicDplcVer
+SonicDplcVer := 4		; Switch to custom DPLC format
+
+Obj09_MapRUnc_345FA:	mappingsTable
+	mappingsTableEntry.w	.sonic_0
+	mappingsTableEntry.w	.sonic_1
+	mappingsTableEntry.w	.sonic_2
+	mappingsTableEntry.w	.sonic_3
+	mappingsTableEntry.w	.sonic_4
+	mappingsTableEntry.w	.sonic_5
+	mappingsTableEntry.w	.sonic_6
+	mappingsTableEntry.w	.sonic_7
+	mappingsTableEntry.w	.sonic_8
+	mappingsTableEntry.w	.sonic_9
+	mappingsTableEntry.w	.sonic_10
+	mappingsTableEntry.w	.sonic_11
+	mappingsTableEntry.w	.sonic_12
+	mappingsTableEntry.w	.sonic_13
+	mappingsTableEntry.w	.sonic_14
+	mappingsTableEntry.w	.sonic_15
+	mappingsTableEntry.w	.sonic_16
+	mappingsTableEntry.w	.sonic_17
+
+	mappingsTableEntry.w	.tails_0
+	mappingsTableEntry.w	.tails_1
+	mappingsTableEntry.w	.tails_2
+	mappingsTableEntry.w	.tails_3
+	mappingsTableEntry.w	.tails_4
+	mappingsTableEntry.w	.tails_5
+	mappingsTableEntry.w	.tails_6
+	mappingsTableEntry.w	.tails_7
+	mappingsTableEntry.w	.tails_8
+	mappingsTableEntry.w	.tails_9
+	mappingsTableEntry.w	.tails_10
+	mappingsTableEntry.w	.tails_11
+	mappingsTableEntry.w	.tails_12
+	mappingsTableEntry.w	.tails_13
+	mappingsTableEntry.w	.tails_14
+	mappingsTableEntry.w	.tails_15
+	mappingsTableEntry.w	.tails_16
+	mappingsTableEntry.w	.tails_17
+
+	mappingsTableEntry.w	.tails_tails_0
+	mappingsTableEntry.w	.tails_tails_1
+	mappingsTableEntry.w	.tails_tails_2
+	mappingsTableEntry.w	.tails_tails_3
+	mappingsTableEntry.w	.tails_tails_4
+	mappingsTableEntry.w	.tails_tails_5
+	mappingsTableEntry.w	.tails_tails_6
+	mappingsTableEntry.w	.tails_tails_7
+	mappingsTableEntry.w	.tails_tails_8
+	mappingsTableEntry.w	.tails_tails_9
+	mappingsTableEntry.w	.tails_tails_10
+	mappingsTableEntry.w	.tails_tails_11
+	mappingsTableEntry.w	.tails_tails_12
+	mappingsTableEntry.w	.tails_tails_13
+	mappingsTableEntry.w	.tails_tails_14
+	mappingsTableEntry.w	.tails_tails_15
+	mappingsTableEntry.w	.tails_tails_16
+	mappingsTableEntry.w	.tails_tails_17
+	mappingsTableEntry.w	.tails_tails_18
+	mappingsTableEntry.w	.tails_tails_19
+	mappingsTableEntry.w	.tails_tails_20
+
+.sonic_0:	dplcHeader
+	dplcEntry	$10, 0
+	dplcEntry	9, $10
+	dplcEntry	2, $19
+.sonic_0_End
+
+.sonic_1:	dplcHeader
+	dplcEntry	9, $1B
+	dplcEntry	8, $24
+	dplcEntry	4, $2C
+.sonic_1_End
+
+.sonic_2:	dplcHeader
+	dplcEntry	$C, $30
+	dplcEntry	8, $3C
+	dplcEntry	6, $44
+.sonic_2_End
+
+.sonic_3:	dplcHeader
+	dplcEntry	9, $1B
+	dplcEntry	8, $4A
+	dplcEntry	6, $52
+.sonic_3_End
+
+.sonic_4:	dplcHeader
+	dplcEntry	9, 0
+	dplcEntry	4, 9
+	dplcEntry	2, $D
+	dplcEntry	$C, $F
+.sonic_4_End
+
+.sonic_5:	dplcHeader
+	dplcEntry	6, $1B
+	dplcEntry	2, $21
+	dplcEntry	8, $23
+	dplcEntry	8, $2B
+	dplcEntry	1, $33
+.sonic_5_End
+
+.sonic_6:	dplcHeader
+	dplcEntry	2, $34
+	dplcEntry	$C, $36
+	dplcEntry	3, $42
+	dplcEntry	6, $45
+	dplcEntry	4, $4B
+.sonic_6_End
+
+.sonic_7:	dplcHeader
+	dplcEntry	2, $4F
+	dplcEntry	$10, $51
+	dplcEntry	3, $61
+	dplcEntry	1, $64
+	dplcEntry	4, $65
+.sonic_7_End
+
+.sonic_8:	dplcHeader
+	dplcEntry	4, $69
+	dplcEntry	4, $6D
+	dplcEntry	$C, $71
+	dplcEntry	4, $7D
+.sonic_8_End
+
+.sonic_9:	dplcHeader
+	dplcEntry	4, $81
+	dplcEntry	3, $85
+	dplcEntry	8, $88
+	dplcEntry	8, $90
+	dplcEntry	1, $98
+.sonic_9_End
+
+.sonic_10:	dplcHeader
+	dplcEntry	6, $99
+	dplcEntry	2, $9F
+	dplcEntry	8, $A1
+	dplcEntry	8, $A9
+	dplcEntry	1, $B1
+.sonic_10_End
+
+.sonic_11:	dplcHeader
+	dplcEntry	1, $B2
+	dplcEntry	8, $B3
+	dplcEntry	1, $BB
+	dplcEntry	2, $BC
+	dplcEntry	8, $BE
+	dplcEntry	6, $C6
+.sonic_11_End
+
+.sonic_12:	dplcHeader
+	dplcEntry	6, 0
+	dplcEntry	1, 6
+	dplcEntry	$10, 7
+.sonic_12_End
+
+.sonic_13:	dplcHeader
+	dplcEntry	6, $17
+	dplcEntry	4, $1D
+	dplcEntry	$C, $21
+.sonic_13_End
+
+.sonic_14:	dplcHeader
+	dplcEntry	3, $2D
+	dplcEntry	3, $30
+	dplcEntry	$10, $33
+.sonic_14_End
+
+.sonic_15:	dplcHeader
+	dplcEntry	6, $43
+	dplcEntry	4, $49
+	dplcEntry	$C, $21
+.sonic_15_End
+
+.sonic_16:	dplcHeader
+	dplcEntry	8, 0
+	dplcEntry	2, 8
+.sonic_16_End
+
+.sonic_17:	dplcHeader
+	dplcEntry	8, $A
+	dplcEntry	2, 8
+.sonic_17_End
+
+.tails_0:	dplcHeader
+	dplcEntry	9, 0
+	dplcEntry	6, 9
+	dplcEntry	1, $F
+.tails_0_End
+
+.tails_1:	dplcHeader
+	dplcEntry	4, $10
+	dplcEntry	6, $14
+	dplcEntry	4, $1A
+	dplcEntry	4, $1E
+.tails_1_End
+
+.tails_2:	dplcHeader
+	dplcEntry	4, $22
+	dplcEntry	6, $26
+	dplcEntry	4, $2C
+	dplcEntry	4, $30
+.tails_2_End
+
+.tails_3:	dplcHeader
+	dplcEntry	4, $10
+	dplcEntry	6, $14
+	dplcEntry	4, $34
+	dplcEntry	4, $38
+	dplcEntry	1, $3C
+.tails_3_End
+
+.tails_4:	dplcHeader
+	dplcEntry	4, 0
+	dplcEntry	8, 4
+	dplcEntry	8, $C
+.tails_4_End
+
+.tails_5:	dplcHeader
+	dplcEntry	2, $14
+	dplcEntry	8, $16
+	dplcEntry	9, $1E
+	dplcEntry	2, $27
+.tails_5_End
+
+.tails_6:	dplcHeader
+	dplcEntry	1, $29
+	dplcEntry	3, $2A
+	dplcEntry	8, $2D
+	dplcEntry	1, $35
+	dplcEntry	6, $36
+.tails_6_End
+
+.tails_7:	dplcHeader
+	dplcEntry	1, $3C
+	dplcEntry	$10, $3D
+	dplcEntry	1, $4D
+	dplcEntry	2, $4E
+.tails_7_End
+
+.tails_8:	dplcHeader
+	dplcEntry	4, $50
+	dplcEntry	4, $54
+	dplcEntry	8, $58
+	dplcEntry	6, $60
+.tails_8_End
+
+.tails_9:	dplcHeader
+	dplcEntry	1, $66
+	dplcEntry	8, $67
+	dplcEntry	1, $6F
+	dplcEntry	8, $70
+	dplcEntry	2, $78
+.tails_9_End
+
+.tails_10:	dplcHeader
+	dplcEntry	1, $7A
+	dplcEntry	$C, $7B
+	dplcEntry	1, $87
+	dplcEntry	4, $88
+	dplcEntry	2, $8C
+.tails_10_End
+
+.tails_11:	dplcHeader
+	dplcEntry	1, $8E
+	dplcEntry	$C, $8F
+	dplcEntry	1, $9B
+	dplcEntry	8, $9C
+.tails_11_End
+
+.tails_12:	dplcHeader
+	dplcEntry	9, 0
+	dplcEntry	8, 9
+.tails_12_End
+
+.tails_13:	dplcHeader
+	dplcEntry	4, $11
+	dplcEntry	1, $15
+	dplcEntry	$C, $16
+.tails_13_End
+
+.tails_14:	dplcHeader
+	dplcEntry	2, $22
+	dplcEntry	$10, $24
+.tails_14_End
+
+.tails_15:	dplcHeader
+	dplcEntry	3, $34
+	dplcEntry	3, $37
+	dplcEntry	$C, $16
+.tails_15_End
+
+.tails_16:	dplcHeader
+	dplcEntry	8, 0
+.tails_16_End
+
+.tails_17:	dplcHeader
+	dplcEntry	8, 8
+.tails_17_End
+
+.tails_tails_0:	;dplcHeader
+	dplcEntry	6, 0
+.tails_tails_0_End
+
+.tails_tails_1:	;dplcHeader
+	dplcEntry	9, 6
+.tails_tails_1_End
+
+.tails_tails_2:	;dplcHeader
+	dplcEntry	6, $F
+.tails_tails_2_End
+
+.tails_tails_3:	;dplcHeader
+	dplcEntry	6, $15
+.tails_tails_3_End
+
+.tails_tails_4:	;dplcHeader
+	dplcEntry	8, $1B
+.tails_tails_4_End
+
+.tails_tails_5:	;dplcHeader
+	dplcEntry	9, $23
+.tails_tails_5_End
+
+.tails_tails_6:	;dplcHeader
+	dplcEntry	9, $2C
+.tails_tails_6_End
+
+.tails_tails_7:	;dplcHeader
+	dplcEntry	9, 0
+.tails_tails_7_End
+
+.tails_tails_8:	;dplcHeader
+	dplcEntry	6, 9
+.tails_tails_8_End
+
+.tails_tails_9:	;dplcHeader
+	dplcEntry	6, $F
+.tails_tails_9_End
+
+.tails_tails_10:	;dplcHeader
+	dplcEntry	8, $15
+.tails_tails_10_End
+
+.tails_tails_11:	;dplcHeader
+	dplcEntry	$C, $1D
+.tails_tails_11_End
+
+.tails_tails_12:	;dplcHeader
+	dplcEntry	9, $29
+.tails_tails_12_End
+
+.tails_tails_13:	;dplcHeader
+	dplcEntry	9, $32
+.tails_tails_13_End
+
+.tails_tails_14:	;dplcHeader
+	dplcEntry	6, 0
+.tails_tails_14_End
+
+.tails_tails_15:	;dplcHeader
+	dplcEntry	9, 6
+.tails_tails_15_End
+
+.tails_tails_16:	;dplcHeader
+	dplcEntry	6, $F
+.tails_tails_16_End
+
+.tails_tails_17:	;dplcHeader
+	dplcEntry	6, $15
+.tails_tails_17_End
+
+.tails_tails_18:	;dplcHeader
+	dplcEntry	8, $1B
+.tails_tails_18_End
+
+.tails_tails_19:	;dplcHeader
+	dplcEntry	9, $23
+.tails_tails_19_End
+
+.tails_tails_20:	;dplcHeader
+	dplcEntry	9, $2C
+.tails_tails_20_End
+
+	even
+
+	popv ,SonicDplcVer	; Switch back to the previous DPLC format
 ; ===========================================================================
 
     if ~~removeJmpTos
@@ -70724,7 +71249,7 @@ byte_34B3A:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj10_MapUnc_34B3E:	BINCLUDE "mappings/sprite/obj10.bin"
+Obj10_MapUnc_34B3E:	include "mappings/sprite/obj10.asm"
 
 ; animation script
 ; off_34D86:
@@ -70741,7 +71266,7 @@ byte_34D9E:	dc.b   3, $E, $F,$10,$11,$12,$13,$14,$FF
 ; ----------------------------------------------------------------------------
 ; sprite mappings for Tails' tails in special stage
 ; ----------------------------------------------------------------------------
-Obj88_MapUnc_34DA8:	BINCLUDE "mappings/sprite/obj88.bin"
+Obj88_MapUnc_34DA8:	include "mappings/sprite/obj88.asm"
 ; ===========================================================================
 
     if ~~removeJmpTos
@@ -71748,7 +72273,7 @@ Obj5A_FlashMessage:
 	; This object's 'priority' is overwritten by 'sub3_y_pos', causing it
 	; to display on the wrong layer.
 	bhs.s	+
-	move.w	#$80*1,d0
+	move.w	#object_display_list_size*1,d0
 	jmp	(DisplaySprite3).l
     else
 	blo.w	JmpTo44_DisplaySprite
@@ -72369,7 +72894,7 @@ byte_35E19:	dc.b   2,$24,$26,$1C,$FF	; RINGS ?? ?? !
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj5A_MapUnc_35E1E:	BINCLUDE "mappings/sprite/obj5A.bin"
+Obj5A_MapUnc_35E1E:	include "mappings/sprite/obj5A.asm"
 ; ===========================================================================
 
 loc_35F76:
@@ -72686,7 +73211,7 @@ byte_36257:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj59_MapUnc_3625A:	BINCLUDE "mappings/sprite/obj59.bin"
+Obj59_MapUnc_3625A:	include "mappings/sprite/obj59.asm"
 
 ; animation script:
 ; off_362D2:
@@ -72727,7 +73252,7 @@ byte_36324: dc.b   1,$1E,$1F,$20,$FF
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj5A_Obj5B_Obj60_MapUnc_3632A:	BINCLUDE "mappings/sprite/obj5A_5B_60.bin"
+Obj5A_Obj5B_Obj60_MapUnc_3632A:	include "mappings/sprite/obj5A_5B_60.asm"
 
 ; animation script:
 ; off_364CE:
@@ -72768,7 +73293,7 @@ byte_36502: dc.b   2, $A, $B, $C,$FF
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj61_MapUnc_36508:	BINCLUDE "mappings/sprite/obj61.bin"
+Obj61_MapUnc_36508:	include "mappings/sprite/obj61.asm"
 ; ===========================================================================
 
 JmpTo44_DisplaySprite ; JmpTo
@@ -73424,7 +73949,7 @@ Ani_obj8C:	offsetTable
 ; ------------------------------------------------------------------------
 ; sprite mappings
 ; ------------------------------------------------------------------------
-Obj8C_MapUnc_36A4E:	BINCLUDE "mappings/sprite/obj8C.bin"
+Obj8C_MapUnc_36A4E:	include "mappings/sprite/obj8C.asm"
 ; ===========================================================================
 ; ----------------------------------------------------------------------------
 ; Object 8D - Grounder in wall, from ARZ
@@ -73720,61 +74245,73 @@ Ani_obj8D_b:	offsetTable
 ; -----------------------------------------------------------------------------
 ; sprite mappings (obj8D)
 ; -----------------------------------------------------------------------------
-Obj8D_MapUnc_36CF0: offsetTable
-	offsetTableEntry.w word_36D02	; 0
-	offsetTableEntry.w word_36D24	; 2
-	offsetTableEntry.w word_36D46	; 4
-	offsetTableEntry.w word_36D58	; 6
-	offsetTableEntry.w word_36D6A	; 8
+Obj8D_MapUnc_36CF0:	mappingsTable
+	mappingsTableEntry.w	word_36D02
+	mappingsTableEntry.w	word_36D24
+	mappingsTableEntry.w	word_36D46
+	mappingsTableEntry.w	word_36D58
+	mappingsTableEntry.w	word_36D6A
 ; -----------------------------------------------------------------------------
 ; sprite mappings (obj90)
 ; -----------------------------------------------------------------------------
-Obj90_MapUnc_36CFA: offsetTable
-	offsetTableEntry.w word_36D7C	; 0
-	offsetTableEntry.w word_36D86	; 2
-	offsetTableEntry.w word_36D90	; 4
+Obj90_MapUnc_36CFA:	mappingsTable
+	mappingsTableEntry.w	word_36D7C
+	mappingsTableEntry.w	word_36D86
+	mappingsTableEntry.w	word_36D90
 ; -----------------------------------------------------------------------------
 ; sprite mappings (obj90)
 ; -----------------------------------------------------------------------------
-Obj90_MapUnc_36D00: offsetTable
-	offsetTableEntry.w word_36D9A	; 0
-word_36D02:
-	dc.w 4
-	dc.w $F400,    0,    0,$FFF8
-	dc.w $FC06,    1,    0,$FFF0 ; 4
-	dc.w $F400, $800, $800,	   0 ; 8
-	dc.w $FC06, $801, $800,	   0 ; 12
-word_36D24:
-	dc.w 4
-	dc.w $EC00,    7,    3,$FFF8
-	dc.w $F407,    8,    4,$FFF0 ; 4
-	dc.w $EC00, $807, $803,	   0 ; 8
-	dc.w $F407, $808, $804,	   0 ; 12
-word_36D46:
-	dc.w 2
-	dc.w $EC0F,  $10,    8,$FFF0
-	dc.w  $C0C,  $20,  $10,$FFF0 ; 4
-word_36D58:
-	dc.w 2
-	dc.w $EC0F,  $10,    8,$FFF0
-	dc.w  $C0C,  $24,  $12,$FFF0 ; 4
-word_36D6A:
-	dc.w 2
-	dc.w $EC0F,  $10,    8,$FFF0
-	dc.w  $C0C,  $28,  $14,$FFF0 ; 4
-word_36D7C:
-	dc.w 1
-	dc.w $F805,  $2C,  $16,$FFF8
-word_36D86:
-	dc.w 1
-	dc.w $FC00,  $30,  $18,$FFFC
-word_36D90:
-	dc.w 1
-	dc.w $FC00,  $31,  $18,$FFFC
-word_36D9A:
-	dc.w 2
-	dc.w $F805,$4093,$4049,$FFF0
-	dc.w $F805,$4097,$404B,	   0 ; 4
+Obj90_MapUnc_36D00:	mappingsTable
+	mappingsTableEntry.w	word_36D9A
+
+word_36D02:	spriteHeader
+	spritePiece	-8, -$C, 1, 1, 0, 0, 0, 0, 0
+	spritePiece	-$10, -4, 2, 3, 1, 0, 0, 0, 0
+	spritePiece	0, -$C, 1, 1, 0, 1, 0, 0, 0
+	spritePiece	0, -4, 2, 3, 1, 1, 0, 0, 0
+word_36D02_End
+
+word_36D24:	spriteHeader
+	spritePiece	-8, -$14, 1, 1, 7, 0, 0, 0, 0
+	spritePiece	-$10, -$C, 2, 4, 8, 0, 0, 0, 0
+	spritePiece	0, -$14, 1, 1, 7, 1, 0, 0, 0
+	spritePiece	0, -$C, 2, 4, 8, 1, 0, 0, 0
+word_36D24_End
+
+word_36D46:	spriteHeader
+	spritePiece	-$10, -$14, 4, 4, $10, 0, 0, 0, 0
+	spritePiece	-$10, $C, 4, 1, $20, 0, 0, 0, 0
+word_36D46_End
+
+word_36D58:	spriteHeader
+	spritePiece	-$10, -$14, 4, 4, $10, 0, 0, 0, 0
+	spritePiece	-$10, $C, 4, 1, $24, 0, 0, 0, 0
+word_36D58_End
+
+word_36D6A:	spriteHeader
+	spritePiece	-$10, -$14, 4, 4, $10, 0, 0, 0, 0
+	spritePiece	-$10, $C, 4, 1, $28, 0, 0, 0, 0
+word_36D6A_End
+
+word_36D7C:	spriteHeader
+	spritePiece	-8, -8, 2, 2, $2C, 0, 0, 0, 0
+word_36D7C_End
+
+word_36D86:	spriteHeader
+	spritePiece	-4, -4, 1, 1, $30, 0, 0, 0, 0
+word_36D86_End
+
+word_36D90:	spriteHeader
+	spritePiece	-4, -4, 1, 1, $31, 0, 0, 0, 0
+word_36D90_End
+
+word_36D9A:	spriteHeader
+	spritePiece	-$10, -8, 2, 2, $93, 0, 0, 2, 0
+	spritePiece	0, -8, 2, 2, $97, 0, 0, 2, 0
+word_36D9A_End
+
+	even
+
 ; ===========================================================================
 ; ----------------------------------------------------------------------------
 ; Object 91 - Chop Chop (piranha/shark badnik) from ARZ
@@ -73942,7 +74479,7 @@ Ani_obj91:	offsetTable
 ; --------------------------------------------------------------------------
 ; sprite mappings
 ; --------------------------------------------------------------------------
-Obj91_MapUnc_36EF6:	BINCLUDE "mappings/sprite/obj91.bin"
+Obj91_MapUnc_36EF6:	include "mappings/sprite/obj91.asm"
 
 
 
@@ -74116,7 +74653,7 @@ byte_3708E:	dc.b   9,  2,  3,$FF
 ; ---------------------------------------------------------------------------
 ; sprite mappings
 ; ---------------------------------------------------------------------------
-Obj92_Obj93_MapUnc_37092:	BINCLUDE "mappings/sprite/obj93.bin"
+Obj92_Obj93_MapUnc_37092:	include "mappings/sprite/obj93.asm"
 ; ===========================================================================
 ; ----------------------------------------------------------------------------
 ; Object 95 - Sol (fireball-throwing orbit badnik) from HTZ
@@ -74306,7 +74843,7 @@ Ani_obj95_b:	offsetTable
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj95_MapUnc_372E6:	BINCLUDE "mappings/sprite/obj95.bin"
+Obj95_MapUnc_372E6:	include "mappings/sprite/obj95.asm"
 
 Invalid_SubObjData:
 
@@ -74705,7 +75242,7 @@ Obj94_SubObjData:
 ; ------------------------------------------------------------------------
 ; sprite mappings
 ; ------------------------------------------------------------------------
-Obj94_Obj98_MapUnc_37678:	BINCLUDE "mappings/sprite/obj97.bin"
+Obj94_Obj98_MapUnc_37678:	include "mappings/sprite/obj97.asm"
 
 ; seems to be a lookup table for oscillating horizontal position offset
 byte_376A8:
@@ -74948,7 +75485,7 @@ Ani_obj99:	offsetTable
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj99_Obj98_MapUnc_3789A:	BINCLUDE "mappings/sprite/obj99.bin"
+Obj99_Obj98_MapUnc_3789A:	include "mappings/sprite/obj99.asm"
 ; ===========================================================================
 ; ----------------------------------------------------------------------------
 ; Object 9A - Turtloid (turtle badnik) from Sky Chase Zone
@@ -75196,7 +75733,7 @@ Ani_obj9C:	offsetTable
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj9A_Obj98_MapUnc_37B62:	BINCLUDE "mappings/sprite/obj9C.bin"
+Obj9A_Obj98_MapUnc_37B62:	include "mappings/sprite/obj9C.asm"
 
 
 
@@ -75382,7 +75919,7 @@ byte_37D90:	dc.b   9,  1,  2,  1,$FF
 ; ------------------------------------------------------------------------
 ; sprite mappings
 ; ------------------------------------------------------------------------
-Obj9D_Obj98_MapUnc_37D96:	BINCLUDE "mappings/sprite/obj9D.bin"
+Obj9D_Obj98_MapUnc_37D96:	include "mappings/sprite/obj9D.asm"
 
 
 
@@ -75524,7 +76061,7 @@ loc_37EFC:
 	dbf	d6,-
 
 loc_37F6C:
-	move.w	#$280,d0
+	move.w	#object_display_list_size*5,d0
 	jmpto	DisplaySprite3, JmpTo5_DisplaySprite3
 ; ===========================================================================
 
@@ -75564,7 +76101,7 @@ Obj9E_SubObjData:
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-Obj9E_MapUnc_37FF2:	BINCLUDE "mappings/sprite/obj9E.bin"
+Obj9E_MapUnc_37FF2:	include "mappings/sprite/obj9E.asm"
 
 
 
@@ -75935,7 +76472,7 @@ byte_3830E:	dc.b  $E,  0,  2,  1,$FF
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-Obj9F_MapUnc_38314:	BINCLUDE "mappings/sprite/objA0.bin"
+Obj9F_MapUnc_38314:	include "mappings/sprite/objA0.asm"
 ; ===========================================================================
 ; ----------------------------------------------------------------------------
 ; Object A1 - Slicer (praying mantis dude) from MTZ
@@ -76179,7 +76716,7 @@ Ani_objA2:	offsetTable
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-ObjA1_MapUnc_385E2:	BINCLUDE "mappings/sprite/objA2.bin"
+ObjA1_MapUnc_385E2:	include "mappings/sprite/objA2.asm"
 
 
 
@@ -76374,7 +76911,7 @@ Ani_objA3_c:	offsetTable
 ; -------------------------------------------------------------------------------
 ; sprite mappings
 ; -------------------------------------------------------------------------------
-ObjA3_MapUnc_388F0:	BINCLUDE "mappings/sprite/objA3.bin"
+ObjA3_MapUnc_388F0:	include "mappings/sprite/objA3.asm"
 
 
 
@@ -76503,7 +77040,7 @@ Ani_objA4:	offsetTable
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-ObjA4_Obj98_MapUnc_38A96:	BINCLUDE "mappings/sprite/objA4.bin"
+ObjA4_Obj98_MapUnc_38A96:	include "mappings/sprite/objA4.asm"
 
 
 
@@ -76717,7 +77254,7 @@ Ani_SpinyShot:	offsetTable
 ; ------------------------------------------------------------------------------
 ; sprite mappings
 ; ------------------------------------------------------------------------------
-ObjA5_ObjA6_Obj98_MapUnc_38CCA:	BINCLUDE "mappings/sprite/objA6.bin"
+ObjA5_ObjA6_Obj98_MapUnc_38CCA:	include "mappings/sprite/objA6.asm"
 ; ===========================================================================
 ; ----------------------------------------------------------------------------
 ; Object A7 - Grabber (spider badnik) from CPZ
@@ -77226,99 +77763,115 @@ byte_39216:
 ; ----------------------------------------------------------------------------
 ; sprite mappings - objA7,objA8,objA9
 ; ----------------------------------------------------------------------------
-ObjA7_ObjA8_ObjA9_Obj98_MapUnc_3921A: offsetTable
-	offsetTableEntry.w word_3923A	; 0
-	offsetTableEntry.w word_39254	; 1
-	offsetTableEntry.w word_3926E	; 2
-	offsetTableEntry.w word_39278	; 3
-	offsetTableEntry.w word_39282	; 4
-	offsetTableEntry.w word_3928C	; 5
-	offsetTableEntry.w word_39296	; 6
+ObjA7_ObjA8_ObjA9_Obj98_MapUnc_3921A:	mappingsTable
+	mappingsTableEntry.w	word_3923A
+	mappingsTableEntry.w	word_39254
+	mappingsTableEntry.w	word_3926E
+	mappingsTableEntry.w	word_39278
+	mappingsTableEntry.w	word_39282
+	mappingsTableEntry.w	word_3928C
+	mappingsTableEntry.w	word_39296
 ; -------------------------------------------------------------------------------
 ; sprite mappings - objAA (string of various lengths)
 ; -------------------------------------------------------------------------------
-ObjAA_MapUnc_39228: offsetTable
-	offsetTableEntry.w word_392A0	; 0
-	offsetTableEntry.w word_392AA	; 1
-	offsetTableEntry.w word_392B4	; 2
-	offsetTableEntry.w word_392C6	; 3
-	offsetTableEntry.w word_392D8	; 4
+ObjAA_MapUnc_39228:	mappingsTable
+	mappingsTableEntry.w	word_392A0	; 0
+	mappingsTableEntry.w	word_392AA	; 1
+	mappingsTableEntry.w	word_392B4	; 2
+	mappingsTableEntry.w	word_392C6	; 3
+	mappingsTableEntry.w	word_392D8	; 4
 	; Unused - The spider badnik never goes down enough for these to appear
-	offsetTableEntry.w word_3930C	; 5	; This is in the wrong place - this should be frame 6
-	offsetTableEntry.w word_392F2	; 6	; This is in the wrong place - this should be frame 5
-	offsetTableEntry.w word_3932E	; 7
-	offsetTableEntry.w word_3932E	; 8	; This should point to word_39350
-word_3923A:
-	dc.w 3
-	dc.w $F801,    0,    0,$FFE5
-	dc.w $F80D,    2,    1,$FFED; 4
-	dc.w  $809,  $1D,   $E,$FFF1; 8
-word_39254:
-	dc.w 3
-	dc.w $F801,    0,    0,$FFE5
-	dc.w $F80D,    2,    1,$FFED; 4
-	dc.w  $80D,  $23,  $11,$FFF1; 8
-word_3926E:
-	dc.w 1
-	dc.w $FC00,   $A,    5,$FFFC
-word_39278:
-	dc.w 1
-	dc.w $F809,   $F,    7,$FFF9
-word_39282:
-	dc.w 1
-	dc.w $F80D,  $15,   $A,$FFF9
-word_3928C:
-	dc.w 1
-	dc.w $FC00,  $2B,  $15,$FFFC
-word_39296:
-	dc.w 1
-	dc.w $FC00,  $2C,  $16,$FFFC
-word_392A0:
-	dc.w 1
-	dc.w	 1,   $B,    5,$FFFC
-word_392AA:
-	dc.w 1
-	dc.w	 3,   $B,    5,$FFFC
-word_392B4:
-	dc.w 2
-	dc.w	 1,   $B,    5,$FFFC
-	dc.w $1003,   $B,    5,$FFFC; 4
-word_392C6:
-	dc.w 2
-	dc.w	 3,   $B,    5,$FFFC
-	dc.w $2003,   $B,    5,$FFFC; 4
-word_392D8:
-	dc.w 3
-	dc.w	 1,   $B,    5,$FFFC
-	dc.w $1003,   $B,    5,$FFFC; 4
-	dc.w $3003,   $B,    5,$FFFC; 8
-word_392F2:
-	dc.w 3
-	dc.w	 3,   $B,    5,$FFFC
-	dc.w $2003,   $B,    5,$FFFC; 4
-	dc.w $4003,   $B,    5,$FFFC; 8
-word_3930C:
-	dc.w 4
-	dc.w	 1,   $B,    5,$FFFC
-	dc.w $1003,   $B,    5,$FFFC; 4
-	dc.w $3003,   $B,    5,$FFFC; 8
-	dc.w $5003,   $B,    5,$FFFC; 12
-word_3932E:
-	dc.w 4
-	dc.w	 3,   $B,    5,$FFFC
-	dc.w $2003,   $B,    5,$FFFC; 4
-	dc.w $4003,   $B,    5,$FFFC; 8
-	dc.w $6003,   $B,    5,$FFFC; 12
+	mappingsTableEntry.w	word_3930C	; 5	; This is in the wrong place - this should be frame 6
+	mappingsTableEntry.w	word_392F2	; 6	; This is in the wrong place - this should be frame 5
+	mappingsTableEntry.w	word_3932E	; 7
+	mappingsTableEntry.w	word_3932E	; 8	; This should point to word_39350
+
+word_3923A:	spriteHeader
+	spritePiece	-$1B, -8, 1, 2, 0, 0, 0, 0, 0
+	spritePiece	-$13, -8, 4, 2, 2, 0, 0, 0, 0
+	spritePiece	-$F, 8, 3, 2, $1D, 0, 0, 0, 0
+word_3923A_End
+
+word_39254:	spriteHeader
+	spritePiece	-$1B, -8, 1, 2, 0, 0, 0, 0, 0
+	spritePiece	-$13, -8, 4, 2, 2, 0, 0, 0, 0
+	spritePiece	-$F, 8, 4, 2, $23, 0, 0, 0, 0
+word_39254_End
+
+word_3926E:	spriteHeader
+	spritePiece	-4, -4, 1, 1, $A, 0, 0, 0, 0
+word_3926E_End
+
+word_39278:	spriteHeader
+	spritePiece	-7, -8, 3, 2, $F, 0, 0, 0, 0
+word_39278_End
+
+word_39282:	spriteHeader
+	spritePiece	-7, -8, 4, 2, $15, 0, 0, 0, 0
+word_39282_End
+
+word_3928C:	spriteHeader
+	spritePiece	-4, -4, 1, 1, $2B, 0, 0, 0, 0
+word_3928C_End
+
+word_39296:	spriteHeader
+	spritePiece	-4, -4, 1, 1, $2C, 0, 0, 0, 0
+word_39296_End
+
+word_392A0:	spriteHeader
+	spritePiece	-4, 0, 1, 2, $B, 0, 0, 0, 0
+word_392A0_End
+
+word_392AA:	spriteHeader
+	spritePiece	-4, 0, 1, 4, $B, 0, 0, 0, 0
+word_392AA_End
+
+word_392B4:	spriteHeader
+	spritePiece	-4, 0, 1, 2, $B, 0, 0, 0, 0
+	spritePiece	-4, $10, 1, 4, $B, 0, 0, 0, 0
+word_392B4_End
+
+word_392C6:	spriteHeader
+	spritePiece	-4, 0, 1, 4, $B, 0, 0, 0, 0
+	spritePiece	-4, $20, 1, 4, $B, 0, 0, 0, 0
+word_392C6_End
+
+word_392D8:	spriteHeader
+	spritePiece	-4, 0, 1, 2, $B, 0, 0, 0, 0
+	spritePiece	-4, $10, 1, 4, $B, 0, 0, 0, 0
+	spritePiece	-4, $30, 1, 4, $B, 0, 0, 0, 0
+word_392D8_End
+
+word_392F2:	spriteHeader
+	spritePiece	-4, 0, 1, 4, $B, 0, 0, 0, 0
+	spritePiece	-4, $20, 1, 4, $B, 0, 0, 0, 0
+	spritePiece	-4, $40, 1, 4, $B, 0, 0, 0, 0
+word_392F2_End
+
+word_3930C:	spriteHeader
+	spritePiece	-4, 0, 1, 2, $B, 0, 0, 0, 0
+	spritePiece	-4, $10, 1, 4, $B, 0, 0, 0, 0
+	spritePiece	-4, $30, 1, 4, $B, 0, 0, 0, 0
+	spritePiece	-4, $50, 1, 4, $B, 0, 0, 0, 0
+word_3930C_End
+
+word_3932E:	spriteHeader
+	spritePiece	-4, 0, 1, 4, $B, 0, 0, 0, 0
+	spritePiece	-4, $20, 1, 4, $B, 0, 0, 0, 0
+	spritePiece	-4, $40, 1, 4, $B, 0, 0, 0, 0
+	spritePiece	-4, $60, 1, 4, $B, 0, 0, 0, 0
+word_3932E_End
+
 ; Unused frame
-;word_39350:
-	dc.w 5
-	dc.w	 1,   $B,    5,$FFFC
-	dc.w $1003,   $B,    5,$FFFC; 4
-	dc.w $3003,   $B,    5,$FFFC; 8
-	dc.w $5003,   $B,    5,$FFFC; 12
-	dc.w $7003,   $B,    5,$FFFC; 16
+word_39350:	spriteHeader
+	spritePiece	-4, 0, 1, 2, $B, 0, 0, 0, 0
+	spritePiece	-4, $10, 1, 4, $B, 0, 0, 0, 0
+	spritePiece	-4, $30, 1, 4, $B, 0, 0, 0, 0
+	spritePiece	-4, $50, 1, 4, $B, 0, 0, 0, 0
+	spritePiece	-4, $70, 1, 4, $B, 0, 0, 0, 0
+word_39350_End
 
-
+	even
 
 
 ; ===========================================================================
@@ -77362,7 +77915,7 @@ ObjAC_SubObjData:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-ObjAC_MapUnc_393CC:	BINCLUDE "mappings/sprite/objAC.bin"
+ObjAC_MapUnc_393CC:	include "mappings/sprite/objAC.asm"
 
 
 
@@ -77551,7 +78104,7 @@ Ani_CluckerShot:offsetTable
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-ObjAD_Obj98_MapUnc_395B4:	BINCLUDE "mappings/sprite/objAE.bin"
+ObjAD_Obj98_MapUnc_395B4:	include "mappings/sprite/objAE.asm"
 
 
 
@@ -77617,7 +78170,7 @@ loc_397AC:
 
 loc_397BA:
 	addq.b	#2,routine(a0)
-	move.w	#$3C,objoff_2A(a0)
+	move.w	#60,objoff_2A(a0)
 	move.w	#$100,y_vel(a0)
 	move.w	#$224,d0
 	move.w	d0,(Camera_Min_X_pos).w
@@ -77923,7 +78476,7 @@ loc_39ABC:
 
 loc_39ACE:
 	subq.b	#1,objoff_2A(a0)
-	cmpi.b	#$3C,objoff_2A(a0)
+	cmpi.b	#60,objoff_2A(a0)
 	bne.s	loc_39ADE
 	bsr.w	loc_39AE8
 
@@ -78294,11 +78847,11 @@ byte_39E64:	dc.b   3,  7,  7,$FF
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-ObjAF_Obj98_MapUnc_39E68:	BINCLUDE "mappings/sprite/objAF_a.bin"
+ObjAF_Obj98_MapUnc_39E68:	include "mappings/sprite/objAF_a.asm"
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-ObjAF_MapUnc_3A08C:	BINCLUDE "mappings/sprite/objAF_b.bin"
+ObjAF_MapUnc_3A08C:	include "mappings/sprite/objAF_b.asm"
 
 
 
@@ -78396,18 +78949,11 @@ ObjB0_Init:
 
 	rts
 ; ===========================================================================
-	; These next four things are pointers to Sonic's dereferenced
-	; DPLC entries of his "running animation" frames for the SEGA screen.
-	; I want that DPLC data split into a binary file for use with editors,
-	; but unfortunately there's no way to refer to BINCLUDE'd bytes
-	; from within AS, so I put an educated guess (default) here and
-	; run an external program (fixpointer.exe) to fix it later.
-; WARNING: the build script needs editing if you rename this label
 off_3A294:
-	dc.l (MapRUnc_Sonic+$33A)	;dc.l word_7181A
-	dc.l (MapRUnc_Sonic+$340)	;dc.l word_71820
-	dc.l (MapRUnc_Sonic+$346)	;dc.l word_71826
-	dc.l (MapRUnc_Sonic+$34C)	;dc.l word_7182C
+	dc.l MapRUnc_Sonic.frame45
+	dc.l MapRUnc_Sonic.frame46
+	dc.l MapRUnc_Sonic.frame47
+	dc.l MapRUnc_Sonic.frame48
 
 map_piece macro width,height
 	dc.l copysrc,copydst
@@ -78679,7 +79225,7 @@ Ani_objB0:	offsetTable
 ; Gigantic Sonic (2x size) mappings for the SEGA screen
 ; also has the "trademark hider" mappings
 ; ------------------------------------------------------------------------------
-ObjB1_MapUnc_3A5A6:	BINCLUDE "mappings/sprite/objB1.bin"
+ObjB1_MapUnc_3A5A6:	include "mappings/sprite/objB1.asm"
 ; ===========================================================================
 ;loc_3A68A
 SegaScr_VInt:
@@ -78700,7 +79246,7 @@ loc_3A6A2:
 
 	lea	ObjB1_Streak_fade_to_right(pc),a1
 	; 9 full lines ($100 bytes each) plus $28 8-pixel cells
-	move.l	#vdpComm(VRAM_SegaScr_Plane_A_Name_Table + planeLocH80($28,9),VRAM,WRITE),d0	; $49500003
+	move.l	#vdpComm(VRAM_SegaScr_Plane_A_Name_Table + planeLoc(128,40,9),VRAM,WRITE),d0	; $49500003
 	bra.w	loc_3A710
 ; ===========================================================================
 
@@ -78709,13 +79255,13 @@ loc_3A6D4:
 
 	lea	ObjB1_Streak_fade_to_left(pc),a1
 	; $49A00003; 9 full lines ($100 bytes each) plus $50 8-pixel cells
-	move.l	#vdpComm(VRAM_SegaScr_Plane_A_Name_Table + planeLocH80($50,9),VRAM,WRITE),d0
+	move.l	#vdpComm(VRAM_SegaScr_Plane_A_Name_Table + planeLoc(128,80,9),VRAM,WRITE),d0
 	bra.w	loc_3A710
 loc_3A710:
 	lea	(VDP_data_port).l,a6
 	; This is the line delta; for each line, the code below
 	; writes $30 entries, leaving $50 untouched.
-	move.l	#vdpCommDelta(planeLocH80(0,1)),d6	; $1000000
+	move.l	#vdpCommDelta(planeLoc(128,0,1)),d6	; $1000000
 	moveq	#7,d1	; Inner loop: repeat 8 times
 	moveq	#9,d2	; Outer loop: repeat $A times
 -
@@ -79659,11 +80205,11 @@ Ani_objB2_b:	offsetTable
 ; -----------------------------------------------------------------------------
 ; sprite mappings
 ; -----------------------------------------------------------------------------
-ObjB2_MapUnc_3AFF2:	BINCLUDE "mappings/sprite/objB2_a.bin"
+ObjB2_MapUnc_3AFF2:	include "mappings/sprite/objB2_a.asm"
 ; -----------------------------------------------------------------------------
 ; sprite mappings
 ; -----------------------------------------------------------------------------
-ObjB2_MapUnc_3B292:	BINCLUDE "mappings/sprite/objB2_b.bin"
+ObjB2_MapUnc_3B292:	include "mappings/sprite/objB2_b.asm"
 
 
 ; ===========================================================================
@@ -79712,7 +80258,7 @@ ObjB3_SubObjData:
 ; -----------------------------------------------------------------------------
 ; sprite mappings
 ; -----------------------------------------------------------------------------
-ObjB3_MapUnc_3B32C:	BINCLUDE "mappings/sprite/objB3.bin"
+ObjB3_MapUnc_3B32C:	include "mappings/sprite/objB3.asm"
 
 
 
@@ -79766,7 +80312,7 @@ Ani_objB4:	offsetTable
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-ObjB4_MapUnc_3B3BE:	BINCLUDE "mappings/sprite/objB4.bin"
+ObjB4_MapUnc_3B3BE:	include "mappings/sprite/objB4.asm"
 ; ===========================================================================
 ; ----------------------------------------------------------------------------
 ; Object B5 - Horizontal propeller from WFZ
@@ -79888,7 +80434,7 @@ byte_3B544:	dc.b $7E,  0,$FF
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-ObjB5_MapUnc_3B548:	BINCLUDE "mappings/sprite/objB5.bin"
+ObjB5_MapUnc_3B548:	include "mappings/sprite/objB5.asm"
 ; ===========================================================================
 ; ----------------------------------------------------------------------------
 ; Object B6 - Tilting platform from WFZ
@@ -80179,7 +80725,7 @@ byte_3B850:	dc.b   3,  0,  1,  2,$FA,  0
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-ObjB6_MapUnc_3B856:	BINCLUDE "mappings/sprite/objB6.bin"
+ObjB6_MapUnc_3B856:	include "mappings/sprite/objB6.asm"
 ; ===========================================================================
 ; ----------------------------------------------------------------------------
 ; Object B7 - Unused huge vertical laser from WFZ
@@ -80213,7 +80759,7 @@ ObjB7_Main:
 ; off_3B8DA:
 ObjB7_SubObjData:
 	subObjData ObjB7_MapUnc_3B8E4,make_art_tile(ArtTile_ArtNem_WfzVrtclLazer,2,1),4,4,$18,$A9
-ObjB7_MapUnc_3B8E4:	BINCLUDE "mappings/sprite/objB7.bin"
+ObjB7_MapUnc_3B8E4:	include "mappings/sprite/objB7.asm"
 
 ; ===========================================================================
 ; ----------------------------------------------------------------------------
@@ -80326,7 +80872,7 @@ Ani_WallTurretShot: offsetTable
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-ObjB8_Obj98_MapUnc_3BA46:	BINCLUDE "mappings/sprite/objB8.bin"
+ObjB8_Obj98_MapUnc_3BA46:	include "mappings/sprite/objB8.asm"
 ; ===========================================================================
 ; ----------------------------------------------------------------------------
 ; Object B9 - Laser from WFZ that shoots down the Tornado
@@ -80379,7 +80925,7 @@ ObjB9_SubObjData:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-ObjB9_MapUnc_3BB18:	BINCLUDE "mappings/sprite/objB9.bin"
+ObjB9_MapUnc_3BB18:	include "mappings/sprite/objB9.asm"
 ; ===========================================================================
 ; ----------------------------------------------------------------------------
 ; Object BA - Wheel from WFZ
@@ -80410,7 +80956,7 @@ ObjBA_SubObjData:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-ObjBA_MapUnc_3BB70:	BINCLUDE "mappings/sprite/objBA.bin"
+ObjBA_MapUnc_3BB70:	include "mappings/sprite/objBA.asm"
 ; ===========================================================================
 ; ----------------------------------------------------------------------------
 ; Object BB - Removed object (unknown, unused)
@@ -80441,7 +80987,7 @@ ObjBB_SubObjData:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-ObjBB_MapUnc_3BBA0:	BINCLUDE "mappings/sprite/objBB.bin"
+ObjBB_MapUnc_3BBA0:	include "mappings/sprite/objBB.asm"
 ; ===========================================================================
 ; ----------------------------------------------------------------------------
 ; Object BC - Fire coming out of Robotnik's ship in WFZ
@@ -80482,7 +81028,7 @@ ObjBC_SubObjData2:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-ObjBC_MapUnc_3BC08:	BINCLUDE "mappings/sprite/objBC.bin"
+ObjBC_MapUnc_3BC08:	include "mappings/sprite/objBC.asm"
 ; ===========================================================================
 ; ----------------------------------------------------------------------------
 ; Object BD - Ascending/descending metal platforms from WFZ
@@ -80624,7 +81170,7 @@ byte_3BD38:	dc.b   1,  0,  1,  2,$FA
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-ObjBD_MapUnc_3BD3E:	BINCLUDE "mappings/sprite/objBD.bin"
+ObjBD_MapUnc_3BD3E:	include "mappings/sprite/objBD.asm"
 ; ===========================================================================
 ; ----------------------------------------------------------------------------
 ; Object BE - Lateral cannon (temporary platform that pops in/out) from WFZ
@@ -80720,7 +81266,7 @@ byte_3BE40:	dc.b   5,  3,  2,  1,  0,$FC
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-ObjBE_MapUnc_3BE46:	BINCLUDE "mappings/sprite/objBE.bin"
+ObjBE_MapUnc_3BE46:	include "mappings/sprite/objBE.asm"
 ; ===========================================================================
 ; ----------------------------------------------------------------------------
 ; Object BF - Rotaty-stick badnik from WFZ
@@ -80759,7 +81305,7 @@ Ani_objBF:	offsetTable
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-ObjBF_MapUnc_3BEE0:	BINCLUDE "mappings/sprite/objBF.bin"
+ObjBF_MapUnc_3BEE0:	include "mappings/sprite/objBF.asm"
 ; ===========================================================================
 ; ----------------------------------------------------------------------------
 ; Object C0 - Speed launcher from WFZ
@@ -80931,7 +81477,7 @@ ObjC0_SubObjData:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-ObjC0_MapUnc_3C098:	BINCLUDE "mappings/sprite/objC0.bin"
+ObjC0_MapUnc_3C098:	include "mappings/sprite/objC0.asm"
 ; ===========================================================================
 ; ----------------------------------------------------------------------------
 ; Object C1 - Breakable plating from WFZ
@@ -80956,7 +81502,7 @@ ObjC1_Init:
 	bsr.w	LoadSubObject_Part2
 	moveq	#0,d0
 	move.b	subtype(a0),d0
-	mulu.w	#$3C,d0
+	mulu.w	#60,d0
 	move.w	d0,objoff_30(a0)
 
 ObjC1_Main:
@@ -81115,7 +81661,7 @@ ObjC1_SubObjData:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-ObjC1_MapUnc_3C280:	BINCLUDE "mappings/sprite/objC1.bin"
+ObjC1_MapUnc_3C280:	include "mappings/sprite/objC1.asm"
 ; ===========================================================================
 ; ----------------------------------------------------------------------------
 ; Object C2 - Rivet thing you bust to get into ship at the end of WFZ
@@ -81175,7 +81721,7 @@ ObjC2_SubObjData:
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-ObjC2_MapUnc_3C3C2:	BINCLUDE "mappings/sprite/objC2.bin"
+ObjC2_MapUnc_3C3C2:	include "mappings/sprite/objC2.asm"
 
 Invalid_SubObjData2:
 
@@ -82104,11 +82650,11 @@ byte_3CCD0:	dc.b   3,  7,  8,  9, $A, $B,$FF
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-ObjC5_MapUnc_3CCD8:	BINCLUDE "mappings/sprite/objC5_a.bin"
+ObjC5_MapUnc_3CCD8:	include "mappings/sprite/objC5_a.asm"
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-ObjC5_MapUnc_3CEBC:	BINCLUDE "mappings/sprite/objC5_b.bin"
+ObjC5_MapUnc_3CEBC:	include "mappings/sprite/objC5_b.asm"
 
 
 
@@ -82330,11 +82876,11 @@ Ani_objC6:	offsetTable
 ; ----------------------------------------------------------------------------
 ; sprite mappings ; Robotnik running
 ; ----------------------------------------------------------------------------
-ObjC6_MapUnc_3D0EE:	BINCLUDE "mappings/sprite/objC6_a.bin"
+ObjC6_MapUnc_3D0EE:	include "mappings/sprite/objC6_a.asm"
 ; ----------------------------------------------------------------------------
 ; sprite mappings
 ; ----------------------------------------------------------------------------
-ObjC6_MapUnc_3D1DE:	BINCLUDE "mappings/sprite/objC6_b.bin"
+ObjC6_MapUnc_3D1DE:	include "mappings/sprite/objC6_b.asm"
 
 
 
@@ -82537,7 +83083,7 @@ Ani_objC8:	offsetTable
 ; ----------------------------------------------------------------------------
 ; sprite mappings ; Crawl CNZ
 ; ----------------------------------------------------------------------------
-ObjC8_MapUnc_3D450:	BINCLUDE "mappings/sprite/objC8.bin"
+ObjC8_MapUnc_3D450:	include "mappings/sprite/objC8.asm"
 
 
 
@@ -82634,7 +83180,7 @@ loc_3D5A8:
 ; ---------------------------------------------------------------------------
 +
 	addq.b	#2,routine_secondary(a0)
-	move.b	#$3C,anim_frame_duration(a0)
+	move.b	#60,anim_frame_duration(a0)
 	moveq	#signextendB(MusID_FadeOut),d0
 	jmpto	PlaySound, JmpTo12_PlaySound
 ; ===========================================================================
@@ -83751,7 +84297,7 @@ ObjC7_CheckHit:
 	subq.b	#1,collision_property(a0)
 	beq.s	ObjC7_Beaten
 +
-	move.b	#$3C,objoff_2A(a0)
+	move.b	#60,objoff_2A(a0)
 	move.w	#SndID_BossHit,d0
 	jsr	(PlaySound).l
 ;loc_3E02E
@@ -84122,7 +84668,7 @@ c7ani macro pieceOffset,deltax,deltay
 	dc.b	pieceOffset,deltax,deltay
     endm
 
-ObjC7_GroupAni_3E318:		offsetTable ;BINCLUDE "mappings/sprite/objC7_a.bin"
+ObjC7_GroupAni_3E318:		offsetTable ;include "mappings/sprite/objC7_a.asm"
 		offsetTableEntry.w byte_3E32A
 		offsetTableEntry.w byte_3E33E
 		offsetTableEntry.w byte_3E352
@@ -84216,7 +84762,7 @@ off_3E3D0:
 ; -----------------------------------------------------------------------------
 ; Custom animation
 ; -----------------------------------------------------------------------------
-ObjC7_GroupAni_3E3D8:		offsetTable ;BINCLUDE "mappings/sprite/objC7_b.bin"
+ObjC7_GroupAni_3E3D8:		offsetTable ;include "mappings/sprite/objC7_b.asm"
 		offsetTableEntry.w byte_3E3DE
 		offsetTableEntry.w byte_3E3F2
 		offsetTableEntry.w byte_3E3F8
@@ -84257,7 +84803,7 @@ off_3E42C:
 ; -----------------------------------------------------------------------------
 ; Custom animation
 ; -----------------------------------------------------------------------------
-ObjC7_GroupAni_3E438:		offsetTable ;BINCLUDE "mappings/sprite/objC7_c.bin"
+ObjC7_GroupAni_3E438:		offsetTable ;include "mappings/sprite/objC7_c.asm"
 		offsetTableEntry.w byte_3E450
 		offsetTableEntry.w byte_3E468
 		offsetTableEntry.w byte_3E480
@@ -84486,7 +85032,7 @@ byte_3E5F0:	dc.b   3,$13,$12,$11,$10,$16,$FF
 ; ------------------------------------------------------------------------------
 ; sprite mappings
 ; ------------------------------------------------------------------------------
-ObjC7_MapUnc_3E5F8:	BINCLUDE "mappings/sprite/objC7.bin"
+ObjC7_MapUnc_3E5F8:	include "mappings/sprite/objC7.asm"
 ; ===========================================================================
 
 ; ---------------------------------------------------------------------------
@@ -84846,7 +85392,7 @@ Obj8A_Display:
 ; ----------------------------------------------------------------------------
 ; sprite mappings (unused?)
 ; ----------------------------------------------------------------------------
-Obj8A_MapUnc_3EB4E:	BINCLUDE "mappings/sprite/obj8A.bin"
+Obj8A_MapUnc_3EB4E:	include "mappings/sprite/obj8A.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -85091,7 +85637,7 @@ byte_3F42F:	dc.b   3,  0,  1,  2,  3,$FE,  1
 ; their 'total sprite pieces' value set too low by one, causing the last
 ; sprite piece to not be displayed.
 ; ----------------------------------------------------------------------------
-Obj3E_MapUnc_3F436:	BINCLUDE "mappings/sprite/obj3E.bin"
+Obj3E_MapUnc_3F436:	include "mappings/sprite/obj3E.asm"
 ; ===========================================================================
 
     if gameRevision<2
@@ -86767,11 +87313,11 @@ Animated_Null:
 	bpl.s	-	; rts	; do it every 8th frame
 	move.b	#7,(CPZ_UnkScroll_Timer).w
 	move.b	#1,(Screen_redraw_flag).w
-	lea	(Chunk_Table+$7500).l,a1 ; chunks $EA-$ED, $FFFF7500 - $FFFF7700
+	lea	(Chunk_Table+$EA*$80).l,a1 ; chunks $EA-$ED, $FFFF7500 - $FFFF7700
 	bsr.s	+
-	lea	(Chunk_Table+$7D00).l,a1 ; chunks $FA-$FD, $FFFF7D00 - $FFFF7F00
+	lea	(Chunk_Table+$FA*$80).l,a1 ; chunks $FA-$FD, $FFFF7D00 - $FFFF7F00
 +
-	move.w	#7,d1
+	move.w	#8-1,d1
 
 -	move.w	(a1),d0
     rept 3			; do this for 3 chunks
@@ -87747,13 +88293,13 @@ BuildHUD_P2_Continued:
 
 ; sprite mappings for the HUD
 ; uses the art in VRAM from $D940 - $FC00
-HUD_MapUnc_40A9A:	BINCLUDE "mappings/sprite/hud_a.bin"
+HUD_MapUnc_40A9A:	include "mappings/sprite/hud_a.asm"
 
 
-HUD_MapUnc_40BEA:	BINCLUDE "mappings/sprite/hud_b.bin"
+HUD_MapUnc_40BEA:	include "mappings/sprite/hud_b.asm"
 
 
-HUD_MapUnc_40C82:	BINCLUDE "mappings/sprite/hud_c.bin"
+HUD_MapUnc_40C82:	include "mappings/sprite/hud_c.asm"
 
 ; ---------------------------------------------------------------------------
 ; Add points subroutine
@@ -87859,7 +88405,7 @@ Hud_ChkTime:
 	tst.w	(Game_paused).w	; is the game paused?
 	bne.s	Hud_ChkLives	; if yes, branch
 	lea	(Timer).w,a1
-	cmpi.l	#$93B3B,(a1)+	; is the time 9.59?
+	cmpi.l	#(9<<(8*2))|(59<<(8*1))|(59<<(8*0)),(a1)+	; is the time 9.59?
 	beq.w	loc_40E84	; if yes, branch
 	addq.b	#1,-(a1)
 	cmpi.b	#60,(a1)
@@ -87967,14 +88513,14 @@ loc_40F18:
 	tst.w	(Game_paused).w
 	bne.s	return_40F4E
 	lea	(Timer).w,a1
-	cmpi.l	#$93B3B,(a1)+
+	cmpi.l	#(9<<(8*2))|(59<<(8*1))|(59<<(8*0)),(a1)+
 	nop			; You can't get a Time Over in Debug Mode, so this branch is dummied-out
 	addq.b	#1,-(a1)
-	cmpi.b	#$3C,(a1)
+	cmpi.b	#60,(a1)
 	blo.s	return_40F4E
 	move.b	#0,(a1)
 	addq.b	#1,-(a1)
-	cmpi.b	#$3C,(a1)
+	cmpi.b	#60,(a1)
 	blo.s	return_40F4E
 	move.b	#0,(a1)
 	addq.b	#1,-(a1)
@@ -87992,14 +88538,14 @@ loc_40F50:
 	tst.b	(Update_HUD_timer).w
 	beq.s	loc_40F90
 	lea	(Timer).w,a1
-	cmpi.l	#$93B3B,(a1)+
+	cmpi.l	#(9<<(8*2))|(59<<(8*1))|(59<<(8*0)),(a1)+
 	beq.w	TimeOver
 	addq.b	#1,-(a1)
-	cmpi.b	#$3C,(a1)
+	cmpi.b	#60,(a1)
 	blo.s	loc_40F90
 	move.b	#0,(a1)
 	addq.b	#1,-(a1)
-	cmpi.b	#$3C,(a1)
+	cmpi.b	#60,(a1)
 	blo.s	loc_40F90
 	move.b	#0,(a1)
 	addq.b	#1,-(a1)
@@ -88011,14 +88557,14 @@ loc_40F90:
 	tst.b	(Update_HUD_timer_2P).w
 	beq.s	loc_40FC8
 	lea	(Timer_2P).w,a1
-	cmpi.l	#$93B3B,(a1)+
+	cmpi.l	#(9<<(8*2))|(59<<(8*1))|(59<<(8*0)),(a1)+
 	beq.w	TimeOver2
 	addq.b	#1,-(a1)
-	cmpi.b	#$3C,(a1)
+	cmpi.b	#60,(a1)
 	blo.s	loc_40FC8
 	move.b	#0,(a1)
 	addq.b	#1,-(a1)
-	cmpi.b	#$3C,(a1)
+	cmpi.b	#60,(a1)
 	blo.s	loc_40FC8
 	move.b	#0,(a1)
 	addq.b	#1,-(a1)
@@ -88047,8 +88593,8 @@ loc_40FE4:
 	beq.s	return_4101A
 	subq.b	#1,-(a1)
 	bhi.s	return_4101A
-	move.b	#$3C,(a1)
-	cmpi.b	#$C,-1(a1)
+	move.b	#60,(a1)
+	cmpi.b	#12,-1(a1)
 	bne.s	loc_41010
 	move.w	#MusID_Countdown,d0
 	jsr	(PlayMusic).l
@@ -90304,37 +90850,37 @@ ColArrayHorizontal:	BINCLUDE	"collision/Collision array - Horizontal.bin"
 	even
 
 ; These are all compressed in the Kosinski format.
-ColP_EHZHTZ:	BINCLUDE	"collision/EHZ and HTZ primary 16x16 collision index.bin"
+ColP_EHZHTZ:	BINCLUDE	"collision/EHZ and HTZ primary 16x16 collision index.kos"
 	even
-ColS_EHZHTZ:	BINCLUDE	"collision/EHZ and HTZ secondary 16x16 collision index.bin"
+ColS_EHZHTZ:	BINCLUDE	"collision/EHZ and HTZ secondary 16x16 collision index.kos"
 	even
-ColP_WZ:	;BINCLUDE	"collision/WZ primary 16x16 collision index.bin"
+ColP_WZ:	;BINCLUDE	"collision/WZ primary 16x16 collision index.kos"
 	;even
-ColP_MTZ:	BINCLUDE	"collision/MTZ primary 16x16 collision index.bin"
+ColP_MTZ:	BINCLUDE	"collision/MTZ primary 16x16 collision index.kos"
 	even
-ColP_HPZ:	;BINCLUDE	"collision/HPZ primary 16x16 collision index.bin"
+ColP_HPZ:	;BINCLUDE	"collision/HPZ primary 16x16 collision index.kos"
 	;even
-ColS_HPZ:	;BINCLUDE	"collision/HPZ secondary 16x16 collision index.bin"
+ColS_HPZ:	;BINCLUDE	"collision/HPZ secondary 16x16 collision index.kos"
 	;even
-ColP_OOZ:	BINCLUDE	"collision/OOZ primary 16x16 collision index.bin"
+ColP_OOZ:	BINCLUDE	"collision/OOZ primary 16x16 collision index.kos"
 	even
-ColP_MCZ:	BINCLUDE	"collision/MCZ primary 16x16 collision index.bin"
+ColP_MCZ:	BINCLUDE	"collision/MCZ primary 16x16 collision index.kos"
 	even
-ColP_CNZ:	BINCLUDE	"collision/CNZ primary 16x16 collision index.bin"
+ColP_CNZ:	BINCLUDE	"collision/CNZ primary 16x16 collision index.kos"
 	even
-ColS_CNZ:	BINCLUDE	"collision/CNZ secondary 16x16 collision index.bin"
+ColS_CNZ:	BINCLUDE	"collision/CNZ secondary 16x16 collision index.kos"
 	even
-ColP_CPZDEZ:	BINCLUDE	"collision/CPZ and DEZ primary 16x16 collision index.bin"
+ColP_CPZDEZ:	BINCLUDE	"collision/CPZ and DEZ primary 16x16 collision index.kos"
 	even
-ColS_CPZDEZ:	BINCLUDE	"collision/CPZ and DEZ secondary 16x16 collision index.bin"
+ColS_CPZDEZ:	BINCLUDE	"collision/CPZ and DEZ secondary 16x16 collision index.kos"
 	even
-ColP_ARZ:	BINCLUDE	"collision/ARZ primary 16x16 collision index.bin"
+ColP_ARZ:	BINCLUDE	"collision/ARZ primary 16x16 collision index.kos"
 	even
-ColS_ARZ:	BINCLUDE	"collision/ARZ secondary 16x16 collision index.bin"
+ColS_ARZ:	BINCLUDE	"collision/ARZ secondary 16x16 collision index.kos"
 	even
-ColP_WFZSCZ:	BINCLUDE	"collision/WFZ and SCZ primary 16x16 collision index.bin"
+ColP_WFZSCZ:	BINCLUDE	"collision/WFZ and SCZ primary 16x16 collision index.kos"
 	even
-ColS_WFZSCZ:	BINCLUDE	"collision/WFZ and SCZ secondary 16x16 collision index.bin"
+ColS_WFZSCZ:	BINCLUDE	"collision/WFZ and SCZ secondary 16x16 collision index.kos"
 	even
 ColP_Invalid:
 
@@ -90402,47 +90948,47 @@ Off_Level: zoneOrderedOffsetTable 2,2
 
 ; These are all compressed in the Kosinski format.
 Level_Invalid:
-Level_EHZ1:	BINCLUDE	"level/layout/EHZ_1.bin"
+Level_EHZ1:	BINCLUDE	"level/layout/EHZ_1.kos"
 	even
-Level_EHZ2:	BINCLUDE	"level/layout/EHZ_2.bin"
+Level_EHZ2:	BINCLUDE	"level/layout/EHZ_2.kos"
 	even
-Level_MTZ1:	BINCLUDE	"level/layout/MTZ_1.bin"
+Level_MTZ1:	BINCLUDE	"level/layout/MTZ_1.kos"
 	even
-Level_MTZ2:	BINCLUDE	"level/layout/MTZ_2.bin"
+Level_MTZ2:	BINCLUDE	"level/layout/MTZ_2.kos"
 	even
-Level_MTZ3:	BINCLUDE	"level/layout/MTZ_3.bin"
+Level_MTZ3:	BINCLUDE	"level/layout/MTZ_3.kos"
 	even
-Level_WFZ:	BINCLUDE	"level/layout/WFZ.bin"
+Level_WFZ:	BINCLUDE	"level/layout/WFZ.kos"
 	even
-Level_HTZ1:	BINCLUDE	"level/layout/HTZ_1.bin"
+Level_HTZ1:	BINCLUDE	"level/layout/HTZ_1.kos"
 	even
-Level_HTZ2:	BINCLUDE	"level/layout/HTZ_2.bin"
+Level_HTZ2:	BINCLUDE	"level/layout/HTZ_2.kos"
 	even
-Level_HPZ1:	;BINCLUDE	"level/layout/HPZ_1.bin"
+Level_HPZ1:	;BINCLUDE	"level/layout/HPZ_1.kos"
 	;even
-Level_OOZ1:	BINCLUDE	"level/layout/OOZ_1.bin"
+Level_OOZ1:	BINCLUDE	"level/layout/OOZ_1.kos"
 	even
-Level_OOZ2:	BINCLUDE	"level/layout/OOZ_2.bin"
+Level_OOZ2:	BINCLUDE	"level/layout/OOZ_2.kos"
 	even
-Level_MCZ1:	BINCLUDE	"level/layout/MCZ_1.bin"
+Level_MCZ1:	BINCLUDE	"level/layout/MCZ_1.kos"
 	even
-Level_MCZ2:	BINCLUDE	"level/layout/MCZ_2.bin"
+Level_MCZ2:	BINCLUDE	"level/layout/MCZ_2.kos"
 	even
-Level_CNZ1:	BINCLUDE	"level/layout/CNZ_1.bin"
+Level_CNZ1:	BINCLUDE	"level/layout/CNZ_1.kos"
 	even
-Level_CNZ2:	BINCLUDE	"level/layout/CNZ_2.bin"
+Level_CNZ2:	BINCLUDE	"level/layout/CNZ_2.kos"
 	even
-Level_CPZ1:	BINCLUDE	"level/layout/CPZ_1.bin"
+Level_CPZ1:	BINCLUDE	"level/layout/CPZ_1.kos"
 	even
-Level_CPZ2:	BINCLUDE	"level/layout/CPZ_2.bin"
+Level_CPZ2:	BINCLUDE	"level/layout/CPZ_2.kos"
 	even
-Level_DEZ:	BINCLUDE	"level/layout/DEZ.bin"
+Level_DEZ:	BINCLUDE	"level/layout/DEZ.kos"
 	even
-Level_ARZ1:	BINCLUDE	"level/layout/ARZ_1.bin"
+Level_ARZ1:	BINCLUDE	"level/layout/ARZ_1.kos"
 	even
-Level_ARZ2:	BINCLUDE	"level/layout/ARZ_2.bin"
+Level_ARZ2:	BINCLUDE	"level/layout/ARZ_2.kos"
 	even
-Level_SCZ:	BINCLUDE	"level/layout/SCZ.bin"
+Level_SCZ:	BINCLUDE	"level/layout/SCZ.kos"
 	even
 
 
@@ -90457,7 +91003,7 @@ ArtUnc_Flowers2:	BINCLUDE	"art/uncompressed/EHZ and HTZ flowers - 2.bin"
 ArtUnc_Flowers3:	BINCLUDE	"art/uncompressed/EHZ and HTZ flowers - 3.bin"
 ArtUnc_Flowers4:	BINCLUDE	"art/uncompressed/EHZ and HTZ flowers - 4.bin"
 ArtUnc_EHZPulseBall:	BINCLUDE	"art/uncompressed/Pulsing ball against checkered background (EHZ).bin"
-ArtNem_HTZCliffs:	BINCLUDE	"art/nemesis/Dynamically reloaded cliffs in HTZ background.bin"
+ArtNem_HTZCliffs:	BINCLUDE	"art/nemesis/Dynamically reloaded cliffs in HTZ background.nem"
 	even
 ArtUnc_HTZClouds:	BINCLUDE	"art/uncompressed/Background clouds (HTZ).bin"
 
@@ -90494,309 +91040,308 @@ ArtUnc_Sonic:			BINCLUDE	"art/uncompressed/Sonic's art.bin"
 	align $20
 ArtUnc_Tails:			BINCLUDE	"art/uncompressed/Tails's art.bin"
 
-MapUnc_Sonic:			BINCLUDE	"mappings/sprite/Sonic.bin"
-; WARNING: the build script needs editing if you rename this label
-;          or if you move Sonic's running frame to somewhere else than frame $2D
-MapRUnc_Sonic:			BINCLUDE	"mappings/spriteDPLC/Sonic.bin"
+MapUnc_Sonic:			include		"mappings/sprite/Sonic.asm"
 
-ArtNem_Shield:			BINCLUDE	"art/nemesis/Shield.bin"
+MapRUnc_Sonic:			include		"mappings/spriteDPLC/Sonic.asm"
+
+ArtNem_Shield:			BINCLUDE	"art/nemesis/Shield.nem"
 	even
-ArtNem_Invincible_stars:	BINCLUDE	"art/nemesis/Invincibility stars.bin"
+ArtNem_Invincible_stars:	BINCLUDE	"art/nemesis/Invincibility stars.nem"
 	even
 ArtUnc_SplashAndDust:		BINCLUDE	"art/uncompressed/Splash and skid dust.bin"
 
-ArtNem_SuperSonic_stars:	BINCLUDE	"art/nemesis/Super Sonic stars.bin"
+ArtNem_SuperSonic_stars:	BINCLUDE	"art/nemesis/Super Sonic stars.nem"
 	even
-MapUnc_Tails:			BINCLUDE	"mappings/sprite/Tails.bin"
+MapUnc_Tails:			include		"mappings/sprite/Tails.asm"
 
-MapRUnc_Tails:			BINCLUDE	"mappings/spriteDPLC/Tails.bin"
+MapRUnc_Tails:			include		"mappings/spriteDPLC/Tails.asm"
 
 ;---------------------------------------------------------------------------------------
 ; Sega Screen Assets
 ;---------------------------------------------------------------------------------------
-ArtNem_SEGA:			BINCLUDE	"art/nemesis/SEGA.bin"
+ArtNem_SEGA:			BINCLUDE	"art/nemesis/SEGA.nem"
 	even
-ArtNem_IntroTrails:		BINCLUDE	"art/nemesis/Shaded blocks from intro.bin"
+ArtNem_IntroTrails:		BINCLUDE	"art/nemesis/Shaded blocks from intro.nem"
 	even
-MapEng_SEGA:			BINCLUDE	"mappings/misc/SEGA mappings.bin"
+MapEng_SEGA:			BINCLUDE	"mappings/misc/SEGA mappings.eni"
 	even
 
 ;---------------------------------------------------------------------------------------
 ; Title Screen Assets
 ;---------------------------------------------------------------------------------------
-MapEng_TitleScreen:		BINCLUDE	"mappings/misc/Mappings for title screen background.bin"
+MapEng_TitleScreen:		BINCLUDE	"mappings/misc/Mappings for title screen background.eni"
 	even
-MapEng_TitleBack:		BINCLUDE	"mappings/misc/Mappings for title screen background 2.bin" ; title screen background (smaller part, water/horizon)
+MapEng_TitleBack:		BINCLUDE	"mappings/misc/Mappings for title screen background 2.eni" ; title screen background (smaller part, water/horizon)
 	even
-MapEng_TitleLogo:		BINCLUDE	"mappings/misc/Sonic the Hedgehog 2 title screen logo mappings.bin"
+MapEng_TitleLogo:		BINCLUDE	"mappings/misc/Sonic the Hedgehog 2 title screen logo mappings.eni"
 	even
-ArtNem_Title:			BINCLUDE	"art/nemesis/Main patterns from title screen.bin"
+ArtNem_Title:			BINCLUDE	"art/nemesis/Main patterns from title screen.nem"
 	even
-ArtNem_TitleSprites:		BINCLUDE	"art/nemesis/Sonic and Tails from title screen.bin"
+ArtNem_TitleSprites:		BINCLUDE	"art/nemesis/Sonic and Tails from title screen.nem"
 	even
-ArtNem_MenuJunk:		BINCLUDE	"art/nemesis/A few menu blocks.bin"
+ArtNem_MenuJunk:		BINCLUDE	"art/nemesis/A few menu blocks.nem"
 	even
 
 ;---------------------------------------------------------------------------------------
 ; General Level Assets
 ;---------------------------------------------------------------------------------------
-ArtNem_Button:			BINCLUDE	"art/nemesis/Button.bin"
+ArtNem_Button:			BINCLUDE	"art/nemesis/Button.nem"
 	even
-ArtNem_VrtclSprng:		BINCLUDE	"art/nemesis/Vertical spring.bin"
+ArtNem_VrtclSprng:		BINCLUDE	"art/nemesis/Vertical spring.nem"
 	even
-ArtNem_HrzntlSprng:		BINCLUDE	"art/nemesis/Horizontal spring.bin"
+ArtNem_HrzntlSprng:		BINCLUDE	"art/nemesis/Horizontal spring.nem"
 	even
-ArtNem_DignlSprng:		BINCLUDE	"art/nemesis/Diagonal spring.bin"
+ArtNem_DignlSprng:		BINCLUDE	"art/nemesis/Diagonal spring.nem"
 	even
-ArtNem_HUD:			BINCLUDE	"art/nemesis/HUD.bin" ; Score, Rings, Time
+ArtNem_HUD:			BINCLUDE	"art/nemesis/HUD.nem" ; Score, Rings, Time
 	even
-ArtNem_Sonic_life_counter:	BINCLUDE	"art/nemesis/Sonic lives counter.bin"
+ArtNem_Sonic_life_counter:	BINCLUDE	"art/nemesis/Sonic lives counter.nem"
 	even
-ArtNem_Ring:			BINCLUDE	"art/nemesis/Ring.bin"
+ArtNem_Ring:			BINCLUDE	"art/nemesis/Ring.nem"
 	even
-ArtNem_Powerups:		BINCLUDE	"art/nemesis/Monitor and contents.bin"
+ArtNem_Powerups:		BINCLUDE	"art/nemesis/Monitor and contents.nem"
 	even
-ArtNem_Spikes:			BINCLUDE	"art/nemesis/Spikes.bin"
+ArtNem_Spikes:			BINCLUDE	"art/nemesis/Spikes.nem"
 	even
-ArtNem_Numbers:			BINCLUDE	"art/nemesis/Numbers.bin"
+ArtNem_Numbers:			BINCLUDE	"art/nemesis/Numbers.nem"
 	even
-ArtNem_Checkpoint:		BINCLUDE	"art/nemesis/Star pole.bin"
+ArtNem_Checkpoint:		BINCLUDE	"art/nemesis/Star pole.nem"
 	even
-ArtNem_Signpost:		BINCLUDE	"art/nemesis/Signpost.bin" ; For one-player mode.
+ArtNem_Signpost:		BINCLUDE	"art/nemesis/Signpost.nem" ; For one-player mode.
 	even
 ArtUnc_Signpost:		BINCLUDE	"art/uncompressed/Signpost.bin" ; For two-player mode.
 	even
-ArtNem_LeverSpring:		BINCLUDE	"art/nemesis/Lever spring.bin"
+ArtNem_LeverSpring:		BINCLUDE	"art/nemesis/Lever spring.nem"
 	even
-ArtNem_HorizSpike:		BINCLUDE	"art/nemesis/Long horizontal spike.bin"
+ArtNem_HorizSpike:		BINCLUDE	"art/nemesis/Long horizontal spike.nem"
 	even
-ArtNem_BigBubbles:		BINCLUDE	"art/nemesis/Bubble generator.bin" ; Bubble from underwater
+ArtNem_BigBubbles:		BINCLUDE	"art/nemesis/Bubble generator.nem" ; Bubble from underwater
 	even
-ArtNem_Bubbles:			BINCLUDE	"art/nemesis/Bubbles.bin" ; Bubbles from character
+ArtNem_Bubbles:			BINCLUDE	"art/nemesis/Bubbles.nem" ; Bubbles from character
 	even
 ArtUnc_Countdown:		BINCLUDE	"art/uncompressed/Numbers for drowning countdown.bin"
 	even
-ArtNem_Game_Over:		BINCLUDE	"art/nemesis/Game and Time Over text.bin"
+ArtNem_Game_Over:		BINCLUDE	"art/nemesis/Game and Time Over text.nem"
 	even
-ArtNem_Explosion:		BINCLUDE	"art/nemesis/Explosion.bin"
+ArtNem_Explosion:		BINCLUDE	"art/nemesis/Explosion.nem"
 	even
-ArtNem_MilesLife:		BINCLUDE	"art/nemesis/Miles life counter.bin"
+ArtNem_MilesLife:		BINCLUDE	"art/nemesis/Miles life counter.nem"
 	even
-ArtNem_Capsule:			BINCLUDE	"art/nemesis/Egg Prison.bin"
+ArtNem_Capsule:			BINCLUDE	"art/nemesis/Egg Prison.nem"
 	even
-ArtNem_ContinueTails:		BINCLUDE	"art/nemesis/Tails on continue screen.bin"
+ArtNem_ContinueTails:		BINCLUDE	"art/nemesis/Tails on continue screen.nem"
 	even
-ArtNem_MiniSonic:		BINCLUDE	"art/nemesis/Sonic continue.bin"
+ArtNem_MiniSonic:		BINCLUDE	"art/nemesis/Sonic continue.nem"
 	even
-ArtNem_TailsLife:		BINCLUDE	"art/nemesis/Tails life counter.bin"
+ArtNem_TailsLife:		BINCLUDE	"art/nemesis/Tails life counter.nem"
 	even
-ArtNem_MiniTails:		BINCLUDE	"art/nemesis/Tails continue.bin"
+ArtNem_MiniTails:		BINCLUDE	"art/nemesis/Tails continue.nem"
 	even
 
 ;---------------------------------------------------------------------------------------
 ; Menu Assets
 ;---------------------------------------------------------------------------------------
-ArtNem_FontStuff:		BINCLUDE	"art/nemesis/Standard font.bin"
+ArtNem_FontStuff:		BINCLUDE	"art/nemesis/Standard font.nem"
 	even
-ArtNem_1P2PWins:		BINCLUDE	"art/nemesis/1P and 2P wins text from 2P mode.bin"
+ArtNem_1P2PWins:		BINCLUDE	"art/nemesis/1P and 2P wins text from 2P mode.nem"
 	even
-MapEng_MenuBack:		BINCLUDE	"mappings/misc/Sonic and Miles animated background.bin"
+MapEng_MenuBack:		BINCLUDE	"mappings/misc/Sonic and Miles animated background.eni"
 	even
 ArtUnc_MenuBack:		BINCLUDE	"art/uncompressed/Sonic and Miles animated background.bin"
 	even
-ArtNem_TitleCard:		BINCLUDE	"art/nemesis/Title card.bin"
+ArtNem_TitleCard:		BINCLUDE	"art/nemesis/Title card.nem"
 	even
-ArtNem_TitleCard2:		BINCLUDE	"art/nemesis/Font using large broken letters.bin"
+ArtNem_TitleCard2:		BINCLUDE	"art/nemesis/Font using large broken letters.nem"
 	even
-ArtNem_MenuBox:			BINCLUDE	"art/nemesis/A menu box with a shadow.bin"
+ArtNem_MenuBox:			BINCLUDE	"art/nemesis/A menu box with a shadow.nem"
 	even
-ArtNem_LevelSelectPics:		BINCLUDE	"art/nemesis/Pictures in level preview box from level select.bin"
+ArtNem_LevelSelectPics:		BINCLUDE	"art/nemesis/Pictures in level preview box from level select.nem"
 	even
-ArtNem_ResultsText:		BINCLUDE	"art/nemesis/End of level results text.bin" ; Text for Sonic or Tails Got Through Act and Bonus/Perfect
+ArtNem_ResultsText:		BINCLUDE	"art/nemesis/End of level results text.nem" ; Text for Sonic or Tails Got Through Act and Bonus/Perfect
 	even
-ArtNem_SpecialStageResults:	BINCLUDE	"art/nemesis/Special stage results screen art and some emeralds.bin"
+ArtNem_SpecialStageResults:	BINCLUDE	"art/nemesis/Special stage results screen art and some emeralds.nem"
 	even
-ArtNem_Perfect:			BINCLUDE	"art/nemesis/Perfect text.bin"
+ArtNem_Perfect:			BINCLUDE	"art/nemesis/Perfect text.nem"
 	even
 
 ;---------------------------------------------------------------------------------------
 ; Small Animal Assets
 ;---------------------------------------------------------------------------------------
-ArtNem_Flicky:			BINCLUDE	"art/nemesis/Flicky.bin"
+ArtNem_Flicky:			BINCLUDE	"art/nemesis/Flicky.nem"
 	even
-ArtNem_Squirrel:		BINCLUDE	"art/nemesis/Squirrel.bin" ; Ricky
+ArtNem_Squirrel:		BINCLUDE	"art/nemesis/Squirrel.nem" ; Ricky
 	even
-ArtNem_Mouse:			BINCLUDE	"art/nemesis/Mouse.bin"    ; Micky
+ArtNem_Mouse:			BINCLUDE	"art/nemesis/Mouse.nem"    ; Micky
 	even
-ArtNem_Chicken:			BINCLUDE	"art/nemesis/Chicken.bin"  ; Cucky
+ArtNem_Chicken:			BINCLUDE	"art/nemesis/Chicken.nem"  ; Cucky
 	even
-ArtNem_Monkey:			BINCLUDE	"art/nemesis/Monkey.bin"   ; Wocky
+ArtNem_Monkey:			BINCLUDE	"art/nemesis/Monkey.nem"   ; Wocky
 	even
-ArtNem_Eagle:			BINCLUDE	"art/nemesis/Eagle.bin"    ; Locky
+ArtNem_Eagle:			BINCLUDE	"art/nemesis/Eagle.nem"    ; Locky
 	even
-ArtNem_Pig:			BINCLUDE	"art/nemesis/Pig.bin"      ; Picky
+ArtNem_Pig:			BINCLUDE	"art/nemesis/Pig.nem"      ; Picky
 	even
-ArtNem_Seal:			BINCLUDE	"art/nemesis/Seal.bin"     ; Rocky
+ArtNem_Seal:			BINCLUDE	"art/nemesis/Seal.nem"     ; Rocky
 	even
-ArtNem_Penguin:			BINCLUDE	"art/nemesis/Penguin.bin"  ; Pecky
+ArtNem_Penguin:			BINCLUDE	"art/nemesis/Penguin.nem"  ; Pecky
 	even
-ArtNem_Turtle:			BINCLUDE	"art/nemesis/Turtle.bin"   ; Tocky
+ArtNem_Turtle:			BINCLUDE	"art/nemesis/Turtle.nem"   ; Tocky
 	even
-ArtNem_Bear:			BINCLUDE	"art/nemesis/Bear.bin"     ; Becky
+ArtNem_Bear:			BINCLUDE	"art/nemesis/Bear.nem"     ; Becky
 	even
-ArtNem_Rabbit:			BINCLUDE	"art/nemesis/Rabbit.bin"   ; Pocky
+ArtNem_Rabbit:			BINCLUDE	"art/nemesis/Rabbit.nem"   ; Pocky
 	even
 
 ;---------------------------------------------------------------------------------------
 ; WFZ Assets
 ;---------------------------------------------------------------------------------------
-ArtNem_WfzSwitch:		BINCLUDE	"art/nemesis/WFZ boss chamber switch.bin" ; Rivet thing that you bust to get inside the ship
+ArtNem_WfzSwitch:		BINCLUDE	"art/nemesis/WFZ boss chamber switch.nem" ; Rivet thing that you bust to get inside the ship
 	even
-ArtNem_BreakPanels:		BINCLUDE	"art/nemesis/Breakaway panels from WFZ.bin"
+ArtNem_BreakPanels:		BINCLUDE	"art/nemesis/Breakaway panels from WFZ.nem"
 	even
 
 ;---------------------------------------------------------------------------------------
 ; OOZ Assets
 ;---------------------------------------------------------------------------------------
-ArtNem_SpikyThing:		BINCLUDE	"art/nemesis/Spiked ball from OOZ.bin"
+ArtNem_SpikyThing:		BINCLUDE	"art/nemesis/Spiked ball from OOZ.nem"
 	even
-ArtNem_BurnerLid:		BINCLUDE	"art/nemesis/Burner Platform from OOZ.bin"
+ArtNem_BurnerLid:		BINCLUDE	"art/nemesis/Burner Platform from OOZ.nem"
 	even
-ArtNem_StripedBlocksVert:	BINCLUDE	"art/nemesis/Striped blocks from CPZ.bin"
+ArtNem_StripedBlocksVert:	BINCLUDE	"art/nemesis/Striped blocks from CPZ.nem"
 	even
-ArtNem_Oilfall:			BINCLUDE	"art/nemesis/Cascading oil hitting oil from OOZ.bin"
+ArtNem_Oilfall:			BINCLUDE	"art/nemesis/Cascading oil hitting oil from OOZ.nem"
 	even
-ArtNem_Oilfall2:		BINCLUDE	"art/nemesis/Cascading oil from OOZ.bin"
+ArtNem_Oilfall2:		BINCLUDE	"art/nemesis/Cascading oil from OOZ.nem"
 	even
-ArtNem_BallThing:		BINCLUDE	"art/nemesis/Ball on spring from OOZ (beta holdovers).bin"
+ArtNem_BallThing:		BINCLUDE	"art/nemesis/Ball on spring from OOZ (beta holdovers).nem"
 	even
-ArtNem_LaunchBall:		BINCLUDE	"art/nemesis/Transporter ball from OOZ.bin"
+ArtNem_LaunchBall:		BINCLUDE	"art/nemesis/Transporter ball from OOZ.nem"
 	even
-ArtNem_OOZPlatform:		BINCLUDE	"art/nemesis/OOZ collapsing platform.bin"
+ArtNem_OOZPlatform:		BINCLUDE	"art/nemesis/OOZ collapsing platform.nem"
 	even
-ArtNem_PushSpring:		BINCLUDE	"art/nemesis/Push spring from OOZ.bin"
+ArtNem_PushSpring:		BINCLUDE	"art/nemesis/Push spring from OOZ.nem"
 	even
-ArtNem_OOZSwingPlat:		BINCLUDE	"art/nemesis/Swinging platform from OOZ.bin"
+ArtNem_OOZSwingPlat:		BINCLUDE	"art/nemesis/Swinging platform from OOZ.nem"
 	even
-ArtNem_StripedBlocksHoriz:	BINCLUDE	"art/nemesis/4 stripy blocks from OOZ.bin"
+ArtNem_StripedBlocksHoriz:	BINCLUDE	"art/nemesis/4 stripy blocks from OOZ.nem"
 	even
-ArtNem_OOZElevator:		BINCLUDE	"art/nemesis/Rising platform from OOZ.bin"
+ArtNem_OOZElevator:		BINCLUDE	"art/nemesis/Rising platform from OOZ.nem"
 	even
-ArtNem_OOZFanHoriz:		BINCLUDE	"art/nemesis/Fan from OOZ.bin"
+ArtNem_OOZFanHoriz:		BINCLUDE	"art/nemesis/Fan from OOZ.nem"
 	even
-ArtNem_OOZBurn:			BINCLUDE	"art/nemesis/Green flame from OOZ burners.bin"
+ArtNem_OOZBurn:			BINCLUDE	"art/nemesis/Green flame from OOZ burners.nem"
 	even
 
 ;---------------------------------------------------------------------------------------
 ; CNZ Assets
 ;---------------------------------------------------------------------------------------
-ArtNem_CNZSnake:		BINCLUDE	"art/nemesis/Caterpiller platforms from CNZ.bin" ; Patterns for appearing and disappearing string of platforms
+ArtNem_CNZSnake:		BINCLUDE	"art/nemesis/Caterpiller platforms from CNZ.nem" ; Patterns for appearing and disappearing string of platforms
 	even
-ArtNem_CNZBonusSpike:		BINCLUDE	"art/nemesis/Spikey ball from CNZ slots.bin"
+ArtNem_CNZBonusSpike:		BINCLUDE	"art/nemesis/Spikey ball from CNZ slots.nem"
 	even
-ArtNem_BigMovingBlock:		BINCLUDE	"art/nemesis/Moving block from CNZ and CPZ.bin"
+ArtNem_BigMovingBlock:		BINCLUDE	"art/nemesis/Moving block from CNZ and CPZ.nem"
 	even
-ArtNem_CNZElevator:		BINCLUDE	"art/nemesis/CNZ elevator.bin"
+ArtNem_CNZElevator:		BINCLUDE	"art/nemesis/CNZ elevator.nem"
 	even
-ArtNem_CNZCage:			BINCLUDE	"art/nemesis/CNZ slot machine bars.bin"
+ArtNem_CNZCage:			BINCLUDE	"art/nemesis/CNZ slot machine bars.nem"
 	even
-ArtNem_CNZHexBumper:		BINCLUDE	"art/nemesis/Hexagonal bumper from CNZ.bin"
+ArtNem_CNZHexBumper:		BINCLUDE	"art/nemesis/Hexagonal bumper from CNZ.nem"
 	even
-ArtNem_CNZRoundBumper:		BINCLUDE	"art/nemesis/Round bumper from CNZ.bin"
+ArtNem_CNZRoundBumper:		BINCLUDE	"art/nemesis/Round bumper from CNZ.nem"
 	even
-ArtNem_CNZDiagPlunger:		BINCLUDE	"art/nemesis/Diagonal impulse spring from CNZ.bin"
+ArtNem_CNZDiagPlunger:		BINCLUDE	"art/nemesis/Diagonal impulse spring from CNZ.nem"
 	even
-ArtNem_CNZVertPlunger:		BINCLUDE	"art/nemesis/Vertical impulse spring.bin"
+ArtNem_CNZVertPlunger:		BINCLUDE	"art/nemesis/Vertical impulse spring.nem"
 	even
-ArtNem_CNZMiniBumper:		BINCLUDE	"art/nemesis/Drop target from CNZ.bin" ; Weird blocks that you hit 3 times to get rid of
+ArtNem_CNZMiniBumper:		BINCLUDE	"art/nemesis/Drop target from CNZ.nem" ; Weird blocks that you hit 3 times to get rid of
 	even
-ArtNem_CNZFlipper:		BINCLUDE	"art/nemesis/Flippers.bin"
+ArtNem_CNZFlipper:		BINCLUDE	"art/nemesis/Flippers.nem"
 	even
-ArtNem_CPZElevator:		BINCLUDE	"art/nemesis/Large moving platform from CNZ.bin"
+ArtNem_CPZElevator:		BINCLUDE	"art/nemesis/Large moving platform from CNZ.nem"
 	even
 
 ;---------------------------------------------------------------------------------------
 ; CPZ Assets
 ;---------------------------------------------------------------------------------------
-ArtNem_WaterSurface:		BINCLUDE	"art/nemesis/Top of water in HPZ and CNZ.bin"
+ArtNem_WaterSurface:		BINCLUDE	"art/nemesis/Top of water in HPZ and CNZ.nem"
 	even
-ArtNem_CPZBooster:		BINCLUDE	"art/nemesis/Speed booster from CPZ.bin"
+ArtNem_CPZBooster:		BINCLUDE	"art/nemesis/Speed booster from CPZ.nem"
 	even
-ArtNem_CPZDroplet:		BINCLUDE	"art/nemesis/CPZ worm enemy.bin"
+ArtNem_CPZDroplet:		BINCLUDE	"art/nemesis/CPZ worm enemy.nem"
 	even
-ArtNem_CPZMetalThings:		BINCLUDE	"art/nemesis/CPZ metal things.bin" ; Girder, cylinders
+ArtNem_CPZMetalThings:		BINCLUDE	"art/nemesis/CPZ metal things.nem" ; Girder, cylinders
 	even
-ArtNem_CPZMetalBlock:		BINCLUDE	"art/nemesis/CPZ large moving platform blocks.bin"
+ArtNem_CPZMetalBlock:		BINCLUDE	"art/nemesis/CPZ large moving platform blocks.nem"
 	even
-ArtNem_ConstructionStripes:	BINCLUDE	"art/nemesis/Stripy blocks from CPZ.bin"
+ArtNem_ConstructionStripes:	BINCLUDE	"art/nemesis/Stripy blocks from CPZ.nem"
 	even
-ArtNem_CPZAnimatedBits:		BINCLUDE	"art/nemesis/Small yellow moving platform from CPZ.bin"
+ArtNem_CPZAnimatedBits:		BINCLUDE	"art/nemesis/Small yellow moving platform from CPZ.nem"
 	even
-ArtNem_CPZStairBlock:		BINCLUDE	"art/nemesis/Moving block from CPZ.bin"
+ArtNem_CPZStairBlock:		BINCLUDE	"art/nemesis/Moving block from CPZ.nem"
 	even
-ArtNem_CPZTubeSpring:		BINCLUDE	"art/nemesis/CPZ spintube exit cover.bin"
+ArtNem_CPZTubeSpring:		BINCLUDE	"art/nemesis/CPZ spintube exit cover.nem"
 	even
 
 ;---------------------------------------------------------------------------------------
 ; ARZ Assets
 ;---------------------------------------------------------------------------------------
-ArtNem_WaterSurface2:		BINCLUDE	"art/nemesis/Top of water in ARZ.bin"
+ArtNem_WaterSurface2:		BINCLUDE	"art/nemesis/Top of water in ARZ.nem"
 	even
-ArtNem_Leaves:			BINCLUDE	"art/nemesis/Leaves in ARZ.bin"
+ArtNem_Leaves:			BINCLUDE	"art/nemesis/Leaves in ARZ.nem"
 	even
-ArtNem_ArrowAndShooter:		BINCLUDE	"art/nemesis/Arrow shooter and arrow from ARZ.bin"
+ArtNem_ArrowAndShooter:		BINCLUDE	"art/nemesis/Arrow shooter and arrow from ARZ.nem"
 	even
-ArtNem_ARZBarrierThing:		BINCLUDE	"art/nemesis/One way barrier from ARZ.bin" ; Unused
+ArtNem_ARZBarrierThing:		BINCLUDE	"art/nemesis/One way barrier from ARZ.nem" ; Unused
 	even
 
 ;---------------------------------------------------------------------------------------
 ; EHZ Badnik Assets (Part 1) (Why is this split?)
 ;---------------------------------------------------------------------------------------
-ArtNem_Buzzer:			BINCLUDE	"art/nemesis/Buzzer enemy.bin"
+ArtNem_Buzzer:			BINCLUDE	"art/nemesis/Buzzer enemy.nem"
 	even
 
 ;---------------------------------------------------------------------------------------
 ; OOZ Badnik Assets
 ;---------------------------------------------------------------------------------------
-ArtNem_Octus:			BINCLUDE	"art/nemesis/Octopus badnik from OOZ.bin"
+ArtNem_Octus:			BINCLUDE	"art/nemesis/Octopus badnik from OOZ.nem"
 	even
-ArtNem_Aquis:			BINCLUDE	"art/nemesis/Seahorse from OOZ.bin"
+ArtNem_Aquis:			BINCLUDE	"art/nemesis/Seahorse from OOZ.nem"
 	even
 
 ;---------------------------------------------------------------------------------------
 ; EHZ Badnik Assets (Part 2) (Why?)
 ;---------------------------------------------------------------------------------------
-ArtNem_Masher:			BINCLUDE	"art/nemesis/EHZ Pirahna badnik.bin"
+ArtNem_Masher:			BINCLUDE	"art/nemesis/EHZ Pirahna badnik.nem"
 	even
 
 ;---------------------------------------------------------------------------------------
 ; Boss Assets
 ;---------------------------------------------------------------------------------------
-ArtNem_Eggpod:			BINCLUDE	"art/nemesis/Eggpod.bin" ; Robotnik's main ship
+ArtNem_Eggpod:			BINCLUDE	"art/nemesis/Eggpod.nem" ; Robotnik's main ship
 	even
-ArtNem_CPZBoss:			BINCLUDE	"art/nemesis/CPZ boss.bin"
+ArtNem_CPZBoss:			BINCLUDE	"art/nemesis/CPZ boss.nem"
 	even
-ArtNem_FieryExplosion:		BINCLUDE	"art/nemesis/Large explosion.bin"
+ArtNem_FieryExplosion:		BINCLUDE	"art/nemesis/Large explosion.nem"
 	even
-ArtNem_EggpodJets:		BINCLUDE	"art/nemesis/Horizontal jet.bin"
+ArtNem_EggpodJets:		BINCLUDE	"art/nemesis/Horizontal jet.nem"
 	even
-ArtNem_BossSmoke:		BINCLUDE	"art/nemesis/Smoke trail from CPZ and HTZ bosses.bin"
+ArtNem_BossSmoke:		BINCLUDE	"art/nemesis/Smoke trail from CPZ and HTZ bosses.nem"
 	even
-ArtNem_EHZBoss:			BINCLUDE	"art/nemesis/EHZ boss.bin"
+ArtNem_EHZBoss:			BINCLUDE	"art/nemesis/EHZ boss.nem"
 	even
-ArtNem_EggChoppers:		BINCLUDE	"art/nemesis/Chopper blades for EHZ boss.bin"
+ArtNem_EggChoppers:		BINCLUDE	"art/nemesis/Chopper blades for EHZ boss.nem"
 	even
-ArtNem_HTZBoss:			BINCLUDE	"art/nemesis/HTZ boss.bin"
+ArtNem_HTZBoss:			BINCLUDE	"art/nemesis/HTZ boss.nem"
 	even
-ArtNem_ARZBoss:			BINCLUDE	"art/nemesis/ARZ boss.bin"
+ArtNem_ARZBoss:			BINCLUDE	"art/nemesis/ARZ boss.nem"
 	even
-ArtNem_MCZBoss:			BINCLUDE	"art/nemesis/MCZ boss.bin"
+ArtNem_MCZBoss:			BINCLUDE	"art/nemesis/MCZ boss.nem"
 	even
-ArtNem_CNZBoss:			BINCLUDE	"art/nemesis/CNZ boss.bin"
+ArtNem_CNZBoss:			BINCLUDE	"art/nemesis/CNZ boss.nem"
 	even
-ArtNem_OOZBoss:			BINCLUDE	"art/nemesis/OOZ boss.bin"
+ArtNem_OOZBoss:			BINCLUDE	"art/nemesis/OOZ boss.nem"
 	even
-ArtNem_MTZBoss:			BINCLUDE	"art/nemesis/MTZ boss.bin"
+ArtNem_MTZBoss:			BINCLUDE	"art/nemesis/MTZ boss.nem"
 	even
 ArtUnc_FallingRocks:		BINCLUDE	"art/uncompressed/Falling rocks and stalactites from MCZ.bin"
 	even
@@ -90804,67 +91349,67 @@ ArtUnc_FallingRocks:		BINCLUDE	"art/uncompressed/Falling rocks and stalactites f
 ;---------------------------------------------------------------------------------------
 ; ARZ Badnik Assets
 ;---------------------------------------------------------------------------------------
-ArtNem_Whisp:			BINCLUDE	"art/nemesis/Blowfly from ARZ.bin"
+ArtNem_Whisp:			BINCLUDE	"art/nemesis/Blowfly from ARZ.nem"
 	even
-ArtNem_Grounder:		BINCLUDE	"art/nemesis/Grounder from ARZ.bin"
+ArtNem_Grounder:		BINCLUDE	"art/nemesis/Grounder from ARZ.nem"
 	even
-ArtNem_ChopChop:		BINCLUDE	"art/nemesis/Shark from ARZ.bin"
+ArtNem_ChopChop:		BINCLUDE	"art/nemesis/Shark from ARZ.nem"
 	even
 
 ;---------------------------------------------------------------------------------------
 ; HTZ Badnik Assets
 ;---------------------------------------------------------------------------------------
-ArtNem_Rexon:			BINCLUDE	"art/nemesis/Rexxon (lava snake) from HTZ.bin"
+ArtNem_Rexon:			BINCLUDE	"art/nemesis/Rexxon (lava snake) from HTZ.nem"
 	even
-ArtNem_Spiker:			BINCLUDE	"art/nemesis/Driller badnik from HTZ.bin"
+ArtNem_Spiker:			BINCLUDE	"art/nemesis/Driller badnik from HTZ.nem"
 	even
 
 ;---------------------------------------------------------------------------------------
 ; SCZ Badnik Assets
 ;---------------------------------------------------------------------------------------
-ArtNem_Nebula:			BINCLUDE	"art/nemesis/Bomber badnik from SCZ.bin"
+ArtNem_Nebula:			BINCLUDE	"art/nemesis/Bomber badnik from SCZ.nem"
 	even
-ArtNem_Turtloid:		BINCLUDE	"art/nemesis/Turtle badnik from SCZ.bin"
+ArtNem_Turtloid:		BINCLUDE	"art/nemesis/Turtle badnik from SCZ.nem"
 	even
 
 ;---------------------------------------------------------------------------------------
 ; EHZ Badnik Assets (Part 3) (WTF???)
 ;---------------------------------------------------------------------------------------
-ArtNem_Coconuts:		BINCLUDE	"art/nemesis/Coconuts badnik from EHZ.bin"
+ArtNem_Coconuts:		BINCLUDE	"art/nemesis/Coconuts badnik from EHZ.nem"
 	even
 
 ;---------------------------------------------------------------------------------------
 ; MCZ Badnik Assets
 ;---------------------------------------------------------------------------------------
-ArtNem_Crawlton:		BINCLUDE	"art/nemesis/Snake badnik from MCZ.bin"
+ArtNem_Crawlton:		BINCLUDE	"art/nemesis/Snake badnik from MCZ.nem"
 	even
-ArtNem_Flasher:			BINCLUDE	"art/nemesis/Firefly from MCZ.bin"
+ArtNem_Flasher:			BINCLUDE	"art/nemesis/Firefly from MCZ.nem"
 	even
 
 ;---------------------------------------------------------------------------------------
 ; MTZ Badnik Assets
 ;---------------------------------------------------------------------------------------
-ArtNem_MtzMantis:		BINCLUDE	"art/nemesis/Praying mantis badnik from MTZ.bin"
+ArtNem_MtzMantis:		BINCLUDE	"art/nemesis/Praying mantis badnik from MTZ.nem"
 	even
-ArtNem_Shellcracker:		BINCLUDE	"art/nemesis/Shellcracker badnik from MTZ.bin"
+ArtNem_Shellcracker:		BINCLUDE	"art/nemesis/Shellcracker badnik from MTZ.nem"
 	even
-ArtNem_MtzSupernova:		BINCLUDE	"art/nemesis/Exploding star badnik from MTZ.bin"
+ArtNem_MtzSupernova:		BINCLUDE	"art/nemesis/Exploding star badnik from MTZ.nem"
 	even
 
 ;---------------------------------------------------------------------------------------
 ; CPZ Badnik Assets
 ;---------------------------------------------------------------------------------------
-ArtNem_Spiny:			BINCLUDE	"art/nemesis/Weird crawling badnik from CPZ.bin"
+ArtNem_Spiny:			BINCLUDE	"art/nemesis/Weird crawling badnik from CPZ.nem"
 	even
-ArtNem_Grabber:			BINCLUDE	"art/nemesis/Spider badnik from CPZ.bin"
+ArtNem_Grabber:			BINCLUDE	"art/nemesis/Spider badnik from CPZ.nem"
 	even
 
 ;---------------------------------------------------------------------------------------
 ; WFZ Badnik Assets
 ;---------------------------------------------------------------------------------------
-ArtNem_WfzScratch:		BINCLUDE	"art/nemesis/Scratch from WFZ.bin" ; Chicken badnik
+ArtNem_WfzScratch:		BINCLUDE	"art/nemesis/Scratch from WFZ.nem" ; Chicken badnik
 	even
-ArtNem_Balkrie:			BINCLUDE	"art/nemesis/Balkrie (jet badnik) from SCZ.bin" ; This SCZ badnik is here for some reason.
+ArtNem_Balkrie:			BINCLUDE	"art/nemesis/Balkrie (jet badnik) from SCZ.nem" ; This SCZ badnik is here for some reason.
 	even
 
 ;---------------------------------------------------------------------------------------
@@ -90872,106 +91417,106 @@ ArtNem_Balkrie:			BINCLUDE	"art/nemesis/Balkrie (jet badnik) from SCZ.bin" ; Thi
 ; It seems that these were haphazardly thrown together instead of neatly-split like the
 ; other zones' assets.
 ;---------------------------------------------------------------------------------------
-ArtNem_SilverSonic:		BINCLUDE	"art/nemesis/Silver Sonic.bin"
+ArtNem_SilverSonic:		BINCLUDE	"art/nemesis/Silver Sonic.nem"
 	even
-ArtNem_Tornado:			BINCLUDE	"art/nemesis/The Tornado.bin" ; Sonic's plane.
+ArtNem_Tornado:			BINCLUDE	"art/nemesis/The Tornado.nem" ; Sonic's plane.
 	even
-ArtNem_WfzWallTurret:		BINCLUDE	"art/nemesis/Wall turret from WFZ.bin"
+ArtNem_WfzWallTurret:		BINCLUDE	"art/nemesis/Wall turret from WFZ.nem"
 	even
-ArtNem_WfzHook:			BINCLUDE	"art/nemesis/Hook on chain from WFZ.bin"
+ArtNem_WfzHook:			BINCLUDE	"art/nemesis/Hook on chain from WFZ.nem"
 	even
-ArtNem_WfzGunPlatform:		BINCLUDE	"art/nemesis/Retracting platform from WFZ.bin"
+ArtNem_WfzGunPlatform:		BINCLUDE	"art/nemesis/Retracting platform from WFZ.nem"
 	even
-ArtNem_WfzConveyorBeltWheel:	BINCLUDE	"art/nemesis/Wheel for belt in WFZ.bin"
+ArtNem_WfzConveyorBeltWheel:	BINCLUDE	"art/nemesis/Wheel for belt in WFZ.nem"
 	even
-ArtNem_WfzFloatingPlatform:	BINCLUDE	"art/nemesis/Moving platform from WFZ.bin"
+ArtNem_WfzFloatingPlatform:	BINCLUDE	"art/nemesis/Moving platform from WFZ.nem"
 	even
-ArtNem_WfzVrtclLazer:		BINCLUDE	"art/nemesis/Unused vertical laser in WFZ.bin"
+ArtNem_WfzVrtclLazer:		BINCLUDE	"art/nemesis/Unused vertical laser in WFZ.nem"
 	even
-ArtNem_Clouds:			BINCLUDE	"art/nemesis/Clouds.bin"
+ArtNem_Clouds:			BINCLUDE	"art/nemesis/Clouds.nem"
 	even
-ArtNem_WfzHrzntlLazer:		BINCLUDE	"art/nemesis/Red horizontal laser from WFZ.bin"
+ArtNem_WfzHrzntlLazer:		BINCLUDE	"art/nemesis/Red horizontal laser from WFZ.nem"
 	even
-ArtNem_WfzLaunchCatapult:	BINCLUDE	"art/nemesis/Catapult that shoots Sonic to the side from WFZ.bin"
+ArtNem_WfzLaunchCatapult:	BINCLUDE	"art/nemesis/Catapult that shoots Sonic to the side from WFZ.nem"
 	even
-ArtNem_WfzBeltPlatform:		BINCLUDE	"art/nemesis/Platform on belt in WFZ.bin"
+ArtNem_WfzBeltPlatform:		BINCLUDE	"art/nemesis/Platform on belt in WFZ.nem"
 	even
-ArtNem_WfzUnusedBadnik:		BINCLUDE	"art/nemesis/Unused badnik from WFZ.bin" ; This is not grouped with the zone's badniks, suggesting that it's not a badnik at all.
+ArtNem_WfzUnusedBadnik:		BINCLUDE	"art/nemesis/Unused badnik from WFZ.nem" ; This is not grouped with the zone's badniks, suggesting that it's not a badnik at all.
 	even
-ArtNem_WfzVrtclPrpllr:		BINCLUDE	"art/nemesis/Vertical spinning blades in WFZ.bin"
+ArtNem_WfzVrtclPrpllr:		BINCLUDE	"art/nemesis/Vertical spinning blades in WFZ.nem"
 	even
-ArtNem_WfzHrzntlPrpllr:		BINCLUDE	"art/nemesis/Horizontal spinning blades in WFZ.bin"
+ArtNem_WfzHrzntlPrpllr:		BINCLUDE	"art/nemesis/Horizontal spinning blades in WFZ.nem"
 	even
-ArtNem_WfzTiltPlatforms:	BINCLUDE	"art/nemesis/Tilting plaforms in WFZ.bin"
+ArtNem_WfzTiltPlatforms:	BINCLUDE	"art/nemesis/Tilting plaforms in WFZ.nem"
 	even
-ArtNem_WfzThrust:		BINCLUDE	"art/nemesis/Thrust from Robotnik's getaway ship in WFZ.bin"
+ArtNem_WfzThrust:		BINCLUDE	"art/nemesis/Thrust from Robotnik's getaway ship in WFZ.nem"
 	even
-ArtNem_WFZBoss:			BINCLUDE	"art/nemesis/WFZ boss.bin"
+ArtNem_WFZBoss:			BINCLUDE	"art/nemesis/WFZ boss.nem"
 	even
-ArtNem_RobotnikUpper:		BINCLUDE	"art/nemesis/Robotnik's head.bin"
+ArtNem_RobotnikUpper:		BINCLUDE	"art/nemesis/Robotnik's head.nem"
 	even
-ArtNem_RobotnikRunning:		BINCLUDE	"art/nemesis/Robotnik.bin"
+ArtNem_RobotnikRunning:		BINCLUDE	"art/nemesis/Robotnik.nem"
 	even
-ArtNem_RobotnikLower:		BINCLUDE	"art/nemesis/Robotnik's lower half.bin"
+ArtNem_RobotnikLower:		BINCLUDE	"art/nemesis/Robotnik's lower half.nem"
 	even
-ArtNem_DEZWindow:		BINCLUDE	"art/nemesis/Window in back that Robotnik looks through in DEZ.bin"
+ArtNem_DEZWindow:		BINCLUDE	"art/nemesis/Window in back that Robotnik looks through in DEZ.nem"
 	even
-ArtNem_DEZBoss:			BINCLUDE	"art/nemesis/Eggrobo.bin"
+ArtNem_DEZBoss:			BINCLUDE	"art/nemesis/Eggrobo.nem"
 	even
 ; This last-minute badnik addition was mistakenly included with the WFZ/DEZ assets instead of in its own 'CNZ Badnik Assets' section.
-ArtNem_Crawl:			BINCLUDE	"art/nemesis/Bouncer badnik from CNZ.bin"
+ArtNem_Crawl:			BINCLUDE	"art/nemesis/Bouncer badnik from CNZ.nem"
 	even
-ArtNem_TornadoThruster:		BINCLUDE	"art/nemesis/Rocket thruster for Tornado.bin"
+ArtNem_TornadoThruster:		BINCLUDE	"art/nemesis/Rocket thruster for Tornado.nem"
 	even
 
 ;---------------------------------------------------------------------------------------
 ; Ending Assets
 ;---------------------------------------------------------------------------------------
-MapEng_Ending1:			BINCLUDE	"mappings/misc/End of game sequence frame 1.bin"
+MapEng_Ending1:			BINCLUDE	"mappings/misc/End of game sequence frame 1.eni"
 	even
-MapEng_Ending2:			BINCLUDE	"mappings/misc/End of game sequence frame 2.bin"
+MapEng_Ending2:			BINCLUDE	"mappings/misc/End of game sequence frame 2.eni"
 	even
-MapEng_Ending3:			BINCLUDE	"mappings/misc/End of game sequence frame 3.bin"
+MapEng_Ending3:			BINCLUDE	"mappings/misc/End of game sequence frame 3.eni"
 	even
-MapEng_Ending4:			BINCLUDE	"mappings/misc/End of game sequence frame 4.bin"
+MapEng_Ending4:			BINCLUDE	"mappings/misc/End of game sequence frame 4.eni"
 	even
-MapEng_EndingTailsPlane:	BINCLUDE	"mappings/misc/Closeup of Tails flying plane in ending sequence.bin"
+MapEng_EndingTailsPlane:	BINCLUDE	"mappings/misc/Closeup of Tails flying plane in ending sequence.eni"
 	even
-MapEng_EndingSonicPlane:	BINCLUDE	"mappings/misc/Closeup of Sonic flying plane in ending sequence.bin"
+MapEng_EndingSonicPlane:	BINCLUDE	"mappings/misc/Closeup of Sonic flying plane in ending sequence.eni"
 	even
 ; Strange unused mappings (duplicates of MapEng_EndGameLogo)
-				BINCLUDE	"mappings/misc/Sonic 2 end of game logo.bin"
+				BINCLUDE	"mappings/misc/Sonic 2 end of game logo.eni"
 	even
-				BINCLUDE	"mappings/misc/Sonic 2 end of game logo.bin"
+				BINCLUDE	"mappings/misc/Sonic 2 end of game logo.eni"
 	even
-				BINCLUDE	"mappings/misc/Sonic 2 end of game logo.bin"
+				BINCLUDE	"mappings/misc/Sonic 2 end of game logo.eni"
 	even
-				BINCLUDE	"mappings/misc/Sonic 2 end of game logo.bin"
+				BINCLUDE	"mappings/misc/Sonic 2 end of game logo.eni"
 	even
-				BINCLUDE	"mappings/misc/Sonic 2 end of game logo.bin"
+				BINCLUDE	"mappings/misc/Sonic 2 end of game logo.eni"
 	even
-				BINCLUDE	"mappings/misc/Sonic 2 end of game logo.bin"
+				BINCLUDE	"mappings/misc/Sonic 2 end of game logo.eni"
 	even
-				BINCLUDE	"mappings/misc/Sonic 2 end of game logo.bin"
+				BINCLUDE	"mappings/misc/Sonic 2 end of game logo.eni"
 	even
-				BINCLUDE	"mappings/misc/Sonic 2 end of game logo.bin"
+				BINCLUDE	"mappings/misc/Sonic 2 end of game logo.eni"
 	even
-				BINCLUDE	"mappings/misc/Sonic 2 end of game logo.bin"
+				BINCLUDE	"mappings/misc/Sonic 2 end of game logo.eni"
 	even
 
-ArtNem_EndingPics:		BINCLUDE	"art/nemesis/Movie sequence at end of game.bin"
+ArtNem_EndingPics:		BINCLUDE	"art/nemesis/Movie sequence at end of game.nem"
 	even
-ArtNem_EndingFinalTornado:	BINCLUDE	"art/nemesis/Final image of Tornado with it and Sonic facing screen.bin"
+ArtNem_EndingFinalTornado:	BINCLUDE	"art/nemesis/Final image of Tornado with it and Sonic facing screen.nem"
 	even
-ArtNem_EndingMiniTornado:	BINCLUDE	"art/nemesis/Small pictures of Tornado in final ending sequence.bin"
+ArtNem_EndingMiniTornado:	BINCLUDE	"art/nemesis/Small pictures of Tornado in final ending sequence.nem"
 	even
-ArtNem_EndingSonic:		BINCLUDE	"art/nemesis/Small pictures of Sonic and final image of Sonic.bin"
+ArtNem_EndingSonic:		BINCLUDE	"art/nemesis/Small pictures of Sonic and final image of Sonic.nem"
 	even
-ArtNem_EndingSuperSonic:	BINCLUDE	"art/nemesis/Small pictures of Sonic and final image of Sonic in Super Sonic mode.bin"
+ArtNem_EndingSuperSonic:	BINCLUDE	"art/nemesis/Small pictures of Sonic and final image of Sonic in Super Sonic mode.nem"
 	even
-ArtNem_EndingTails:		BINCLUDE	"art/nemesis/Final image of Tails.bin"
+ArtNem_EndingTails:		BINCLUDE	"art/nemesis/Final image of Tails.nem"
 	even
-ArtNem_EndingTitle:		BINCLUDE	"art/nemesis/Sonic the Hedgehog 2 image at end of credits.bin"
+ArtNem_EndingTitle:		BINCLUDE	"art/nemesis/Sonic the Hedgehog 2 image at end of credits.nem"
 	even
 
 
@@ -91025,47 +91570,47 @@ ArtNem_EndingTitle:		BINCLUDE	"art/nemesis/Sonic the Hedgehog 2 image at end of 
 
 ; All of these are compressed in the Kosinski format.
 
-BM16_EHZ:	BINCLUDE	"mappings/16x16/EHZ.bin"
-ArtKos_EHZ:	BINCLUDE	"art/kosinski/EHZ_HTZ.bin"
-BM16_HTZ:	BINCLUDE	"mappings/16x16/HTZ.bin"
-ArtKos_HTZ:	BINCLUDE	"art/kosinski/HTZ_Supp.bin" ; HTZ pattern suppliment to EHZ level patterns
-BM128_EHZ:	BINCLUDE	"mappings/128x128/EHZ_HTZ.bin"
+BM16_EHZ:	BINCLUDE	"mappings/16x16/EHZ.kos"
+ArtKos_EHZ:	BINCLUDE	"art/kosinski/EHZ_HTZ.kos"
+BM16_HTZ:	BINCLUDE	"mappings/16x16/HTZ.kos"
+ArtKos_HTZ:	BINCLUDE	"art/kosinski/HTZ_Supp.kos" ; HTZ pattern suppliment to EHZ level patterns
+BM128_EHZ:	BINCLUDE	"mappings/128x128/EHZ_HTZ.kos"
 
-BM16_MTZ:	BINCLUDE	"mappings/16x16/MTZ.bin"
-ArtKos_MTZ:	BINCLUDE	"art/kosinski/MTZ.bin"
-BM128_MTZ:	BINCLUDE	"mappings/128x128/MTZ.bin"
+BM16_MTZ:	BINCLUDE	"mappings/16x16/MTZ.kos"
+ArtKos_MTZ:	BINCLUDE	"art/kosinski/MTZ.kos"
+BM128_MTZ:	BINCLUDE	"mappings/128x128/MTZ.kos"
 
-BM16_HPZ:	;BINCLUDE	"mappings/16x16/HPZ.bin"
-ArtKos_HPZ:	;BINCLUDE	"art/kosinski/HPZ.bin"
-BM128_HPZ:	;BINCLUDE	"mappings/128x128/HPZ.bin"
+BM16_HPZ:	;BINCLUDE	"mappings/16x16/HPZ.kos"
+ArtKos_HPZ:	;BINCLUDE	"art/kosinski/HPZ.kos"
+BM128_HPZ:	;BINCLUDE	"mappings/128x128/HPZ.kos"
 
-BM16_OOZ:	BINCLUDE	"mappings/16x16/OOZ.bin"
-ArtKos_OOZ:	BINCLUDE	"art/kosinski/OOZ.bin"
-BM128_OOZ:	BINCLUDE	"mappings/128x128/OOZ.bin"
+BM16_OOZ:	BINCLUDE	"mappings/16x16/OOZ.kos"
+ArtKos_OOZ:	BINCLUDE	"art/kosinski/OOZ.kos"
+BM128_OOZ:	BINCLUDE	"mappings/128x128/OOZ.kos"
 
-BM16_MCZ:	BINCLUDE	"mappings/16x16/MCZ.bin"
-ArtKos_MCZ:	BINCLUDE	"art/kosinski/MCZ.bin"
-BM128_MCZ:	BINCLUDE	"mappings/128x128/MCZ.bin"
+BM16_MCZ:	BINCLUDE	"mappings/16x16/MCZ.kos"
+ArtKos_MCZ:	BINCLUDE	"art/kosinski/MCZ.kos"
+BM128_MCZ:	BINCLUDE	"mappings/128x128/MCZ.kos"
 
-BM16_CNZ:	BINCLUDE	"mappings/16x16/CNZ.bin"
-ArtKos_CNZ:	BINCLUDE	"art/kosinski/CNZ.bin"
-BM128_CNZ:	BINCLUDE	"mappings/128x128/CNZ.bin"
+BM16_CNZ:	BINCLUDE	"mappings/16x16/CNZ.kos"
+ArtKos_CNZ:	BINCLUDE	"art/kosinski/CNZ.kos"
+BM128_CNZ:	BINCLUDE	"mappings/128x128/CNZ.kos"
 
-BM16_CPZ:	BINCLUDE	"mappings/16x16/CPZ_DEZ.bin"
-ArtKos_CPZ:	BINCLUDE	"art/kosinski/CPZ_DEZ.bin"
-BM128_CPZ:	BINCLUDE	"mappings/128x128/CPZ_DEZ.bin"
+BM16_CPZ:	BINCLUDE	"mappings/16x16/CPZ_DEZ.kos"
+ArtKos_CPZ:	BINCLUDE	"art/kosinski/CPZ_DEZ.kos"
+BM128_CPZ:	BINCLUDE	"mappings/128x128/CPZ_DEZ.kos"
 
 ; This file contains $320 blocks, overflowing the 'Block_table' buffer. This causes
 ; 'TempArray_LayerDef' to be overwritten with (empty) block data.
 ; If only 'fixBugs' could fix this...
-BM16_ARZ:	BINCLUDE	"mappings/16x16/ARZ.bin"
-ArtKos_ARZ:	BINCLUDE	"art/kosinski/ARZ.bin"
-BM128_ARZ:	BINCLUDE	"mappings/128x128/ARZ.bin"
+BM16_ARZ:	BINCLUDE	"mappings/16x16/ARZ.kos"
+ArtKos_ARZ:	BINCLUDE	"art/kosinski/ARZ.kos"
+BM128_ARZ:	BINCLUDE	"mappings/128x128/ARZ.kos"
 
-BM16_WFZ:	BINCLUDE	"mappings/16x16/WFZ_SCZ.bin"
-ArtKos_SCZ:	BINCLUDE	"art/kosinski/WFZ_SCZ.bin"
-ArtKos_WFZ:	BINCLUDE	"art/kosinski/WFZ_Supp.bin" ; WFZ pattern suppliment to SCZ tiles
-BM128_WFZ:	BINCLUDE	"mappings/128x128/WFZ_SCZ.bin"
+BM16_WFZ:	BINCLUDE	"mappings/16x16/WFZ_SCZ.kos"
+ArtKos_SCZ:	BINCLUDE	"art/kosinski/WFZ_SCZ.kos"
+ArtKos_WFZ:	BINCLUDE	"art/kosinski/WFZ_Supp.kos" ; WFZ pattern suppliment to SCZ tiles
+BM128_WFZ:	BINCLUDE	"mappings/128x128/WFZ_SCZ.kos"
 
 ; >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 ;-----------------------------------------------------------------------------------
@@ -91158,48 +91703,48 @@ MapSpec_Turn7:		BINCLUDE	"mappings/special stage/Begin curve right - Frame 7.bin
 ;  the same as this one line, so to get the full tiles, each line needs to be
 ;  duplicated 7 times over.					; ArtKoz_DCA38:
 ;--------------------------------------------------------------------------------------
-ArtKos_Special:			BINCLUDE	"art/kosinski/SpecStag.bin"
+ArtKos_Special:			BINCLUDE	"art/kosinski/SpecStag.kos"
 	even
 
-ArtNem_SpecialBack:		BINCLUDE	"art/nemesis/Background art for special stage.bin"
+ArtNem_SpecialBack:		BINCLUDE	"art/nemesis/Background art for special stage.nem"
 	even
-MapEng_SpecialBack:		BINCLUDE	"mappings/misc/Main background mappings for special stage.bin"
+MapEng_SpecialBack:		BINCLUDE	"mappings/misc/Main background mappings for special stage.eni"
 	even
-MapEng_SpecialBackBottom:	BINCLUDE	"mappings/misc/Lower background mappings for special stage.bin"
+MapEng_SpecialBackBottom:	BINCLUDE	"mappings/misc/Lower background mappings for special stage.eni"
 	even
-ArtNem_SpecialHUD:		BINCLUDE	"art/nemesis/Sonic and Miles number text from special stage.bin"
+ArtNem_SpecialHUD:		BINCLUDE	"art/nemesis/Sonic and Miles number text from special stage.nem"
 	even
-ArtNem_SpecialStart:		BINCLUDE	"art/nemesis/Start text from special stage.bin" ; Also includes checkered flag
+ArtNem_SpecialStart:		BINCLUDE	"art/nemesis/Start text from special stage.nem" ; Also includes checkered flag
 	even
-ArtNem_SpecialStars:		BINCLUDE	"art/nemesis/Stars in special stage.bin"
+ArtNem_SpecialStars:		BINCLUDE	"art/nemesis/Stars in special stage.nem"
 	even
-ArtNem_SpecialPlayerVSPlayer:	BINCLUDE	"art/nemesis/Special stage Player VS Player text.bin"
+ArtNem_SpecialPlayerVSPlayer:	BINCLUDE	"art/nemesis/Special stage Player VS Player text.nem"
 	even
-ArtNem_SpecialRings:		BINCLUDE	"art/nemesis/Special stage ring art.bin"
+ArtNem_SpecialRings:		BINCLUDE	"art/nemesis/Special stage ring art.nem"
 	even
-ArtNem_SpecialFlatShadow:	BINCLUDE	"art/nemesis/Horizontal shadow from special stage.bin"
+ArtNem_SpecialFlatShadow:	BINCLUDE	"art/nemesis/Horizontal shadow from special stage.nem"
 	even
-ArtNem_SpecialDiagShadow:	BINCLUDE	"art/nemesis/Diagonal shadow from special stage.bin"
+ArtNem_SpecialDiagShadow:	BINCLUDE	"art/nemesis/Diagonal shadow from special stage.nem"
 	even
-ArtNem_SpecialSideShadow:	BINCLUDE	"art/nemesis/Vertical shadow from special stage.bin"
+ArtNem_SpecialSideShadow:	BINCLUDE	"art/nemesis/Vertical shadow from special stage.nem"
 	even
-ArtNem_SpecialExplosion:	BINCLUDE	"art/nemesis/Explosion from special stage.bin"
+ArtNem_SpecialExplosion:	BINCLUDE	"art/nemesis/Explosion from special stage.nem"
 	even
-ArtNem_SpecialBomb:		BINCLUDE	"art/nemesis/Bomb from special stage.bin"
+ArtNem_SpecialBomb:		BINCLUDE	"art/nemesis/Bomb from special stage.nem"
 	even
-ArtNem_SpecialEmerald:		BINCLUDE	"art/nemesis/Emerald from special stage.bin"
+ArtNem_SpecialEmerald:		BINCLUDE	"art/nemesis/Emerald from special stage.nem"
 	even
-ArtNem_SpecialMessages:		BINCLUDE	"art/nemesis/Special stage messages and icons.bin"
+ArtNem_SpecialMessages:		BINCLUDE	"art/nemesis/Special stage messages and icons.nem"
 	even
-ArtNem_SpecialSonicAndTails:	BINCLUDE	"art/nemesis/Sonic and Tails animation frames in special stage.bin" ; [fixBugs] In this file, Tails' arms are tan instead of orange.
+ArtNem_SpecialSonicAndTails:	BINCLUDE	"art/nemesis/Sonic and Tails animation frames in special stage.nem" ; [fixBugs] In this file, Tails' arms are tan instead of orange.
 	even
-ArtNem_SpecialTailsText:	BINCLUDE	"art/nemesis/Tails text patterns from special stage.bin"
+ArtNem_SpecialTailsText:	BINCLUDE	"art/nemesis/Tails text patterns from special stage.nem"
 	even
-MiscKoz_SpecialPerspective:	BINCLUDE	"misc/Special stage object perspective data (Kosinski compression).bin"
+MiscKoz_SpecialPerspective:	BINCLUDE	"misc/Special stage object perspective data.kos"
 	even
-MiscNem_SpecialLevelLayout:	BINCLUDE	"misc/Special stage level layouts (Nemesis compression).bin"
+MiscNem_SpecialLevelLayout:	BINCLUDE	"misc/Special stage level layouts.nem"
 	even
-MiscKoz_SpecialObjectLocations:	BINCLUDE	"misc/Special stage object location lists (Kosinski compression).bin"
+MiscKoz_SpecialObjectLocations:	BINCLUDE	"misc/Special stage object location lists.kos"
 	even
 
 ;--------------------------------------------------------------------------------------
@@ -91508,7 +92053,7 @@ SoundDriverLoad:
 DecompressSoundDriver:
 	lea	Snd_Driver(pc),a6
 ; WARNING: the build script needs editing if you rename this label
-movewZ80CompSize:	move.w	#Snd_Driver_End-Snd_Driver,d7 ; patched (by fixpointer.exe) after compression since the exact size can't be known beforehand
+movewZ80CompSize:	move.w	#Snd_Driver_End-Snd_Driver,d7 ; patched (by build.lua) after compression since the exact size can't be known beforehand
 	moveq	#0,d6	; The decompressor knows it's run out of descriptor bits when it starts reading 0's in bit 8
 	lea	(Z80_RAM).l,a5
 	moveq	#0,d5
@@ -91628,33 +92173,33 @@ Snd_Driver_End:
 ; loc_ED100:
 SndDAC_Start:
 
-SndDAC_Sample1:
-	BINCLUDE	"sound/DAC/Sample 1.bin"
-SndDAC_Sample1_End
+SndDAC_Kick:
+	BINCLUDE	"sound/DAC/Kick.dpcm"
+SndDAC_Kick_End
 
-SndDAC_Sample2:
-	BINCLUDE	"sound/DAC/Sample 2.bin"
-SndDAC_Sample2_End
+SndDAC_Snare:
+	BINCLUDE	"sound/DAC/Snare.dpcm"
+SndDAC_Snare_End
 
-SndDAC_Sample5:
-	BINCLUDE	"sound/DAC/Sample 5.bin"
-SndDAC_Sample5_End
+SndDAC_Timpani:
+	BINCLUDE	"sound/DAC/Timpani.dpcm"
+SndDAC_Timpani_End
 
-SndDAC_Sample6:
-	BINCLUDE	"sound/DAC/Sample 6.bin"
-SndDAC_Sample6_End
+SndDAC_Tom:
+	BINCLUDE	"sound/DAC/Tom.dpcm"
+SndDAC_Tom_End
 
-SndDAC_Sample3:
-	BINCLUDE	"sound/DAC/Sample 3.bin"
-SndDAC_Sample3_End
+SndDAC_Clap:
+	BINCLUDE	"sound/DAC/Clap.dpcm"
+SndDAC_Clap_End
 
-SndDAC_Sample4:
-	BINCLUDE	"sound/DAC/Sample 4.bin"
-SndDAC_Sample4_End
+SndDAC_Scratch:
+	BINCLUDE	"sound/DAC/Scratch.dpcm"
+SndDAC_Scratch_End
 
-SndDAC_Sample7:
-	BINCLUDE	"sound/DAC/Sample 7.bin"
-SndDAC_Sample7_End
+SndDAC_Bongo:
+	BINCLUDE	"sound/DAC/Bongo.dpcm"
+SndDAC_Bongo_End
 
 SndDAC_End
 
@@ -91673,7 +92218,7 @@ MusicPoint1:	startBank
 MusPtr_Continue:	rom_ptr_z80	Mus_Continue
 
 
-Mus_Continue:   BINCLUDE	"sound/music/compressed/9C - Continue.bin"
+Mus_Continue:   BINCLUDE	"sound/music/compressed/9C - Continue.sax"
 
 	finishBank
 
@@ -91682,65 +92227,65 @@ Mus_Continue:   BINCLUDE	"sound/music/compressed/9C - Continue.bin"
 ; --------------------------------------------------------------------------------------
 ; EHZ/HTZ Assets
 ; --------------------------------------------------------------------------------------
-ArtNem_HtzFireball1:		BINCLUDE	"art/nemesis/Fireball 1.bin"
+ArtNem_HtzFireball1:		BINCLUDE	"art/nemesis/Fireball 1.nem"
 	even
-ArtNem_Waterfall:		BINCLUDE	"art/nemesis/Waterfall tiles.bin"
+ArtNem_Waterfall:		BINCLUDE	"art/nemesis/Waterfall tiles.nem"
 	even
-ArtNem_HtzFireball2:		BINCLUDE	"art/nemesis/Fireball 2.bin"
+ArtNem_HtzFireball2:		BINCLUDE	"art/nemesis/Fireball 2.nem"
 	even
-ArtNem_EHZ_Bridge:		BINCLUDE	"art/nemesis/EHZ bridge.bin"
+ArtNem_EHZ_Bridge:		BINCLUDE	"art/nemesis/EHZ bridge.nem"
 	even
-ArtNem_HtzZipline:		BINCLUDE	"art/nemesis/HTZ zip-line platform.bin"
+ArtNem_HtzZipline:		BINCLUDE	"art/nemesis/HTZ zip-line platform.nem"
 	even
-ArtNem_HtzValveBarrier:		BINCLUDE	"art/nemesis/One way barrier from HTZ.bin"
+ArtNem_HtzValveBarrier:		BINCLUDE	"art/nemesis/One way barrier from HTZ.nem"
 	even
-ArtNem_HtzSeeSaw:		BINCLUDE	"art/nemesis/See-saw in HTZ.bin"
+ArtNem_HtzSeeSaw:		BINCLUDE	"art/nemesis/See-saw in HTZ.nem"
 	even
-				BINCLUDE	"art/nemesis/Fireball 3.bin" ; Unused
+				BINCLUDE	"art/nemesis/Fireball 3.nem" ; Unused
 	even
-ArtNem_HtzRock:			BINCLUDE	"art/nemesis/Rock from HTZ.bin"
+ArtNem_HtzRock:			BINCLUDE	"art/nemesis/Rock from HTZ.nem"
 	even
-ArtNem_Sol:			BINCLUDE	"art/nemesis/Sol badnik from HTZ.bin" ; Not grouped with the other badniks for some reason...
+ArtNem_Sol:			BINCLUDE	"art/nemesis/Sol badnik from HTZ.nem" ; Not grouped with the other badniks for some reason...
 	even
 
 ; --------------------------------------------------------------------------------------
 ; MTZ Assets
 ; --------------------------------------------------------------------------------------
-ArtNem_MtzWheel:		BINCLUDE	"art/nemesis/Large spinning wheel from MTZ.bin"
+ArtNem_MtzWheel:		BINCLUDE	"art/nemesis/Large spinning wheel from MTZ.nem"
 	even
-ArtNem_MtzWheelIndent:		BINCLUDE	"art/nemesis/Large spinning wheel from MTZ - indent.bin"
+ArtNem_MtzWheelIndent:		BINCLUDE	"art/nemesis/Large spinning wheel from MTZ - indent.nem"
 	even
-ArtNem_MtzSpikeBlock:		BINCLUDE	"art/nemesis/MTZ spike block.bin"
+ArtNem_MtzSpikeBlock:		BINCLUDE	"art/nemesis/MTZ spike block.nem"
 	even
-ArtNem_MtzSteam:		BINCLUDE	"art/nemesis/Steam from MTZ.bin"
+ArtNem_MtzSteam:		BINCLUDE	"art/nemesis/Steam from MTZ.nem"
 	even
-ArtNem_MtzSpike:		BINCLUDE	"art/nemesis/Spike from MTZ.bin"
+ArtNem_MtzSpike:		BINCLUDE	"art/nemesis/Spike from MTZ.nem"
 	even
-ArtNem_MtzAsstBlocks:		BINCLUDE	"art/nemesis/Similarly shaded blocks from MTZ.bin"
+ArtNem_MtzAsstBlocks:		BINCLUDE	"art/nemesis/Similarly shaded blocks from MTZ.nem"
 	even
-ArtNem_MtzLavaBubble:		BINCLUDE	"art/nemesis/Lava bubble from MTZ.bin"
+ArtNem_MtzLavaBubble:		BINCLUDE	"art/nemesis/Lava bubble from MTZ.nem"
 	even
-ArtNem_LavaCup:			BINCLUDE	"art/nemesis/Lava cup from MTZ.bin"
+ArtNem_LavaCup:			BINCLUDE	"art/nemesis/Lava cup from MTZ.nem"
 	even
-ArtNem_BoltEnd_Rope:		BINCLUDE	"art/nemesis/Bolt end and rope from MTZ.bin"
+ArtNem_BoltEnd_Rope:		BINCLUDE	"art/nemesis/Bolt end and rope from MTZ.nem"
 	even	
-ArtNem_MtzCog:			BINCLUDE	"art/nemesis/Small cog from MTZ.bin"
+ArtNem_MtzCog:			BINCLUDE	"art/nemesis/Small cog from MTZ.nem"
 	even
-ArtNem_MtzSpinTubeFlash:	BINCLUDE	"art/nemesis/Spin tube flash from MTZ.bin"
+ArtNem_MtzSpinTubeFlash:	BINCLUDE	"art/nemesis/Spin tube flash from MTZ.nem"
 	even
 
 ; --------------------------------------------------------------------------------------
 ; MCZ Assets
 ; --------------------------------------------------------------------------------------
-ArtNem_Crate:			BINCLUDE	"art/nemesis/Large wooden box from MCZ.bin"
+ArtNem_Crate:			BINCLUDE	"art/nemesis/Large wooden box from MCZ.nem"
 	even
-ArtNem_MCZCollapsePlat:		BINCLUDE	"art/nemesis/Collapsing platform from MCZ.bin"
+ArtNem_MCZCollapsePlat:		BINCLUDE	"art/nemesis/Collapsing platform from MCZ.nem"
 	even
-ArtNem_VineSwitch:		BINCLUDE	"art/nemesis/Pull switch from MCZ.bin"
+ArtNem_VineSwitch:		BINCLUDE	"art/nemesis/Pull switch from MCZ.nem"
 	even
-ArtNem_VinePulley:		BINCLUDE	"art/nemesis/Vine that lowers from MCZ.bin"
+ArtNem_VinePulley:		BINCLUDE	"art/nemesis/Vine that lowers from MCZ.nem"
 	even
-ArtNem_MCZGateLog:		BINCLUDE	"art/nemesis/Drawbridge logs from MCZ.bin"
+ArtNem_MCZGateLog:		BINCLUDE	"art/nemesis/Drawbridge logs from MCZ.nem"
 	even
 
 ; ----------------------------------------------------------------------------------
@@ -91754,7 +92299,7 @@ ArtNem_MCZGateLog:		BINCLUDE	"art/nemesis/Drawbridge logs from MCZ.bin"
 ; 8-bit unsigned raw audio at 16Khz
 ; -------------------------------------------------------------------------------
 ; loc_F1E8C:
-Snd_Sega:	BINCLUDE	"sound/PCM/SEGA.bin"
+Snd_Sega:	BINCLUDE	"sound/PCM/SEGA.pcm"
 Snd_Sega_End:
 
 	if Snd_Sega_End - Snd_Sega > $8000
@@ -91801,32 +92346,32 @@ MusPtr_Drowning:	rom_ptr_z80	Mus_Drowning
 MusPtr_Credits:		rom_ptr_z80	Mus_Credits
 
 ; loc_F803C:
-Mus_HPZ:	BINCLUDE	"sound/music/compressed/90 - HPZ.bin"
-Mus_Drowning:	BINCLUDE	"sound/music/compressed/9F - Drowning.bin"
-Mus_Invincible:	BINCLUDE	"sound/music/compressed/97 - Invincible.bin"
-Mus_CNZ_2P:	BINCLUDE	"sound/music/compressed/88 - CNZ 2P.bin"
-Mus_EHZ:	BINCLUDE	"sound/music/compressed/82 - EHZ.bin"
-Mus_MTZ:	BINCLUDE	"sound/music/compressed/85 - MTZ.bin"
-Mus_CNZ:	BINCLUDE	"sound/music/compressed/89 - CNZ.bin"
-Mus_MCZ:	BINCLUDE	"sound/music/compressed/8B - MCZ.bin"
-Mus_MCZ_2P:	BINCLUDE	"sound/music/compressed/83 - MCZ 2P.bin"
-Mus_ARZ:	BINCLUDE	"sound/music/compressed/87 - ARZ.bin"
-Mus_DEZ:	BINCLUDE	"sound/music/compressed/8A - DEZ.bin"
-Mus_SpecStage:	BINCLUDE	"sound/music/compressed/92 - Special Stage.bin"
-Mus_Options:	BINCLUDE	"sound/music/compressed/91 - Options.bin"
-Mus_Ending:	BINCLUDE	"sound/music/compressed/95 - Ending.bin"
-Mus_EndBoss:	BINCLUDE	"sound/music/compressed/94 - Final Boss.bin"
-Mus_CPZ:	BINCLUDE	"sound/music/compressed/8E - CPZ.bin"
-Mus_Boss:	BINCLUDE	"sound/music/compressed/93 - Boss.bin"
-Mus_SCZ:	BINCLUDE	"sound/music/compressed/8D - SCZ.bin"
-Mus_OOZ:	BINCLUDE	"sound/music/compressed/84 - OOZ.bin"
-Mus_WFZ:	BINCLUDE	"sound/music/compressed/8F - WFZ.bin"
-Mus_EHZ_2P:	BINCLUDE	"sound/music/compressed/8C - EHZ 2P.bin"
-Mus_2PResult:	BINCLUDE	"sound/music/compressed/81 - 2 Player Menu.bin"
-Mus_SuperSonic:	BINCLUDE	"sound/music/compressed/96 - Super Sonic.bin"
-Mus_HTZ:	BINCLUDE	"sound/music/compressed/86 - HTZ.bin"
-Mus_Title:	BINCLUDE	"sound/music/compressed/99 - Title Screen.bin"
-Mus_EndLevel:	BINCLUDE	"sound/music/compressed/9A - End of Act.bin"
+Mus_HPZ:	BINCLUDE	"sound/music/compressed/90 - HPZ.sax"
+Mus_Drowning:	BINCLUDE	"sound/music/compressed/9F - Drowning.sax"
+Mus_Invincible:	BINCLUDE	"sound/music/compressed/97 - Invincible.sax"
+Mus_CNZ_2P:	BINCLUDE	"sound/music/compressed/88 - CNZ 2P.sax"
+Mus_EHZ:	BINCLUDE	"sound/music/compressed/82 - EHZ.sax"
+Mus_MTZ:	BINCLUDE	"sound/music/compressed/85 - MTZ.sax"
+Mus_CNZ:	BINCLUDE	"sound/music/compressed/89 - CNZ.sax"
+Mus_MCZ:	BINCLUDE	"sound/music/compressed/8B - MCZ.sax"
+Mus_MCZ_2P:	BINCLUDE	"sound/music/compressed/83 - MCZ 2P.sax"
+Mus_ARZ:	BINCLUDE	"sound/music/compressed/87 - ARZ.sax"
+Mus_DEZ:	BINCLUDE	"sound/music/compressed/8A - DEZ.sax"
+Mus_SpecStage:	BINCLUDE	"sound/music/compressed/92 - Special Stage.sax"
+Mus_Options:	BINCLUDE	"sound/music/compressed/91 - Options.sax"
+Mus_Ending:	BINCLUDE	"sound/music/compressed/95 - Ending.sax"
+Mus_EndBoss:	BINCLUDE	"sound/music/compressed/94 - Final Boss.sax"
+Mus_CPZ:	BINCLUDE	"sound/music/compressed/8E - CPZ.sax"
+Mus_Boss:	BINCLUDE	"sound/music/compressed/93 - Boss.sax"
+Mus_SCZ:	BINCLUDE	"sound/music/compressed/8D - SCZ.sax"
+Mus_OOZ:	BINCLUDE	"sound/music/compressed/84 - OOZ.sax"
+Mus_WFZ:	BINCLUDE	"sound/music/compressed/8F - WFZ.sax"
+Mus_EHZ_2P:	BINCLUDE	"sound/music/compressed/8C - EHZ 2P.sax"
+Mus_2PResult:	BINCLUDE	"sound/music/compressed/81 - 2 Player Menu.sax"
+Mus_SuperSonic:	BINCLUDE	"sound/music/compressed/96 - Super Sonic.sax"
+Mus_HTZ:	BINCLUDE	"sound/music/compressed/86 - HTZ.sax"
+Mus_Title:	BINCLUDE	"sound/music/compressed/99 - Title Screen.sax"
+Mus_EndLevel:	BINCLUDE	"sound/music/compressed/9A - End of Act.sax"
 
 Mus_ExtraLife:	include		"sound/music/98 - Extra Life.asm"
 Mus_GameOver:	include		"sound/music/9B - Game Over.asm"
@@ -91853,7 +92398,7 @@ SndPtr_Checkpoint:	rom_ptr_z80	Sound21	; checkpoint ding-dong sound
 SndPtr_SpikeSwitch:	rom_ptr_z80	Sound22	; spike switch sound
 SndPtr_Hurt:		rom_ptr_z80	Sound23	; hurt sound
 SndPtr_Skidding:	rom_ptr_z80	Sound24	; skidding sound
-SndPtr_BlockPush:	rom_ptr_z80	Sound25	; block push sound
+SndPtr_MissileDissolve:	rom_ptr_z80	Sound25	; missile dissolve sound from Sonic 1 (unused)
 SndPtr_HurtBySpikes:	rom_ptr_z80	Sound26	; spiky impalement sound
 SndPtr_Sparkle:		rom_ptr_z80	Sound27	; sparkling sound
 SndPtr_Beep:		rom_ptr_z80	Sound28	; short beep
@@ -92018,7 +92563,7 @@ Sound6F:	include "sound/sfx/EF - Large Laser.asm"
 Sound70:	include "sound/sfx/F0 - Oil Slide.asm"
 
 	finishBank
-	
+
 SubCPU:
 	binclude "SubCPU/s2subcpu.bin"
 SubCPU_End:
@@ -92040,22 +92585,22 @@ paddingSoFar	:= paddingSoFar+1
 	else
 		even
 	endif
+EndOfRom:
 	if MOMPASS=2
-	
+
 	if SubCPU_Size > $020000
 		fatal "SubCPU Program size is larger than a single bank: $\{SubCPU_Size}"
 	else
 		message "SubCPU Program size is $\{SubCPU_Size}"
 	endif
-	
+
 		; "About" because it will be off by the same amount that Size_of_Snd_driver_guess is incorrect (if you changed it), and because I may have missed a small amount of internal padding somewhere
 		ifdef __DEBUG__
-			message "Debug ROM size is $\{*} bytes (\{*/1024.0} kb). About $\{paddingSoFar} bytes are padding. "
-		else 
-			message "Release ROM size is $\{*} bytes (\{*/1024.0} kb). About $\{paddingSoFar} bytes are padding. "
+			message "Debug ROM size is $\{EndOfRom-StartOfRom} bytes (\{(EndOfRom-StartOfRom)/1024.0} KiB). About $\{paddingSoFar} bytes are padding. "
+		else
+			message "Release ROM size is $\{EndOfRom-StartOfRom} bytes (\{(EndOfRom-StartOfRom)/1024.0} KiB). About $\{paddingSoFar} bytes are padding. "
 		endif
 	endif
 	; share these symbols externally (WARNING: don't rename, move or remove these labels!)
-	shared word_728C_user,Obj5F_MapUnc_7240,off_3A294,MapRUnc_Sonic,movewZ80CompSize
-EndOfRom:
+	shared movewZ80CompSize
 	END
